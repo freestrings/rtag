@@ -6,6 +6,9 @@ use std::process::Command;
 use std::path::Path;
 use git2::Repository;
 
+//
+// - openssl 먼저 설치 되어있어야 한다. (https://github.com/sfackler/rust-openssl)
+//
 fn main() {
     let url = "https://github.com/larsbs/id3v2lib.git";
 
@@ -24,7 +27,6 @@ fn main() {
 
     match fs::create_dir_all(id3v2_build_path.to_str().unwrap()) {
         Ok(()) => {
-
             let status = Command::new("cmake")
                 .current_dir(id3v2_build_path.to_str().unwrap())
                 .arg("..")

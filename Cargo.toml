@@ -2,11 +2,9 @@
 name = "rtag"
 version = "0.1.0"
 authors = ["freestrings@wemakeprice.com"]
-links = "id3v2"
-build = "build.rs"
 
 [dependencies]
-libc = "0.2.0"
+log = "0.3"
 
-[build-dependencies]
-git2 = { git = "https://github.com/alexcrichton/git2-rs.git" }
+[dev-dependencies]
+env_logger = "0.3"

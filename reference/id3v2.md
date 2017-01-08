@@ -1,3 +1,24 @@
+# ID3v2 Overview
+2.4
+```
++-----------------------------+
+|      Header (10 bytes)      |
++-----------------------------+
+|       Extended Header       |
+| (variable length, OPTIONAL) |
++-----------------------------+
+|   Frames (variable length)  |
++-----------------------------+
+|           Padding           |
+| (variable length, OPTIONAL) |
++-----------------------------+
+| Footer (10 bytes, OPTIONAL) |
++-----------------------------+
+```
+
+## Id3v2 2.4 footer
+- 푸터는 헤더의 카피. 식별자만 "3DI"
+
 # ID3v2 Header
 - 파일 제일 처음에 위치
 - 10 bytes
@@ -39,8 +60,8 @@
 8~9: 플래그 (abc0 000 ijk0 0000)
     8: 상태 메시지
         a: 태그 변경 보존: axxx xxxx (0: 프레임 보존, 1: 프레임 버림)
-        b: File alter preservation: xbxx xxxx (0: preservation, 1: discarded)
-        c: Read only: xxcx xxxx
+        b: 파일 변경 보존: xbxx xxxx (0: 파일 보존, 1: 파일 버림)
+        c: 읽기 전용: xxcx xxxx
     9: 인코딩
         i: 프레임 압축여부: xxxx ixxx 
             0: 압축안됨 
@@ -50,9 +71,38 @@
             1: 암호화됨
         k: 그룹 식별자 정보 포함 여부: xxx xxkx
             0: 그룹정보 포함하지 않음 
-            1: 그룹정보 포함함. 
-               그룹 식별자 바이트가 프레임 헤더에 추가됨. 
-               동일한 그룹 식별자를 가진 모든 프레임은 동일한 그룹.
+            1: 그룹정보 포함함
+               그룹 식별자 바이트가 프레임 헤더에 추가됨 
+               동일한 그룹 식별자를 가진 모든 프레임은 동일한 그룹
+```
+
+2.4
+```
+8~9: 플래그 (0abc0000 0h00kmnp)
+    8: 상태 메시지
+        a: 태그 변경 보존: xaxx xxxx (0: 프레임 보존, 1: 프레임 버림)
+        b: 파일 변경 보존: xxbx xxxx (0: 파일 보존, 1: 파일 버림)
+        c: 읽기 전용: xxxc xxxx
+    9: 인코딩
+        h: 그룹 식별자 정보 포함 여부 xhxxx xxx
+            0: 그룹정보 포함하지 않음 
+            1: 그룹정보 포함함
+        k: 프레임 압축여부: xxxx kxxx
+            0: 압축 안됨
+            1: zlib로 압축됨. `Data Length Indicator` 비트가 잘 입력 되어야 함
+        m: 프레임 암호화 여부: xxxx xmxx
+            0: 프레임 암호화 안됨
+            1: 프레임 암호화 됨
+                "ENCR" 프레임에 관련 정보가 있음
+                압축작업 뒤에 암호화 되어야 함
+                알고리즘에 따라 `Data Length Indicator`가 있어야 함
+        n: 프레임에 Unsynchronisation 적용 여부
+            0: Unsynchronised 프레임
+            1: Synchronised 프레임
+        p: Data Length Indicator: xxxx xxxp
+            0: 데이터 길이 지시자가 없음
+            1: 데이터 길이 지시자 있음
+                프레임 끝에 데이터 길이 지시자가 추가 되어있다
 ```
 
 - 프레임 순서는 없음
@@ -84,6 +134,15 @@
     0xFEFF0000
 ```
 
+# 2.4 태그 위치
+- 기본 태그 위치는 오디오 파일 맨 앞에 위치한다  
+- 뒤쪽에 위치할 수 도 있다
+- 앞쪽 뒤쪽 혼합도 가능하다
+```
+    앞쪽에 중요한 정보를 담은 첫번째 태그를 둔다 => `SEEK frame`
+    두번째 태그는 파일 뒤에 붙인다
+```
+
 # Declared ID3v2 frames
 ...
 
@@ -109,3 +168,4 @@
 
 
 http://id3.org/id3v2.3.0
+http://id3.org/id3v2.4.0

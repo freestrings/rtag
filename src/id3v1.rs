@@ -74,7 +74,7 @@ impl ID3v1 {
             match offset.read_from_bytes(bytes) {
                 Some(ref read) => trans(read),
                 None => {
-                    debug!("read offset fail: {}", offset.name_of());
+                    debug!("ID3v1.read offset fail: {}", offset.name_of());
                     String::default()
                 }
             }
@@ -82,22 +82,22 @@ impl ID3v1 {
 
         fn read_safe(offset: Offset, bytes: &vec::Vec<u8>) -> String {
             read(&offset, bytes, &|b| {
-                trace!("{}: {:?}", offset.name_of(), b);
+                trace!("ID3v1.read_safe#read=> {}: {:?}", offset.name_of(), b);
                 let cloned = trim_non_ascii(b);
                 let value = String::from_utf8_lossy(&cloned).into_owned();
-                debug!("{}: {}", offset.name_of(), value);
+                debug!("ID3v1.read_safe#read=> {}: {}", offset.name_of(), value);
                 value
             })
         }
 
         fn trim_non_ascii(bytes: &vec::Vec<u8>) -> vec::Vec<u8> {
-            debug!("origin bytes: {:?}, len: {}", bytes, bytes.len());
+            debug!("ID3v1.trim_non_ascii=> origin bytes: {:?}, len: {}", bytes, bytes.len());
             let mut idx = 0;
             for v in bytes.iter().rev() {
                 if v > &32 { break; }
                 idx = idx + 1;
             }
-            debug!("found ascii index: {}", bytes.len() - idx);
+            debug!("ID3v1.trim_non_ascii=> found ascii index: {}", bytes.len() - idx);
 
             let mut clone = bytes.clone();
             clone.split_off(bytes.len() - idx);
@@ -118,14 +118,14 @@ impl ID3v1 {
                     if !has_track_marker(&bytes) {
                         String::new()
                     } else {
-                        trace!("{}: {:?}", &TRACK_OFFSET.name_of(), b);
+                        trace!("ID3v1.new#track=> {}: {:?}", &TRACK_OFFSET.name_of(), b);
                         b[0].to_string()
                     }
                 }),
                 genre: read(&GENRE_OFFSET, &bytes, &|b| {
                     // TODO mapping
                     // https://de.wikipedia.org/wiki/Liste_der_ID3v1-Genres
-                    trace!("{}: {:?}", GENRE_OFFSET.name_of(), b);
+                    trace!("ID3v1.new#genre=> {}: {:?}", GENRE_OFFSET.name_of(), b);
                     (b[0] & 0xFF).to_string()
                 }),
                 comment: {

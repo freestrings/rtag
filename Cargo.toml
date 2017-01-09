@@ -7,3 +7,4 @@ authors = ["freestrings@wemakeprice.com"]
 log = "0.3"
 env_logger = "0.3"
 regex = "0.2"
+encoding = "0.2"

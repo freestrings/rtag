@@ -52,4 +52,8 @@ impl Scanner {
         trace!("Scanner.has_next=> len:{}, offset:{}", self.len, self.offset);
         self.len > self.offset as u64
     }
+
+    pub fn get_len(&mut self) -> u64 {
+        self.len
+    }
 }

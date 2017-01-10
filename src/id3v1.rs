@@ -1,64 +1,19 @@
-use std::{fs, vec, cmp, io};
-use std::io::{Read};
+use scanner;
+use std::{io, vec};
 
-/// 0: index
-/// 1: length
-struct Offset(usize, usize, &'static str);
-
-trait NameOf {
-    fn name_of(&self) -> String;
-}
-
-trait ReadFromFile {
-    fn read_from_file(&self, buf: &mut fs::File) -> Option<vec::Vec<u8>>;
-}
-
-trait ReadFromBytes {
-    fn read_from_bytes(&self, bytes: &vec::Vec<u8>) -> Option<vec::Vec<u8>>;
-}
-
-impl NameOf for Offset {
-    fn name_of(&self) -> String {
-        self.2.to_string()
-    }
-}
-
-impl ReadFromFile for Offset {
-    fn read_from_file(&self, file: &mut fs::File) -> Option<vec::Vec<u8>> {
-        let mut buf = vec![0u8; self.1];
-        if file.read(buf.as_mut_slice()).is_ok() {
-            Some(buf)
-        } else {
-            None
-        }
-    }
-}
-
-impl ReadFromBytes for Offset {
-    fn read_from_bytes(&self, bytes: &vec::Vec<u8>) -> Option<vec::Vec<u8>> {
-        let mut buf = vec![0u8; self.1];
-        let len = cmp::min(self.1, bytes.len());
-        for i in self.0..(len + self.0) {
-            buf[i - self.0] = bytes[i];
-        }
-        Some(buf)
-    }
-}
-
-const TITLE_OFFSET: Offset = Offset(3, 30, "title");
-const ARTIST_OFFSET: Offset = Offset(33, 30, "artist");
-const ALBUM_OFFSET: Offset = Offset(63, 30, "album");
-const YEAR_OFFSET: Offset = Offset(93, 4, "year");
-const COMMENT1_OFFSET: Offset = Offset(97, 30, "comment1");
-const COMMENT2_OFFSET: Offset = Offset(97, 28, "comment2");
-const TRACK_MARKER_OFFSET: Offset = Offset(125, 1, "track_marker");
-const TRACK_OFFSET: Offset = Offset(126, 1, "track");
-const GENRE_OFFSET: Offset = Offset(127, 1, "genre");
-
-const ID3V1_TAG_LENGTH: usize = 128;
+const TITLE_LEN: usize = 30;
+const ARTIST_LEN: usize = 30;
+const ALBUM_LEN: usize = 30;
+const YEAR_LEN: usize = 4;
+const COMMENT1_LEN: usize = 30;
+const COMMENT2_LEN: usize = 28;
+const TRACK_MARKER_LEN: usize = 1;
+const TRACK_LEN: usize = 1;
+const GENRE_LEN: usize = 1;
+const ID3V1_TAG_LENGTH: u8 = 128;
 const TAG: &'static str = "TAG";
 
-pub struct ID3v1 {
+pub struct ID3v1Tag {
     title: String,
     artist: String,
     album: String,
@@ -68,77 +23,66 @@ pub struct ID3v1 {
     genre: String
 }
 
-impl ID3v1 {
-    pub fn new(file_path: &str) -> Option<ID3v1> {
-        fn read<'a, F>(offset: &Offset, bytes: &vec::Vec<u8>, trans: &F) -> String where F: Fn(&vec::Vec<u8>) -> String {
-            match offset.read_from_bytes(bytes) {
-                Some(ref read) => trans(read),
-                None => {
-                    debug!("ID3v1.read offset fail: {}", offset.name_of());
-                    String::default()
-                }
+impl ID3v1Tag {
+    fn trim_non_ascii(bytes: &vec::Vec<u8>) -> vec::Vec<u8> {
+        let mut idx = 0;
+        for v in bytes.iter().rev() {
+            if v > &32 { break; }
+            idx = idx + 1;
+        }
+        let mut clone = bytes.clone();
+        clone.split_off(bytes.len() - idx);
+        clone
+    }
+
+    fn trimed_string(bytes: &vec::Vec<u8>) -> String {
+        let cloned = Self::trim_non_ascii(bytes);
+        let value = String::from_utf8_lossy(&cloned).into_owned();
+        value
+    }
+
+    pub fn new(scanner: &mut scanner::Scanner) -> io::Result<Self> {
+        if scanner.get_len() < ID3V1_TAG_LENGTH as u64 {
+            return Err(io::Error::new(io::ErrorKind::Other, "Not found `ID3v1` tag"));
+        }
+
+        let v1_offset = scanner.get_len() - ID3V1_TAG_LENGTH as u64;
+        scanner.skip(v1_offset);
+
+        if let Ok(str) = scanner.read_as_string(TAG.len()) {
+            if str != TAG {
+                return Err(io::Error::new(io::ErrorKind::Other, "Invalid `ID3v1` tag"));
             }
         }
 
-        fn read_safe(offset: Offset, bytes: &vec::Vec<u8>) -> String {
-            read(&offset, bytes, &|b| {
-                trace!("ID3v1.read_safe#read=> {}: {:?}", offset.name_of(), b);
-                let cloned = trim_non_ascii(b);
-                let value = String::from_utf8_lossy(&cloned).into_owned();
-                debug!("ID3v1.read_safe#read=> {}: {}", offset.name_of(), value);
-                value
-            })
+        let title = Self::trimed_string(&try!(scanner.read_as_bytes(TITLE_LEN)));
+        let artist = Self::trimed_string(&try!(scanner.read_as_bytes(ARTIST_LEN)));
+        let album = Self::trimed_string(&try!(scanner.read_as_bytes(ALBUM_LEN)));
+        let year = Self::trimed_string(&try!(scanner.read_as_bytes(YEAR_LEN)));
+        let comment1 = try!(scanner.read_as_bytes(COMMENT1_LEN));
+        scanner.rewind(30);
+        let comment2 = try!(scanner.read_as_bytes(COMMENT2_LEN));
+        let track_marker = try!(scanner.read_as_string(TRACK_MARKER_LEN));
+        let mut track = String::new();
+        if track_marker != "0" {
+            track = (try!(scanner.read_as_bytes(TRACK_LEN))[0] & 0xff).to_string();
         }
+        let genre = (try!(scanner.read_as_bytes(GENRE_LEN))[0] & 0xff).to_string();
+        let comment = if track_marker == "0" {
+            Self::trimed_string(&comment1)
+        } else {
+            Self::trimed_string(&comment2)
+        };
 
-        fn trim_non_ascii(bytes: &vec::Vec<u8>) -> vec::Vec<u8> {
-            debug!("ID3v1.trim_non_ascii=> origin bytes: {:?}, len: {}", bytes, bytes.len());
-            let mut idx = 0;
-            for v in bytes.iter().rev() {
-                if v > &32 { break; }
-                idx = idx + 1;
-            }
-            debug!("ID3v1.trim_non_ascii=> found ascii index: {}", bytes.len() - idx);
-
-            let mut clone = bytes.clone();
-            clone.split_off(bytes.len() - idx);
-            clone
-        }
-
-        fn has_track_marker(bytes: &vec::Vec<u8>) -> bool {
-            read_safe(TRACK_MARKER_OFFSET, &bytes) != "0".to_string()
-        }
-
-        if let Ok(bytes) = Self::validation(file_path) {
-            return Some(ID3v1 {
-                title: read_safe(TITLE_OFFSET, &bytes),
-                artist: read_safe(ARTIST_OFFSET, &bytes),
-                album: read_safe(ALBUM_OFFSET, &bytes),
-                year: read_safe(YEAR_OFFSET, &bytes),
-                track: read(&TRACK_OFFSET, &bytes, &|b| {
-                    if !has_track_marker(&bytes) {
-                        String::new()
-                    } else {
-                        trace!("ID3v1.new#track=> {}: {:?}", &TRACK_OFFSET.name_of(), b);
-                        b[0].to_string()
-                    }
-                }),
-                genre: read(&GENRE_OFFSET, &bytes, &|b| {
-                    // TODO mapping
-                    // https://de.wikipedia.org/wiki/Liste_der_ID3v1-Genres
-                    trace!("ID3v1.new#genre=> {}: {:?}", GENRE_OFFSET.name_of(), b);
-                    (b[0] & 0xFF).to_string()
-                }),
-                comment: {
-                    if has_track_marker(&bytes) {
-                        read_safe(COMMENT1_OFFSET, &bytes)
-                    } else {
-                        read_safe(COMMENT2_OFFSET, &bytes)
-                    }
-                }
-            });
-        }
-
-        None
+        Ok(ID3v1Tag {
+            title: title,
+            artist: artist,
+            album: album,
+            year: year,
+            comment: comment,
+            track: track,
+            genre: genre
+        })
     }
 
     pub fn title(&self) -> &str {
@@ -170,99 +114,39 @@ impl ID3v1 {
     }
 }
 
-type VaidationResult = io::Result<vec::Vec<u8>>;
-
-trait ID3v1Tag {
-    fn validation(file_path: &str) -> VaidationResult;
-}
-
-impl ID3v1Tag for ID3v1 {
-    fn validation(file_path: &str) -> VaidationResult {
-        let file_meta = try!(fs::metadata(file_path));
-
-        if (ID3V1_TAG_LENGTH as u64) > file_meta.len() {
-            return Err(io::Error::new(io::ErrorKind::Other, "Not found `ID3v1`"))
-        }
-
-        let mut file = try!(fs::File::open(file_path));
-
-        let file_len = file_meta.len() as usize;
-        let offset = file_len - ID3V1_TAG_LENGTH;
-
-        if let Some(total_bytes) = Offset(0, file_len, "total").read_from_file(&mut file) {
-            let tag_offset = Offset(offset, TAG.len(), "tag");
-
-            let is_valid = match tag_offset.read_from_bytes(&total_bytes) {
-                Some(tag_bytes) => String::from_utf8(tag_bytes).unwrap() == TAG,
-                None => false
-            };
-
-            if is_valid == true {
-                let id3v1_offset = Offset(offset, ID3V1_TAG_LENGTH, "id3v1");
-                if let Some(bytes) = id3v1_offset.read_from_bytes(&total_bytes) {
-                    return Ok(bytes);
-                }
-            }
-        }
-
-        Err(io::Error::new(io::ErrorKind::Other, "Invalid `ID3v1`"))
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    extern crate env_logger;
-
-    use std::fs;
-    use std::io::{Read, SeekFrom, Seek};
-    use super::ID3v1Tag;
+    use scanner;
 
     #[test]
-    fn test_validation1() {
-        let _ = env_logger::init();
-
-        let file_path = "./resources/ID3v1-ID3v2.mp3";
-        let mut assert = false;
-        if let Ok(bytes) = super::ID3v1::validation(file_path) {
-            if let Ok(ref mut file) = fs::File::open(file_path) {
-                let mut tag_buf = vec![0u8; super::ID3V1_TAG_LENGTH];
-                if file.seek(SeekFrom::Start(575102 - super::ID3V1_TAG_LENGTH as u64)).is_ok() {
-                    if let Ok(read) = file.read(tag_buf.as_mut_slice()) {
-                        assert = read == super::ID3V1_TAG_LENGTH;
-                        assert = assert && bytes == tag_buf;
-                    }
+    fn id3v1_test1() {
+        match scanner::Scanner::new("./resources/empty-meta.mp3") {
+            Ok(mut scanner) => {
+                match super::ID3v1Tag::new(&mut scanner) {
+                    Ok(_) => assert!(false),
+                    Err(_) => assert!(true)
                 }
-            }
-        }
-
-        assert!(assert);
-    }
-
-    #[test]
-    fn test_validation2() {
-        let _ = env_logger::init();
-
-        let file_path = "./resources/empty-meta.mp3";
-        match super::ID3v1::validation(file_path) {
-            Ok(_) => assert!(false),
-            Err(_) => assert!(true)
-        }
-    }
-
-    #[test]
-    fn test_tags() {
-        let _ = env_logger::init();
-
-        let file_path = "./resources/ID3v1-ID3v2.mp3";
-        match super::ID3v1::new(file_path) {
-            Some(id3v1) => {
-                assert_eq!(id3v1.artist(), "Artist");
-                assert_eq!(id3v1.album(), "");
-                assert_eq!(id3v1.comment(), "!@#$");
-                assert_eq!(id3v1.track(), "1");
-                assert_eq!(id3v1.genre(), "137");
             },
-            None => assert!(false)
+            Err(_) => assert!(false)
+        }
+    }
+
+    #[test]
+    fn id3v1_test2() {
+        match scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
+            Ok(mut scanner) => {
+                match super::ID3v1Tag::new(&mut scanner) {
+                    Ok(id3v1) => {
+                        assert_eq!(id3v1.artist(), "Artist");
+                        assert_eq!(id3v1.album(), "");
+                        assert_eq!(id3v1.comment(), "!@#$");
+                        assert_eq!(id3v1.track(), "1");
+                        assert_eq!(id3v1.genre(), "137");
+                    },
+                    Err(_) => assert!(true)
+                }
+            },
+            Err(_) => assert!(false)
         }
     }
 }

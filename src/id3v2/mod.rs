@@ -57,9 +57,9 @@ mod tests {
                     let header = super::tag::header::Header::new(bytes);
                     assert_eq!(header.get_version(), 3);
                     assert_eq!(header.get_minor_version(), 0);
-                    assert_eq!(header.has_unsynchronisation(), false);
-                    assert_eq!(header.has_extended(), false);
-                    assert_eq!(header.has_experimental(), false);
+                    assert_eq!(header.has_flag(super::tag::header::HeaderFlag::Unsynchronisation), false);
+                    assert_eq!(header.has_flag(super::tag::header::HeaderFlag::ExtendedHeader), false);
+                    assert_eq!(header.has_flag(super::tag::header::HeaderFlag::ExperimentalIndicator), false);
                     assert_eq!(header.get_size(), 1182);
                 }
             },

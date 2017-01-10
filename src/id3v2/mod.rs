@@ -1,27 +1,12 @@
+mod bytes;
 mod reader;
 mod scanner;
 mod tag;
 
-fn to_u32(bytes: &[u8]) -> u32 {
-    let mut v: u32 = (bytes[3] & 0xff) as u32;
-    v = v | ((bytes[2] & 0xff) as u32) << 8;
-    v = v | ((bytes[1] & 0xff) as u32) << 16;
-    v = v | ((bytes[0] & 0xff) as u32) << 24;
-    v
-}
-
-// Sizes are 4bytes long big-endian but first bit is 0
-fn to_synchsafe(bytes: &[u8]) -> u32 {
-    let mut v: u32 = (bytes[3] & 0x7f) as u32;
-    v = v | ((bytes[2] & 0x7f) as u32) << 7;
-    v = v | ((bytes[1] & 0x7f) as u32) << 14;
-    v = v | ((bytes[0] & 0x7f) as u32) << 21;
-    v
-}
-
 #[cfg(test)]
 mod tests {
     extern crate env_logger;
+    use super::reader::FrameIterator;
 
     #[test]
     fn scanner() {
@@ -73,7 +58,7 @@ mod tests {
 
         match super::scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
             Ok(mut scanner) => {
-                if let Ok(mut frame_reader) = super::reader::Reader::new(&mut scanner) {
+                if let Ok(mut frame_reader) = super::reader::FrameReader::new(&mut scanner) {
                     let mut v = vec!["TIT2", "TPE1", "TALB", "TPE2", "TCON", "COMM", "TRCK", "TPOS"];
                     v.reverse();
                     loop {
@@ -97,12 +82,12 @@ mod tests {
 
         match super::scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
             Ok(mut scanner) => {
-                if let Ok(mut reader) = super::reader::Reader::new(&mut scanner) {
+                if let Ok(mut frame_reader) = super::reader::FrameReader::new(&mut scanner) {
                     let mut v = vec!["타이틀", "Artist", "アルバム", "Album Artist", "Heavy Metal", "eng\u{0}!@#$", "1", "0"];
                     v.reverse();
                     loop {
-                        if reader.has_next_frame() {
-                            if let Ok(frame) = reader.next_frame() {
+                        if frame_reader.has_next_frame() {
+                            if let Ok(frame) = frame_reader.next_frame() {
                                 debug!("{}: {:?}", frame.get_id(), frame.get_data());
                                 assert_eq!(v.pop().unwrap(), frame.get_data().unwrap())
                             }

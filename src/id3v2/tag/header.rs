@@ -2,7 +2,7 @@ use id3v2;
 use std::vec;
 
 //
-// see ./resources/id3v2.md#ID3v2 Header
+// see references/id3v2.md#ID3v2 Header
 const VERSION_OFFSET: usize = 3;
 const MINOR_VERSION_OFFSET: usize = 4;
 const HEAD_FLAG_OFFSET: usize = 5;
@@ -21,13 +21,9 @@ pub struct Header {
     size: u32
 }
 
-pub struct ExtendedHeader {
-    size: u32,
-}
-
 impl Header {
     fn head_size(bytes: &vec::Vec<u8>) -> u32 {
-        id3v2::to_synchsafe(&bytes[6..10])
+        id3v2::bytes::to_synchsafe(&bytes[6..10])
     }
 
     fn is_valid_id(bytes: &vec::Vec<u8>) -> bool {
@@ -85,5 +81,18 @@ impl Header {
 
     pub fn get_size(&self) -> u32 {
         self.size
+    }
+}
+
+// TODO
+pub struct ExtendedHeader {
+    size: u32
+}
+
+impl ExtendedHeader {
+    pub fn new(size: u32, bytes: &vec::Vec<u8>) -> Self {
+        ExtendedHeader {
+            size: size
+        }
     }
 }

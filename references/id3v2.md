@@ -42,7 +42,7 @@
 
 
 # ID3v2 extended header
-...
+TODO
 
 # ID3v2 frame
 - 태그는 헤더와 바디로 구성
@@ -144,7 +144,7 @@
 ```
 
 # Declared ID3v2 frames
-...
+TODO
 
 ## Text information frames
 - 텍스트 정보 프레임은 Artist, Album과 같은 정보를 포함하고 있다 

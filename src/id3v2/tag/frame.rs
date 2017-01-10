@@ -6,7 +6,7 @@ use self::encoding::{Encoding, DecoderTrap};
 use std::{vec, io, result};
 
 //
-// see ./reference/id3v2.md#프레임헤더
+// references/id3v2.md#프레임헤더
 const ID_REGEX: &'static str = r"^[A-Z][A-Z0-9]{3}$";
 const HEAD_LEN: usize = 10;
 const FRAME_ID_LEN: usize = 4;
@@ -47,7 +47,23 @@ impl Frame {
     }
 
     fn frame_size(bytes: &vec::Vec<u8>) -> u32 {
-        id3v2::to_u32(&bytes[4..8])
+        id3v2::bytes::to_u32(&bytes[4..8])
+    }
+
+    pub fn has_next_frame(scanner: &mut id3v2::scanner::Scanner, header: &id3v2::tag::header::Header) -> bool {
+        match scanner.read_as_string(FRAME_ID_LEN) {
+            Ok(id) => {
+                scanner.rewind(FRAME_ID_LEN as u64);
+                let re = regex::Regex::new(ID_REGEX).unwrap();
+                let matched = re.is_match(&id);
+                debug!("Frame.has_next_frame=> Frame Id:{}, matched: {}", id, matched);
+                matched
+            },
+            Err(_) => {
+                debug!("Frame.has_next_frame=> Fail");
+                false
+            }
+        }
     }
 
     pub fn new(scanner: &mut id3v2::scanner::Scanner) -> io::Result<Frame> {
@@ -68,22 +84,6 @@ impl Frame {
             status_flag: header_bytes[STATUS_FLAG_OFFSET],
             encoding_flag: header_bytes[ENCODING_FLAG_OFFSET]
         })
-    }
-
-    pub fn has_next_frame(scanner: &mut id3v2::scanner::Scanner) -> bool {
-        match scanner.read_as_string(FRAME_ID_LEN) {
-            Ok(id) => {
-                scanner.rewind(FRAME_ID_LEN as u64);
-                let re = regex::Regex::new(ID_REGEX).unwrap();
-                let matched = re.is_match(&id);
-                debug!("Frame.has_next_frame=> Frame Id:{}, matched: {}", id, matched);
-                matched
-            },
-            Err(_) => {
-                debug!("Frame.has_next_frame=> Fail");
-                false
-            }
-        }
     }
 
     pub fn get_id(&self) -> &String {

@@ -1,3 +1,25 @@
+//MIT License
+//
+//Copyright (c) [2017] [Mark Han]
+//
+//Permission is hereby granted, free of charge, to any person obtaining a copy
+//of this software and associated documentation files (the "Software"), to deal
+//in the Software without restriction, including without limitation the rights
+//to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//copies of the Software, and to permit persons to whom the Software is
+//furnished to do so, subject to the following conditions:
+//
+//The above copyright notice and this permission notice shall be included in all
+//copies or substantial portions of the Software.
+//
+//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+//SOFTWARE.
+
 mod bytes;
 mod reader;
 mod tag;
@@ -77,7 +99,7 @@ mod tests {
     fn idv3_230_frame_id() {
         let _ = env_logger::init();
 
-        match scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
+        match scanner::Scanner::new("./resources/id3v1-id3v2.mp3") {
             Ok(mut scanner) => {
                 if let Ok(mut frame_reader) = super::reader::FrameReader::new(&mut scanner) {
                     let mut v = vec!["TIT2", "TPE1", "TALB", "TPE2", "TCON", "COMM", "TRCK", "TPOS"];
@@ -149,7 +171,7 @@ mod tests {
     fn idv3_230_frame_data() {
         let _ = env_logger::init();
 
-        match scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
+        match scanner::Scanner::new("./resources/id3v1-id3v2.mp3") {
             Ok(mut scanner) => {
                 if let Ok(mut frame_reader) = super::reader::FrameReader::new(&mut scanner) {
                     let mut v = vec!["타이틀", "Artist", "アルバム", "Album Artist", "Heavy Metal", "eng\u{0}!@#$", "1", "0"];

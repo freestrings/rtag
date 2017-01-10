@@ -1,10 +1,16 @@
 [package]
-name = "rtag"
+name = "rust-id3"
 version = "0.1.0"
-authors = ["freestrings@wemakeprice.com"]
+authors = ["Mark Han <freestrings@gmail.com>"]
+description = "A rust id3 read/write library"
+repository = "https://github.com/freestrings/rust-id3"
+license = "MIT"
+keywords = ["library", "id3", "music"]
 
 [dependencies]
 log = "0.3"
-env_logger = "0.3"
 regex = "0.2"
 encoding = "0.2"
+
+[dev-dependencies]
+env_logger = "0.3"

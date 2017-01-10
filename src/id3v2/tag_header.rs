@@ -1,5 +1,5 @@
+use id3v2;
 use std::vec;
-use id3v2::to_synchsafe;
 
 pub struct TagHeader {
     version: u8,
@@ -20,7 +20,7 @@ impl TagHeader {
         let version = bytes[3] as u8;
         let minor_version = bytes[4] as u8;
         let header_flag = bytes[5] as u8;
-        let size = to_synchsafe(&bytes[6..10]);
+        let size = id3v2::to_synchsafe(&bytes[6..10]);
 
         TagHeader {
             version: version, minor_version: minor_version, header_flag: header_flag, size: size

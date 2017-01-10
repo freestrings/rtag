@@ -1,10 +1,8 @@
 extern crate encoding;
 
-use std::{vec, io, result};
-use id3v2::to_u32;
-use id3v2::scanner::Scanner;
+use id3v2;
 use self::encoding::{Encoding, DecoderTrap};
-use self::encoding::all::{ISO_8859_1, UTF_16LE, UTF_16BE, UTF_8};
+use std::{vec, io, result};
 
 pub struct Frame {
     id: String,
@@ -15,9 +13,9 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn new(scanner: &mut Scanner) -> io::Result<Frame> {
+    pub fn new(scanner: &mut id3v2::scanner::Scanner) -> io::Result<Frame> {
         let frame_header_bytes = try!(scanner.read_as_bytes(10));
-        let frame_size = to_u32(&frame_header_bytes[4..8]);
+        let frame_size = id3v2::to_u32(&frame_header_bytes[4..8]);
         trace!("Frame.new=> size: {}", frame_size);
 
         if frame_size == 0 {
@@ -72,24 +70,24 @@ impl Frame {
         let data = self.data.clone().split_off(1);
 
         if self.data[0] == 0 {
-            if let Ok(decoded) = ISO_8859_1.decode(&data, DecoderTrap::Strict) {
+            if let Ok(decoded) = encoding::all::ISO_8859_1.decode(&data, encoding::DecoderTrap::Strict) {
                 return Ok(decoded);
             }
         } else if self.data[0] == 1 {
-            if let Ok(decoded) = UTF_16LE.decode(&data, DecoderTrap::Strict) {
+            if let Ok(decoded) = encoding::all::UTF_16LE.decode(&data, encoding::DecoderTrap::Strict) {
                 return Ok(decoded);
             }
         } else if self.data[0] == 2 {
-            if let Ok(decoded) = UTF_16BE.decode(&data, DecoderTrap::Strict) {
+            if let Ok(decoded) = encoding::all::UTF_16BE.decode(&data, encoding::DecoderTrap::Strict) {
                 return Ok(decoded);
             }
         } else if self.data[0] == 3 {
-            if let Ok(decoded) = UTF_8.decode(&data, DecoderTrap::Strict) {
+            if let Ok(decoded) = encoding::all::UTF_8.decode(&data, encoding::DecoderTrap::Strict) {
                 return Ok(decoded);
             }
         }
 
-        match ISO_8859_1.decode(&data, DecoderTrap::Strict) {
+        match encoding::all::ISO_8859_1.decode(&data, encoding::DecoderTrap::Strict) {
             Ok(decoded) => Ok(decoded),
             Err(e) => Err(e.to_string())
         }

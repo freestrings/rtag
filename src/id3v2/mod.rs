@@ -1,6 +1,6 @@
-mod scanner;
-mod frame_reader;
 mod frame;
+mod frame_reader;
+mod scanner;
 mod tag_header;
 
 fn to_u32(bytes: &[u8]) -> u32 {

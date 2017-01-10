@@ -1,27 +1,25 @@
 extern crate regex;
 
+use id3v2;
 use std::io;
-use id3v2::frame::Frame;
-use id3v2::scanner::Scanner;
-use id3v2::tag_header::TagHeader;
 
 pub struct FrameReader<'a> {
-    tag_header: TagHeader,
+    tag_header: id3v2::tag_header::TagHeader,
     has_error: bool,
-    scanner: &'a mut Scanner
+    scanner: &'a mut id3v2::scanner::Scanner
 }
 
 impl<'a> FrameReader<'a> {
-    pub fn new(scanner: &'a mut Scanner) -> io::Result<Self> {
+    pub fn new(scanner: &'a mut id3v2::scanner::Scanner) -> io::Result<Self> {
         let bytes = try!(scanner.read_as_bytes(10));
         Ok(FrameReader {
-            tag_header: TagHeader::new(bytes),
+            tag_header: id3v2::tag_header::TagHeader::new(bytes),
             has_error: false,
             scanner: scanner
         })
     }
 
-    pub fn get_header(&mut self) -> &TagHeader {
+    pub fn get_header(&mut self) -> &id3v2::tag_header::TagHeader {
         &self.tag_header
     }
 
@@ -41,7 +39,7 @@ impl<'a> FrameReader<'a> {
         }
     }
 
-    pub fn next_frame(&mut self) -> io::Result<Frame> {
-        Frame::new(self.scanner)
+    pub fn next_frame(&mut self) -> io::Result<id3v2::frame::Frame> {
+        id3v2::frame::Frame::new(self.scanner)
     }
 }

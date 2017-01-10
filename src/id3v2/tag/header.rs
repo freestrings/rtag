@@ -23,22 +23,22 @@ fn is_valid_id(bytes: &vec::Vec<u8>) -> bool {
     is_valid
 }
 
-pub struct TagHeader {
+pub struct Header {
     version: u8,
     minor_version: u8,
     header_flag: u8,
     size: u32
 }
 
-impl TagHeader {
+impl Header {
     pub fn new(bytes: vec::Vec<u8>) -> Self {
         if !is_valid_id(&bytes) {
-            return TagHeader {
+            return Header {
                 version: 0, minor_version: 0, header_flag: 0, size: 0
             };
         }
 
-        TagHeader {
+        Header {
             version: bytes[VERSION_OFFSET] as u8,
             minor_version: bytes[MINOR_VERSION_OFFSET] as u8,
             header_flag: bytes[HEAD_FLAG_OFFSET] as u8,

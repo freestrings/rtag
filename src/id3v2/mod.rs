@@ -1,7 +1,6 @@
-mod frame;
-mod frame_reader;
+mod reader;
 mod scanner;
-mod tag_header;
+mod tag;
 
 fn to_u32(bytes: &[u8]) -> u32 {
     let mut v: u32 = (bytes[3] & 0xff) as u32;
@@ -55,13 +54,13 @@ mod tests {
         match super::scanner::Scanner::new("./resources/230.mp3") {
             Ok(mut scanner) => {
                 if let Ok(bytes) = scanner.read_as_bytes(10) {
-                    let tag_header = super::tag_header::TagHeader::new(bytes);
-                    assert_eq!(tag_header.get_version(), 3);
-                    assert_eq!(tag_header.get_minor_version(), 0);
-                    assert_eq!(tag_header.has_unsynchronisation(), false);
-                    assert_eq!(tag_header.has_extended(), false);
-                    assert_eq!(tag_header.has_experimental(), false);
-                    assert_eq!(tag_header.get_size(), 1182);
+                    let header = super::tag::header::Header::new(bytes);
+                    assert_eq!(header.get_version(), 3);
+                    assert_eq!(header.get_minor_version(), 0);
+                    assert_eq!(header.has_unsynchronisation(), false);
+                    assert_eq!(header.has_extended(), false);
+                    assert_eq!(header.has_experimental(), false);
+                    assert_eq!(header.get_size(), 1182);
                 }
             },
             Err(_) => assert!(false)
@@ -74,7 +73,7 @@ mod tests {
 
         match super::scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
             Ok(mut scanner) => {
-                if let Ok(mut frame_reader) = super::frame_reader::FrameReader::new(&mut scanner) {
+                if let Ok(mut frame_reader) = super::reader::Reader::new(&mut scanner) {
                     let mut v = vec!["TIT2", "TPE1", "TALB", "TPE2", "TCON", "COMM", "TRCK", "TPOS"];
                     v.reverse();
                     loop {
@@ -98,12 +97,12 @@ mod tests {
 
         match super::scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
             Ok(mut scanner) => {
-                if let Ok(mut frame_reader) = super::frame_reader::FrameReader::new(&mut scanner) {
+                if let Ok(mut reader) = super::reader::Reader::new(&mut scanner) {
                     let mut v = vec!["타이틀", "Artist", "アルバム", "Album Artist", "Heavy Metal", "eng\u{0}!@#$", "1", "0"];
                     v.reverse();
                     loop {
-                        if frame_reader.has_next_frame() {
-                            if let Ok(frame) = frame_reader.next_frame() {
+                        if reader.has_next_frame() {
+                            if let Ok(frame) = reader.next_frame() {
                                 debug!("{}: {:?}", frame.get_id(), frame.get_data());
                                 assert_eq!(v.pop().unwrap(), frame.get_data().unwrap())
                             }

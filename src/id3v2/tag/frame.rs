@@ -8,7 +8,7 @@ use std::{vec, io, result};
 //
 // see ./reference/id3v2.md#프레임헤더
 const ID_REGEX: &'static str = r"^[A-Z][A-Z0-9]{3}$";
-const FRAME_HEAD_LEN: usize = 10;
+const HEAD_LEN: usize = 10;
 const FRAME_ID_LEN: usize = 4;
 // flag 2bytes
 const STATUS_FLAG_OFFSET: usize = 8;
@@ -45,10 +45,10 @@ pub struct Frame {
 
 impl Frame {
     pub fn new(scanner: &mut id3v2::scanner::Scanner) -> io::Result<Frame> {
-        let frame_header_bytes = try!(scanner.read_as_bytes(FRAME_HEAD_LEN));
-        let id = frame_id(&frame_header_bytes);
-        let frame_size = frame_size(&frame_header_bytes);
-        let frame_body_bytes = try!(scanner.read_as_bytes(frame_size as usize));
+        let header_bytes = try!(scanner.read_as_bytes(HEAD_LEN));
+        let id = frame_id(&header_bytes);
+        let frame_size = frame_size(&header_bytes);
+        let body_bytes = try!(scanner.read_as_bytes(frame_size as usize));
 
         debug!("Frame.new=> frame size: {}", frame_size);
         if frame_size == 0 { warn!("Frame.new: frame size is 0!"); }
@@ -56,9 +56,9 @@ impl Frame {
         Ok(Frame {
             id: id,
             size: frame_size,
-            data: frame_body_bytes,
-            status_flag: frame_header_bytes[STATUS_FLAG_OFFSET],
-            encoding_flag: frame_header_bytes[ENCODING_FLAG_OFFSET]
+            data: body_bytes,
+            status_flag: header_bytes[STATUS_FLAG_OFFSET],
+            encoding_flag: header_bytes[ENCODING_FLAG_OFFSET]
         })
     }
 
@@ -72,7 +72,7 @@ impl Frame {
                 matched
             },
             Err(_) => {
-                debug!("FrameReader.has_next_frame=> Fail");
+                debug!("Frame.has_next_frame=> Fail");
                 false
             }
         }

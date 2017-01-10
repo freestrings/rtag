@@ -1,5 +1,3 @@
-extern crate regex;
-
 use id3v2;
 use std::io;
 
@@ -24,19 +22,7 @@ impl<'a> FrameReader<'a> {
     }
 
     pub fn has_next_frame(&mut self) -> bool {
-        match self.scanner.read_as_string(4) {
-            Ok(id) => {
-                let re = regex::Regex::new(r"^[A-Z][A-Z0-9]{3}$").unwrap();
-                self.scanner.rewind(4);
-                let matched = re.is_match(&id);
-                debug!("FrameReader.has_next_frame=> FRAME Id {}:{}", id, matched);
-                matched
-            },
-            Err(_) => {
-                debug!("FrameReader.has_next_frame=> Fail");
-                false
-            }
-        }
+        id3v2::frame::Frame::has_next_frame(self.scanner)
     }
 
     pub fn next_frame(&mut self) -> io::Result<id3v2::frame::Frame> {

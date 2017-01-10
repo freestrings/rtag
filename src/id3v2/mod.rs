@@ -1,19 +1,19 @@
 mod bytes;
 mod reader;
-mod scanner;
 mod tag;
 
 #[cfg(test)]
 mod tests {
     extern crate env_logger;
 
+    use scanner;
     use super::reader::FrameIterator;
 
     #[test]
     fn scanner() {
         let _ = env_logger::init();
 
-        match super::scanner::Scanner::new("./resources/file1.txt") {
+        match scanner::Scanner::new("./resources/file1.txt") {
             Ok(mut scanner) => {
                 assert_eq! ( match scanner.read_as_bytes(10) {
                     Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
@@ -37,7 +37,7 @@ mod tests {
     fn idv3_230_header() {
         let _ = env_logger::init();
 
-        match super::scanner::Scanner::new("./resources/230.mp3") {
+        match scanner::Scanner::new("./resources/230.mp3") {
             Ok(mut scanner) => {
                 if let Ok(bytes) = scanner.read_as_bytes(10) {
                     let header = super::tag::header::Header::new(bytes);
@@ -46,7 +46,7 @@ mod tests {
                     assert_eq!(header.has_flag(super::tag::header::HeaderFlag::Unsynchronisation), false);
                     assert_eq!(header.has_flag(super::tag::header::HeaderFlag::ExtendedHeader), false);
                     assert_eq!(header.has_flag(super::tag::header::HeaderFlag::ExperimentalIndicator), false);
-                    assert_eq!(header.get_size(), 1182);
+                    assert_eq!(header.get_size(), 1171);
                 }
             },
             Err(_) => assert!(false)
@@ -57,7 +57,7 @@ mod tests {
     fn idv3_240_header() {
         let _ = env_logger::init();
 
-        match super::scanner::Scanner::new("./resources/240.mp3") {
+        match scanner::Scanner::new("./resources/240.mp3") {
             Ok(mut scanner) => {
                 if let Ok(bytes) = scanner.read_as_bytes(10) {
                     let header = super::tag::header::Header::new(bytes);
@@ -77,7 +77,7 @@ mod tests {
     fn idv3_230_frame_id() {
         let _ = env_logger::init();
 
-        match super::scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
+        match scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
             Ok(mut scanner) => {
                 if let Ok(mut frame_reader) = super::reader::FrameReader::new(&mut scanner) {
                     let mut v = vec!["TIT2", "TPE1", "TALB", "TPE2", "TCON", "COMM", "TRCK", "TPOS"];
@@ -101,7 +101,7 @@ mod tests {
     fn idv3_230_frame_id2() {
         let _ = env_logger::init();
 
-        match super::scanner::Scanner::new("./resources/230.mp3") {
+        match scanner::Scanner::new("./resources/230.mp3") {
             Ok(mut scanner) => {
                 if let Ok(mut frame_reader) = super::reader::FrameReader::new(&mut scanner) {
                     let mut v = vec!["TALB", "TCON", "TIT2", "TLEN", "TPE1", "TRCK", "COMM", "TYER"];
@@ -125,7 +125,7 @@ mod tests {
     fn idv3_240_frame_id() {
         let _ = env_logger::init();
 
-        match super::scanner::Scanner::new("./resources/240.mp3") {
+        match scanner::Scanner::new("./resources/240.mp3") {
             Ok(mut scanner) => {
                 if let Ok(mut frame_reader) = super::reader::FrameReader::new(&mut scanner) {
                     let mut v = vec!["TDRC", "TRCK", "TPOS", "TPE1", "TALB", "TPE2", "TIT2", "TSRC", "TCON", "COMM"];
@@ -149,7 +149,7 @@ mod tests {
     fn idv3_230_frame_data() {
         let _ = env_logger::init();
 
-        match super::scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
+        match scanner::Scanner::new("./resources/ID3v1-ID3v2.mp3") {
             Ok(mut scanner) => {
                 if let Ok(mut frame_reader) = super::reader::FrameReader::new(&mut scanner) {
                     let mut v = vec!["타이틀", "Artist", "アルバム", "Album Artist", "Heavy Metal", "eng\u{0}!@#$", "1", "0"];
@@ -174,7 +174,7 @@ mod tests {
     fn idv3_230_frame_data2() {
         let _ = env_logger::init();
 
-        match super::scanner::Scanner::new("./resources/230.mp3") {
+        match scanner::Scanner::new("./resources/230.mp3") {
             Ok(mut scanner) => {
                 if let Ok(mut frame_reader) = super::reader::FrameReader::new(&mut scanner) {
                     // \u{feff} => 공백
@@ -200,7 +200,7 @@ mod tests {
     fn idv3_240_frame_data() {
         let _ = env_logger::init();
 
-        match super::scanner::Scanner::new("./resources/240.mp3") {
+        match scanner::Scanner::new("./resources/240.mp3") {
             Ok(mut scanner) => {
                 if let Ok(mut frame_reader) = super::reader::FrameReader::new(&mut scanner) {
                     // \u{feff} => 공백

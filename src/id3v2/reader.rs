@@ -1,4 +1,5 @@
 use id3v2;
+use scanner;
 use std::io;
 
 const HEADER_LEN: usize = 10;
@@ -14,7 +15,7 @@ pub struct FrameReader<'a> {
 }
 
 impl<'a> FrameReader<'a> {
-    pub fn new(scanner: &'a mut id3v2::scanner::Scanner) -> io::Result<Self> {
+    pub fn new(scanner: &'a mut scanner::Scanner) -> io::Result<Self> {
         let mut reader = try!(Reader::new(scanner));
         // skip extended header
         reader.get_extended_header();
@@ -37,11 +38,11 @@ impl<'a> FrameIterator for FrameReader<'a> {
 
 pub struct Reader<'a> {
     header: id3v2::tag::header::Header,
-    scanner: &'a mut id3v2::scanner::Scanner
+    scanner: &'a mut scanner::Scanner
 }
 
 impl<'a> Reader<'a> {
-    pub fn new(scanner: &'a mut id3v2::scanner::Scanner) -> io::Result<Self> {
+    pub fn new(scanner: &'a mut scanner::Scanner) -> io::Result<Self> {
         let bytes = try!(scanner.read_as_bytes(HEADER_LEN));
         let header = id3v2::tag::header::Header::new(bytes);
 

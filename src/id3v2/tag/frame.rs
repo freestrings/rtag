@@ -2,6 +2,7 @@ extern crate encoding;
 extern crate regex;
 
 use id3v2;
+use scanner;
 use self::encoding::{Encoding, DecoderTrap};
 use std::{vec, io, result};
 
@@ -50,7 +51,7 @@ impl Frame {
         id3v2::bytes::to_u32(&bytes[4..8])
     }
 
-    pub fn has_next_frame(scanner: &mut id3v2::scanner::Scanner, header: &id3v2::tag::header::Header) -> bool {
+    pub fn has_next_frame(scanner: &mut scanner::Scanner, header: &id3v2::tag::header::Header) -> bool {
         match scanner.read_as_string(FRAME_ID_LEN) {
             Ok(id) => {
                 scanner.rewind(FRAME_ID_LEN as u64);
@@ -66,7 +67,7 @@ impl Frame {
         }
     }
 
-    pub fn new(scanner: &mut id3v2::scanner::Scanner) -> io::Result<Frame> {
+    pub fn new(scanner: &mut scanner::Scanner) -> io::Result<Frame> {
         let header_bytes = try!(scanner.read_as_bytes(HEAD_LEN));
         let id = Self::frame_id(&header_bytes);
         let frame_size = Self::frame_size(&header_bytes);

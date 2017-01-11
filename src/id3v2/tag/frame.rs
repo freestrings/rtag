@@ -26,19 +26,10 @@ extern crate regex;
 use id3v2;
 use readable;
 use self::encoding::{Encoding, DecoderTrap};
-use std::{vec, io, fs, result};
-
-//
-// references/id3v2.md#프레임헤더
-const ID_REGEX: &'static str = r"^[A-Z][A-Z0-9]{3}$";
-const HEAD_LEN: usize = 10;
-const FRAME_ID_LEN: usize = 4;
-// flag offsets
-const STATUS_FLAG_OFFSET: usize = 8;
-const ENCODING_FLAG_OFFSET: usize = 9;
+use std::{vec, io, fs, result, ops, borrow};
+use std::io::Result;
 
 // text encoding
-const TEXT_ENCODING_OFFSET: usize = 0;
 const ISO_8859_1: u8 = 0;
 const UTF_16LE: u8 = 1;
 const UTF_16BE: u8 = 2;
@@ -51,9 +42,10 @@ pub enum FrameHeaderFlag {
     Compression,
     Encryption,
     GroupIdentity,
+    //2.4 only
     Unsynchronisation,
-    //2.4
-    DataLength //2.4
+    //2.4 only
+    DataLength
 }
 
 pub struct Frame {
@@ -65,19 +57,23 @@ pub struct Frame {
 }
 
 impl Frame {
-    fn frame_id(bytes: &vec::Vec<u8>) -> String {
+    fn _frame_id(bytes: &vec::Vec<u8>) -> String {
         String::from_utf8_lossy(&bytes[0..4]).into_owned()
     }
 
-    fn frame_size(bytes: &vec::Vec<u8>) -> u32 {
+    fn _frame_size(bytes: &vec::Vec<u8>) -> u32 {
         id3v2::bytes::to_u32(&bytes[4..8])
     }
 
-    pub fn has_next_frame(readable: &mut readable::Readable<fs::File>, header: &id3v2::tag::header::Header) -> bool {
-        match readable.as_string(FRAME_ID_LEN) {
+    pub fn has_next_frame(readable: &mut readable::Readable<fs::File>,
+                          header: &id3v2::tag::header::Header) -> bool {
+        // read frame id 4 bytes
+        match readable.as_string(4) {
             Ok(id) => {
-                readable.skip(FRAME_ID_LEN as i64 * -1);
-                let re = regex::Regex::new(ID_REGEX).unwrap();
+                // rewind
+                readable.skip(-4);
+                // @see http://id3.org/id3v2.4.0-structure > 4. ID3v2 frame overview
+                let re = regex::Regex::new(r"^[A-Z][A-Z0-9]{3}$").unwrap();
                 let matched = re.is_match(&id);
                 debug!("Frame.has_next_frame=> Frame Id:{}, matched: {}", id, matched);
                 matched
@@ -89,11 +85,12 @@ impl Frame {
         }
     }
 
-    pub fn new(readable: &mut readable::Readable<fs::File>) -> io::Result<Frame> {
-        let header_bytes = try!(readable.as_bytes(HEAD_LEN));
-        let id = Self::frame_id(&header_bytes);
-        let frame_size = Self::frame_size(&header_bytes);
-        let body_bytes = try!(readable.as_bytes(frame_size as usize));
+    pub fn new(readable: &mut readable::Readable<fs::File>) -> Result<Frame> {
+        // head 10 bytes
+        let header_bytes = readable.as_bytes(10)?;
+        let id = Self::_frame_id(&header_bytes);
+        let frame_size = Self::_frame_size(&header_bytes);
+        let body_bytes = readable.as_bytes(frame_size as usize)?;
 
         debug!("Frame.new=> frame size: {}", frame_size);
         if frame_size == 0 {
@@ -104,8 +101,10 @@ impl Frame {
             id: id,
             size: frame_size,
             data: body_bytes,
-            status_flag: header_bytes[STATUS_FLAG_OFFSET],
-            encoding_flag: header_bytes[ENCODING_FLAG_OFFSET]
+            // status_flag offset is 8
+            status_flag: header_bytes[8],
+            // encoding_flag offset is 9
+            encoding_flag: header_bytes[9]
         })
     }
 
@@ -117,6 +116,7 @@ impl Frame {
         self.size
     }
 
+    // @see http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
     pub fn has_flag(&self, flag: FrameHeaderFlag, major_version: u8) -> bool {
         if major_version == 3 {
             match flag {
@@ -145,30 +145,25 @@ impl Frame {
         }
     }
 
+    // @see http://id3.org/id3v2.4.0-structure > 4. ID3v2 frame overview
     pub fn get_data(&self) -> result::Result<String, String> {
-        let data = self.data.clone().split_off(TEXT_ENCODING_OFFSET + 1);
+        let data = self.data.clone().split_off(1);
 
-        if self.data[TEXT_ENCODING_OFFSET] == ISO_8859_1 {
-            if let Ok(decoded) = encoding::all::ISO_8859_1.decode(&data, encoding::DecoderTrap::Strict) {
-                return Ok(decoded);
-            }
-        } else if self.data[TEXT_ENCODING_OFFSET] == UTF_16LE {
-            if let Ok(decoded) = encoding::all::UTF_16LE.decode(&data, encoding::DecoderTrap::Strict) {
-                return Ok(decoded);
-            }
-        } else if self.data[TEXT_ENCODING_OFFSET] == UTF_16BE {
-            if let Ok(decoded) = encoding::all::UTF_16BE.decode(&data, encoding::DecoderTrap::Strict) {
-                return Ok(decoded);
-            }
-        } else if self.data[TEXT_ENCODING_OFFSET] == UTF_8 {
-            if let Ok(decoded) = encoding::all::UTF_8.decode(&data, encoding::DecoderTrap::Strict) {
-                return Ok(decoded);
-            }
-        }
+        Ok(match self.data[0] {
+            ISO_8859_1 => encoding::all::ISO_8859_1.decode(&data, encoding::DecoderTrap::Strict)
+                .map_err(|err| err.to_string())?,
 
-        match encoding::all::ISO_8859_1.decode(&data, encoding::DecoderTrap::Strict) {
-            Ok(decoded) => Ok(decoded),
-            Err(e) => Err(e.to_string())
-        }
+            UTF_16LE => encoding::all::UTF_16LE.decode(&data, encoding::DecoderTrap::Strict)
+                .map_err(|err| err.to_string())?,
+
+            UTF_16BE => encoding::all::UTF_16BE.decode(&data, encoding::DecoderTrap::Strict)
+                .map_err(|err| err.to_string())?,
+
+            UTF_8 => encoding::all::UTF_8.decode(&data, encoding::DecoderTrap::Strict)
+                .map_err(|err| err.to_string())?,
+
+            _ => encoding::all::ISO_8859_1.decode(&data, encoding::DecoderTrap::Strict)
+                .map_err(|err| err.to_string())?
+        })
     }
 }

@@ -35,7 +35,7 @@ mod tests {
     #[test]
     fn idv3_230_header() {
         let _ = env_logger::init();
-        let mut readable = readable::utility::from_path("./resources/230.mp3").unwrap();
+        let mut readable = readable::factory::from_path("./resources/230.mp3").unwrap();
         let bytes = readable.as_bytes(10).unwrap();
         let header = super::tag::header::Header::new(bytes);
         assert_eq!(header.get_version(), 3);
@@ -50,7 +50,7 @@ mod tests {
     fn idv3_240_header() {
         let _ = env_logger::init();
 
-        let mut readable = readable::utility::from_path("./resources/240.mp3").unwrap();
+        let mut readable = readable::factory::from_path("./resources/240.mp3").unwrap();
         let bytes = readable.as_bytes(10).unwrap();
         let header = super::tag::header::Header::new(bytes);
         assert_eq!(header.get_version(), 4);
@@ -64,7 +64,7 @@ mod tests {
     fn _id_compare(file_path: &'static str, mut ids: vec::Vec<&str>) {
         let _ = env_logger::init();
 
-        let mut readable = readable::utility::from_path(file_path).unwrap();
+        let mut readable = readable::factory::from_path(file_path).unwrap();
         let mut frame_reader = super::reader::FrameReader::new(&mut readable).unwrap();
         ids.reverse();
         loop {
@@ -81,7 +81,7 @@ mod tests {
     fn _data_compare(file_path: &'static str, mut data: vec::Vec<&str>) {
         let _ = env_logger::init();
 
-        let mut readable = readable::utility::from_path(file_path).unwrap();
+        let mut readable = readable::factory::from_path(file_path).unwrap();
         let mut frame_reader = super::reader::FrameReader::new(&mut readable).unwrap();
         data.reverse();
         loop {

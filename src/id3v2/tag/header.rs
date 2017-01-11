@@ -23,17 +23,6 @@
 use id3v2;
 use std::vec;
 
-//
-// see references/id3v2.md#ID3v2 Header
-const VERSION_OFFSET: usize = 3;
-const MINOR_VERSION_OFFSET: usize = 4;
-const HEAD_FLAG_OFFSET: usize = 5;
-
-const UNSYNCHRONISATION_OFFSET: u8 = 7;
-const EXTENDED_HEADER_OFFSET: u8 = 6;
-const EXPERIMENTAL_INDICATOR_OFFSET: u8 = 5;
-const FOOTER_PRESENT_OFFSET: u8 = 4;
-
 pub enum HeaderFlag {
     Unsynchronisation,
     ExtendedHeader,
@@ -49,31 +38,29 @@ pub struct Header {
 }
 
 impl Header {
-    fn head_size(bytes: &vec::Vec<u8>) -> u32 {
+    fn _head_size(bytes: &vec::Vec<u8>) -> u32 {
         id3v2::bytes::to_synchsafe(&bytes[6..10])
     }
 
-    fn is_valid_id(bytes: &vec::Vec<u8>) -> bool {
-        let is_valid = bytes[0] as char == 'I' && bytes[1] as char == 'D' && bytes[2] as char == '3';
-        if !is_valid {
-            debug!("Invalid IDv2: `{}`", String::from_utf8_lossy(&bytes[0..4]));
-        }
-
-        is_valid
+    fn _is_valid_id(bytes: &vec::Vec<u8>) -> bool {
+        bytes[0] as char == 'I' && bytes[1] as char == 'D' && bytes[2] as char == '3'
     }
 
     pub fn new(bytes: vec::Vec<u8>) -> Self {
-        if !Self::is_valid_id(&bytes) {
+        if !Self::_is_valid_id(&bytes) {
+            debug!("Invalid IDv2: `{}`", String::from_utf8_lossy(&bytes[0..4]));
+
             return Header {
                 version: 0, minor_version: 0, flag: 0, size: 0
             };
         }
 
+        // see http://id3.org/id3v2.4.0-structure > 3.1 ID3v2 Header
         Header {
-            version: bytes[VERSION_OFFSET] as u8,
-            minor_version: bytes[MINOR_VERSION_OFFSET] as u8,
-            flag: bytes[HEAD_FLAG_OFFSET] as u8,
-            size: Self::head_size(&bytes)
+            version: bytes[3] as u8,
+            minor_version: bytes[4] as u8,
+            flag: bytes[5] as u8,
+            size: Self::_head_size(&bytes)
         }
     }
 
@@ -85,20 +72,21 @@ impl Header {
         self.minor_version
     }
 
+    // see references/id3v2.md#ID3v2 Header
     pub fn has_flag(&self, flag: HeaderFlag) -> bool {
         if self.version == 3 {
             match flag {
-                HeaderFlag::Unsynchronisation => self.flag & 0x01 << UNSYNCHRONISATION_OFFSET != 0,
-                HeaderFlag::ExtendedHeader => self.flag & 0x01 << EXTENDED_HEADER_OFFSET != 0,
-                HeaderFlag::ExperimentalIndicator => self.flag & 0x01 << EXPERIMENTAL_INDICATOR_OFFSET != 0,
+                HeaderFlag::Unsynchronisation => self.flag & 0x01 << 7 != 0,
+                HeaderFlag::ExtendedHeader => self.flag & 0x01 << 6 != 0,
+                HeaderFlag::ExperimentalIndicator => self.flag & 0x01 << 5 != 0,
                 _ => false
             }
         } else if self.version == 4 {
             match flag {
-                HeaderFlag::Unsynchronisation => self.flag & 0x01 << UNSYNCHRONISATION_OFFSET != 0,
-                HeaderFlag::ExtendedHeader => self.flag & 0x01 << EXTENDED_HEADER_OFFSET != 0,
-                HeaderFlag::ExperimentalIndicator => self.flag & 0x01 << EXPERIMENTAL_INDICATOR_OFFSET != 0,
-                HeaderFlag::FooterPresent => self.flag & 0x01 << FOOTER_PRESENT_OFFSET != 0
+                HeaderFlag::Unsynchronisation => self.flag & 0x01 << 7 != 0,
+                HeaderFlag::ExtendedHeader => self.flag & 0x01 << 6 != 0,
+                HeaderFlag::ExperimentalIndicator => self.flag & 0x01 << 5 != 0,
+                HeaderFlag::FooterPresent => self.flag & 0x01 << 4 != 0
             }
         } else {
             warn!("Header.has_flag=> Unknown version!");

@@ -24,18 +24,6 @@ use readable;
 use std::{io, fs, vec};
 use std::io::Result;
 
-const TITLE_LEN: usize = 30;
-const ARTIST_LEN: usize = 30;
-const ALBUM_LEN: usize = 30;
-const YEAR_LEN: usize = 4;
-const COMMENT1_LEN: usize = 30;
-const COMMENT2_LEN: usize = 28;
-const TRACK_MARKER_LEN: usize = 1;
-const TRACK_LEN: usize = 1;
-const GENRE_LEN: usize = 1;
-const ID3V1_TAG_LENGTH: u8 = 128;
-const TAG: &'static str = "TAG";
-
 pub struct ID3v1Tag {
     title: String,
     artist: String,
@@ -46,36 +34,38 @@ pub struct ID3v1Tag {
     genre: String
 }
 
+// @see http://id3.org/ID3v1
 impl ID3v1Tag {
     pub fn new(readable: &mut readable::Readable<fs::File>, file_len: u64) -> Result<Self> {
-        readable.skip((file_len - ID3V1_TAG_LENGTH as u64) as i64);
+        // id3v1 tag length is 128 bytes.
+        if file_len < 128 as u64 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Error1"));
+        }
+        // tag position is last 128 bytes.
+        readable.skip((file_len - 128 as u64) as i64)?;
 
-        if file_len < ID3V1_TAG_LENGTH as u64 {
-            return Err(io::Error::new(io::ErrorKind::Other, "Not found `ID3v1` tag"));
+        if readable.as_string(3)? != "TAG" {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Error2"));
         }
 
-        if readable.as_string(TAG.len())? != TAG {
-            return Err(io::Error::new(io::ErrorKind::Other, "Invalid `ID3v1` tag"));
-        }
-
-        let title = utility::trimed_string(&readable.as_bytes(TITLE_LEN)?);
-        let artist = utility::trimed_string(&readable.as_bytes(ARTIST_LEN)?);
-        let album = utility::trimed_string(&readable.as_bytes(ALBUM_LEN)?);
-        let year = utility::trimed_string(&readable.as_bytes(YEAR_LEN)?);
-        let comment1 = readable.as_bytes(COMMENT1_LEN)?;
+        let title = Self::_to_string_with_rtrim(&readable.as_bytes(30)?);
+        let artist = Self::_to_string_with_rtrim(&readable.as_bytes(30)?);
+        let album = Self::_to_string_with_rtrim(&readable.as_bytes(30)?);
+        let year = Self::_to_string_with_rtrim(&readable.as_bytes(4)?);
+        let comment1 = readable.as_bytes(30)?;
         readable.skip(-30);
-        let comment2 = readable.as_bytes(COMMENT2_LEN)?;
-        let track_marker = readable.as_string(TRACK_MARKER_LEN)?;
+        let comment2 = readable.as_bytes(28)?;
+        let track_marker = readable.as_string(1)?;
         let track = if track_marker != "0" {
-            (readable.as_bytes(TRACK_LEN)?[0] & 0xff).to_string()
+            (readable.as_bytes(1)?[0] & 0xff).to_string()
         } else {
             String::new()
         };
-        let genre = (readable.as_bytes(GENRE_LEN)?[0] & 0xff).to_string();
+        let genre = (readable.as_bytes(1)?[0] & 0xff).to_string();
         let comment = if track_marker == "0" {
-            utility::trimed_string(&comment1)
+            Self::_to_string_with_rtrim(&comment1)
         } else {
-            utility::trimed_string(&comment2)
+            Self::_to_string_with_rtrim(&comment2)
         };
 
         Ok(ID3v1Tag {
@@ -87,6 +77,23 @@ impl ID3v1Tag {
             track: track,
             genre: genre
         })
+    }
+
+    fn _rtrim(bytes: &vec::Vec<u8>) -> vec::Vec<u8> {
+        let mut idx = 0;
+        for v in bytes.iter().rev() {
+            if v > &32 { break; }
+            idx = idx + 1;
+        }
+        let mut clone = bytes.clone();
+        clone.split_off(bytes.len() - idx);
+        clone
+    }
+
+    fn _to_string_with_rtrim(bytes: &vec::Vec<u8>) -> String {
+        let cloned = Self::_rtrim(bytes);
+        let value = String::from_utf8_lossy(&cloned).into_owned();
+        value
     }
 
     pub fn title(&self) -> &str {
@@ -118,31 +125,20 @@ impl ID3v1Tag {
     }
 }
 
-pub mod utility {
-    use std::vec;
-
-    pub fn trim_non_ascii(bytes: &vec::Vec<u8>) -> vec::Vec<u8> {
-        let mut idx = 0;
-        for v in bytes.iter().rev() {
-            if v > &32 { break; }
-            idx = idx + 1;
-        }
-        let mut clone = bytes.clone();
-        clone.split_off(bytes.len() - idx);
-        clone
-    }
-
-    pub fn trimed_string(bytes: &vec::Vec<u8>) -> String {
-        let cloned = trim_non_ascii(bytes);
-        let value = String::from_utf8_lossy(&cloned).into_owned();
-        value
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use readable;
     use std::fs;
+
+    #[test]
+    fn id3v1_test() {
+        let file = fs::File::open("./resources/file1.txt").unwrap();
+        let len = file.metadata().unwrap().len();
+        let mut readable = readable::Readable::new(file);
+        if let Err(msg) = super::ID3v1Tag::new(&mut readable, len) {
+            assert_eq!(msg.to_string(), "Error1");
+        }
+    }
 
     #[test]
     fn id3v1_test1() {

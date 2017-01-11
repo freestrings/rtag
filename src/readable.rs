@@ -60,7 +60,7 @@ impl<I: io::Read + io::Seek> Readable<I> {
     }
 }
 
-pub mod utility {
+pub mod factory {
     use std::{fs, io};
     use std::io::Result;
 
@@ -78,7 +78,7 @@ mod tests {
     #[test]
     fn test_bytes() {
         let valid = "0123456789";
-        if let Ok(mut readable) = super::utility::from_string(valid) {
+        if let Ok(mut readable) = super::factory::from_string(valid) {
             assert!(readable.as_bytes(10).is_ok());
             assert!(readable.as_bytes(10).is_err());
         } else {
@@ -88,12 +88,21 @@ mod tests {
 
     #[test]
     fn test_file() {
-        if let Ok(mut readable) = super::utility::from_path("./resources/file1.txt") {
+        if let Ok(mut readable) = super::factory::from_path("./resources/file1.txt") {
             assert!(readable.as_bytes(10).is_ok());
             assert!(readable.as_bytes(10).is_ok());
             assert!(readable.skip(-5).is_ok());
             assert_eq!(readable.as_string(10).unwrap(), "fghij");
             assert!(readable.as_bytes(10).is_err());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_file2() {
+        if let Ok(mut readable) = super::factory::from_path("./resources/file1.txt") {
+            assert!(readable.skip(1000).is_ok());
         } else {
             assert!(false);
         }

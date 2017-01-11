@@ -25,12 +25,9 @@ use readable;
 use std::{io, fs};
 use std::io::Result;
 
-const HEADER_LEN: usize = 10;
-const EXTENDED_HEADER_SIZE_LEN: usize = 4;
-
 pub trait FrameIterator {
     fn has_next_frame(&mut self) -> bool;
-    fn next_frame(&mut self) -> io::Result<id3v2::tag::frame::Frame>;
+    fn next_frame(&mut self) -> Result<id3v2::tag::frame::Frame>;
 }
 
 pub struct FrameReader<'a> {
@@ -54,7 +51,7 @@ impl<'a> FrameIterator for FrameReader<'a> {
         self.reader.has_next_frame()
     }
 
-    fn next_frame(&mut self) -> io::Result<id3v2::tag::frame::Frame> {
+    fn next_frame(&mut self) -> Result<id3v2::tag::frame::Frame> {
         self.reader.next_frame()
     }
 }
@@ -66,34 +63,29 @@ pub struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     pub fn new(readable: &'a mut readable::Readable<fs::File>) -> Result<Self> {
-        let bytes = try!(readable.as_bytes(HEADER_LEN));
-        let header = id3v2::tag::header::Header::new(bytes);
-
+        // head 10 bytes
+        let header = id3v2::tag::header::Header::new(readable.as_bytes(10)?);
         Ok(Reader {
             header: header,
             readable: readable
         })
     }
 
-    pub fn get_extended_header(&mut self) -> Option<id3v2::tag::header::ExtendedHeader> {
+    pub fn get_extended_header(&mut self) -> Result<id3v2::tag::header::ExtendedHeader> {
         if !self.header.has_flag(id3v2::tag::header::HeaderFlag::ExtendedHeader) {
-            return None
+            return Err(io::Error::new(io::ErrorKind::Other, "Extended hader is not exist."));
         }
 
-        if let Ok(bytes) = self.readable.as_bytes(self::EXTENDED_HEADER_SIZE_LEN) {
-            let size = match self.header.get_version() {
-                // Did not explained for whether big-endian or synchsafe in "http://id3.org/id3v2.3.0".
-                3 => id3v2::bytes::to_u32(&bytes),
-                // `Extended header size` stored as a 32 bit synchsafe integer in "2.4.0".
-                // see "http://id3.org/id3v2.4.0-structure".
-                _ => id3v2::bytes::to_synchsafe(&bytes),
-            };
+        // extended header 4bytes
+        let head_bytes = self.readable.as_bytes(4)?;
+        let size = match self.header.get_version() {
+            // Did not explained for whether big-endian or synchsafe in "http://id3.org/id3v2.3.0".
+            3 => id3v2::bytes::to_u32(&head_bytes),
+            // `Extended header size` stored as a 32 bit synchsafe integer in "2.4.0".
+            _ => id3v2::bytes::to_synchsafe(&head_bytes),
+        };
 
-            if let Ok(bytes) = self.readable.as_bytes(size as usize) {
-                return Some(id3v2::tag::header::ExtendedHeader::new(size, &bytes));
-            }
-        }
-        None
+        Ok(id3v2::tag::header::ExtendedHeader::new(size, &self.readable.as_bytes(size as usize)?))
     }
 }
 

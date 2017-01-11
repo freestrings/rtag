@@ -57,19 +57,30 @@ impl ID3v1Tag {
         // offset 93
         let year = Self::_to_string_with_rtrim(&readable.as_bytes(4)?);
         // goto track marker offset
-        readable.skip(28);
+        readable.skip(28)?;
         // offset 125
-        let track_marker = readable.as_string(1)?;
+        let track_marker = readable.as_bytes(1)?[0];
         // offset 126
-        let track = readable.as_string(1)?;
+        let _track = readable.as_bytes(1)?[0] & 0xff;
         // offset 127
         let genre = (readable.as_bytes(1)?[0] & 0xff).to_string();
-        readable.skip(-31);
+        // goto comment offset
+        readable.skip(-31)?;
 
-        let (comment, track) = if track_marker != "0" {
-            (Self::_to_string_with_rtrim(&readable.as_bytes(30)?), String::new())
+        let (comment, mut track) = if track_marker != 0 {
+            (
+                Self::_to_string_with_rtrim(&readable.as_bytes(30)?),
+                String::new()
+            )
         } else {
-            (Self::_to_string_with_rtrim(&readable.as_bytes(28)?), (readable.as_bytes(1)?[0] & 0xff).to_string())
+            (
+                Self::_to_string_with_rtrim(&readable.as_bytes(28)?),
+                if _track == 0 {
+                    String::new()
+                } else {
+                    _track.to_string()
+                }
+            )
         };
 
         Ok(ID3v1Tag {
@@ -135,7 +146,7 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn id3v1_test() {
+    fn id3v1_test1() {
         let file = fs::File::open("./resources/file1.txt").unwrap();
         let len = file.metadata().unwrap().len();
         let mut readable = readable::Readable::new(file);
@@ -145,24 +156,24 @@ mod tests {
     }
 
     #[test]
-    fn id3v1_test1() {
+    fn id3v1_test2() {
         let file = fs::File::open("./resources/empty-meta.mp3").unwrap();
         let len = file.metadata().unwrap().len();
         let mut readable = readable::Readable::new(file);
-        assert! ( super::ID3v1Tag::new(&mut readable, len).is_err() );
+        assert!(super::ID3v1Tag::new(&mut readable, len).is_err());
     }
 
     #[test]
-    fn id3v1_test2() {
+    fn id3v1_test3() {
         let file = fs::File::open("./resources/id3v1-id3v2.mp3").unwrap();
         let len = file.metadata().unwrap().len();
         let mut readable = readable::Readable::new(file);
         let id3v1 = super::ID3v1Tag::new(&mut readable, len).unwrap();
-        assert_eq! (id3v1.artist(), "Artist");
+        assert_eq!(id3v1.artist(), "Artist");
         assert_eq!(id3v1.album(), "");
-        assert_eq! (id3v1.comment(), "!@#$");
-        assert_eq! (id3v1.track(), "");
-        assert_eq! (id3v1.genre(), "137");
+        assert_eq!(id3v1.comment(), "!@#$");
+        assert_eq!(id3v1.track(), "1");
+        assert_eq!(id3v1.genre(), "137");
     }
 
     #[test]
@@ -172,9 +183,9 @@ mod tests {
         let mut readable = readable::factory::from_string(id3v1_tag).unwrap();
         let id3v1 = super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64).unwrap();
         assert_eq!(id3v1.title(), "TITLETITLETITLETITLETITLETITLE");
-        assert_eq! (id3v1.artist(), "ARTISTARTISTARTISTARTISTARTIST");
+        assert_eq!(id3v1.artist(), "ARTISTARTISTARTISTARTISTARTIST");
         assert_eq!(id3v1.album(), "ALBUMALBUMALBUMALBUMALBUMALBUM");
-                assert_eq! (id3v1.comment(), "COMMENTCOMMENTCOMMENTCOMMENTCO");
+        assert_eq!(id3v1.comment(), "COMMENTCOMMENTCOMMENTCOMMENTCO");
         assert_eq!(id3v1.year(), "2017");
     }
 
@@ -185,9 +196,9 @@ mod tests {
         let mut readable = readable::factory::from_string(id3v1_tag).unwrap();
         let id3v1 = super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64).unwrap();
         assert_eq!(id3v1.title(), "TITLE");
-        assert_eq! (id3v1.artist(), "ARTIST");
+        assert_eq!(id3v1.artist(), "ARTIST");
         assert_eq!(id3v1.album(), "ALBUM");
-        assert_eq! (id3v1.comment(), "COMMENT");
+        assert_eq!(id3v1.comment(), "COMMENT");
         assert_eq!(id3v1.year(), "2017");
     }
 }

@@ -102,7 +102,11 @@ mod tests {
     #[test]
     fn test_file2() {
         if let Ok(mut readable) = super::factory::from_path("./resources/file1.txt") {
-            assert!(readable.skip(1000).is_ok());
+            assert!(readable.skip(10).is_ok());
+            assert!(readable.as_bytes(10).is_ok());
+            assert!(readable.skip(-5).is_ok());
+            assert_eq!(readable.as_string(10).unwrap(), "fghij");
+            assert!(readable.as_bytes(10).is_err());
         } else {
             assert!(false);
         }

@@ -24,9 +24,9 @@ extern crate encoding;
 extern crate regex;
 
 use id3v2;
-use scanner;
+use readable;
 use self::encoding::{Encoding, DecoderTrap};
-use std::{vec, io, result};
+use std::{vec, io, fs, result};
 
 //
 // references/id3v2.md#프레임헤더
@@ -73,10 +73,10 @@ impl Frame {
         id3v2::bytes::to_u32(&bytes[4..8])
     }
 
-    pub fn has_next_frame(scanner: &mut scanner::Scanner, header: &id3v2::tag::header::Header) -> bool {
-        match scanner.read_as_string(FRAME_ID_LEN) {
+    pub fn has_next_frame(readable: &mut readable::Readable<fs::File>, header: &id3v2::tag::header::Header) -> bool {
+        match readable.as_string(FRAME_ID_LEN) {
             Ok(id) => {
-                scanner.rewind(FRAME_ID_LEN as u64);
+                readable.skip(FRAME_ID_LEN as i64 * -1);
                 let re = regex::Regex::new(ID_REGEX).unwrap();
                 let matched = re.is_match(&id);
                 debug!("Frame.has_next_frame=> Frame Id:{}, matched: {}", id, matched);
@@ -89,11 +89,11 @@ impl Frame {
         }
     }
 
-    pub fn new(scanner: &mut scanner::Scanner) -> io::Result<Frame> {
-        let header_bytes = try!(scanner.read_as_bytes(HEAD_LEN));
+    pub fn new(readable: &mut readable::Readable<fs::File>) -> io::Result<Frame> {
+        let header_bytes = try!(readable.as_bytes(HEAD_LEN));
         let id = Self::frame_id(&header_bytes);
         let frame_size = Self::frame_size(&header_bytes);
-        let body_bytes = try!(scanner.read_as_bytes(frame_size as usize));
+        let body_bytes = try!(readable.as_bytes(frame_size as usize));
 
         debug!("Frame.new=> frame size: {}", frame_size);
         if frame_size == 0 {

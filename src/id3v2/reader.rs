@@ -21,8 +21,9 @@
 //SOFTWARE.
 
 use id3v2;
-use scanner;
-use std::io;
+use readable;
+use std::{io, fs};
+use std::io::Result;
 
 const HEADER_LEN: usize = 10;
 const EXTENDED_HEADER_SIZE_LEN: usize = 4;
@@ -37,8 +38,8 @@ pub struct FrameReader<'a> {
 }
 
 impl<'a> FrameReader<'a> {
-    pub fn new(scanner: &'a mut scanner::Scanner) -> io::Result<Self> {
-        let mut reader = try!(Reader::new(scanner));
+    pub fn new(readable: &'a mut readable::Readable<fs::File>) -> Result<Self> {
+        let mut reader = Reader::new(readable)?;
         // skip extended header
         reader.get_extended_header();
 
@@ -60,17 +61,17 @@ impl<'a> FrameIterator for FrameReader<'a> {
 
 pub struct Reader<'a> {
     header: id3v2::tag::header::Header,
-    scanner: &'a mut scanner::Scanner
+    readable: &'a mut readable::Readable<fs::File>
 }
 
 impl<'a> Reader<'a> {
-    pub fn new(scanner: &'a mut scanner::Scanner) -> io::Result<Self> {
-        let bytes = try!(scanner.read_as_bytes(HEADER_LEN));
+    pub fn new(readable: &'a mut readable::Readable<fs::File>) -> Result<Self> {
+        let bytes = try!(readable.as_bytes(HEADER_LEN));
         let header = id3v2::tag::header::Header::new(bytes);
 
         Ok(Reader {
             header: header,
-            scanner: scanner
+            readable: readable
         })
     }
 
@@ -79,7 +80,7 @@ impl<'a> Reader<'a> {
             return None
         }
 
-        if let Ok(bytes) = self.scanner.read_as_bytes(self::EXTENDED_HEADER_SIZE_LEN) {
+        if let Ok(bytes) = self.readable.as_bytes(self::EXTENDED_HEADER_SIZE_LEN) {
             let size = match self.header.get_version() {
                 // Did not explained for whether big-endian or synchsafe in "http://id3.org/id3v2.3.0".
                 3 => id3v2::bytes::to_u32(&bytes),
@@ -88,7 +89,7 @@ impl<'a> Reader<'a> {
                 _ => id3v2::bytes::to_synchsafe(&bytes),
             };
 
-            if let Ok(bytes) = self.scanner.read_as_bytes(size as usize) {
+            if let Ok(bytes) = self.readable.as_bytes(size as usize) {
                 return Some(id3v2::tag::header::ExtendedHeader::new(size, &bytes));
             }
         }
@@ -98,10 +99,10 @@ impl<'a> Reader<'a> {
 
 impl<'a> FrameIterator for Reader<'a> {
     fn has_next_frame(&mut self) -> bool {
-        id3v2::tag::frame::Frame::has_next_frame(self.scanner, &self.header)
+        id3v2::tag::frame::Frame::has_next_frame(self.readable, &self.header)
     }
 
     fn next_frame(&mut self) -> io::Result<id3v2::tag::frame::Frame> {
-        id3v2::tag::frame::Frame::new(self.scanner)
+        id3v2::tag::frame::Frame::new(self.readable)
     }
 }

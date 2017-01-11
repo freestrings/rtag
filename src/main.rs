@@ -24,6 +24,6 @@
 
 mod id3v1;
 mod id3v2;
-mod scanner;
+mod readable;
 
 fn main() {}

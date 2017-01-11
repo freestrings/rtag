@@ -29,6 +29,11 @@ const VERSION_OFFSET: usize = 3;
 const MINOR_VERSION_OFFSET: usize = 4;
 const HEAD_FLAG_OFFSET: usize = 5;
 
+const UNSYNCHRONISATION_OFFSET: u8 = 7;
+const EXTENDED_HEADER_OFFSET: u8 = 6;
+const EXPERIMENTAL_INDICATOR_OFFSET: u8 = 5;
+const FOOTER_PRESENT_OFFSET: u8 = 4;
+
 pub enum HeaderFlag {
     Unsynchronisation,
     ExtendedHeader,
@@ -83,17 +88,17 @@ impl Header {
     pub fn has_flag(&self, flag: HeaderFlag) -> bool {
         if self.version == 3 {
             match flag {
-                HeaderFlag::Unsynchronisation => self.flag & 0x01 << 7 != 0,
-                HeaderFlag::ExtendedHeader => self.flag & 0x01 << 6 != 0,
-                HeaderFlag::ExperimentalIndicator => self.flag & 0x01 << 5 != 0,
+                HeaderFlag::Unsynchronisation => self.flag & 0x01 << UNSYNCHRONISATION_OFFSET != 0,
+                HeaderFlag::ExtendedHeader => self.flag & 0x01 << EXTENDED_HEADER_OFFSET != 0,
+                HeaderFlag::ExperimentalIndicator => self.flag & 0x01 << EXPERIMENTAL_INDICATOR_OFFSET != 0,
                 _ => false
             }
         } else if self.version == 4 {
             match flag {
-                HeaderFlag::Unsynchronisation => self.flag & 0x01 << 7 != 0,
-                HeaderFlag::ExtendedHeader => self.flag & 0x01 << 6 != 0,
-                HeaderFlag::ExperimentalIndicator => self.flag & 0x01 << 5 != 0,
-                HeaderFlag::FooterPresent => self.flag & 0x01 << 4 != 0
+                HeaderFlag::Unsynchronisation => self.flag & 0x01 << UNSYNCHRONISATION_OFFSET != 0,
+                HeaderFlag::ExtendedHeader => self.flag & 0x01 << EXTENDED_HEADER_OFFSET != 0,
+                HeaderFlag::ExperimentalIndicator => self.flag & 0x01 << EXPERIMENTAL_INDICATOR_OFFSET != 0,
+                HeaderFlag::FooterPresent => self.flag & 0x01 << FOOTER_PRESENT_OFFSET != 0
             }
         } else {
             warn!("Header.has_flag=> Unknown version!");

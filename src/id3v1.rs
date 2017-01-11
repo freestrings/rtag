@@ -20,8 +20,9 @@
 //OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //SOFTWARE.
 
-use scanner;
-use std::{io, vec};
+use readable;
+use std::{io, fs, vec};
+use std::io::Result;
 
 const TITLE_LEN: usize = 30;
 const ARTIST_LEN: usize = 30;
@@ -46,54 +47,35 @@ pub struct ID3v1Tag {
 }
 
 impl ID3v1Tag {
-    fn trim_non_ascii(bytes: &vec::Vec<u8>) -> vec::Vec<u8> {
-        let mut idx = 0;
-        for v in bytes.iter().rev() {
-            if v > &32 { break; }
-            idx = idx + 1;
-        }
-        let mut clone = bytes.clone();
-        clone.split_off(bytes.len() - idx);
-        clone
-    }
+    pub fn new(readable: &mut readable::Readable<fs::File>, file_len: u64) -> Result<Self> {
+        readable.skip((file_len - ID3V1_TAG_LENGTH as u64) as i64);
 
-    fn trimed_string(bytes: &vec::Vec<u8>) -> String {
-        let cloned = Self::trim_non_ascii(bytes);
-        let value = String::from_utf8_lossy(&cloned).into_owned();
-        value
-    }
-
-    pub fn new(scanner: &mut scanner::Scanner) -> io::Result<Self> {
-        if scanner.get_len() < ID3V1_TAG_LENGTH as u64 {
+        if file_len < ID3V1_TAG_LENGTH as u64 {
             return Err(io::Error::new(io::ErrorKind::Other, "Not found `ID3v1` tag"));
         }
 
-        let v1_offset = scanner.get_len() - ID3V1_TAG_LENGTH as u64;
-        scanner.skip(v1_offset);
-
-        if let Ok(str) = scanner.read_as_string(TAG.len()) {
-            if str != TAG {
-                return Err(io::Error::new(io::ErrorKind::Other, "Invalid `ID3v1` tag"));
-            }
+        if readable.as_string(TAG.len())? != TAG {
+            return Err(io::Error::new(io::ErrorKind::Other, "Invalid `ID3v1` tag"));
         }
 
-        let title = Self::trimed_string(&try!(scanner.read_as_bytes(TITLE_LEN)));
-        let artist = Self::trimed_string(&try!(scanner.read_as_bytes(ARTIST_LEN)));
-        let album = Self::trimed_string(&try!(scanner.read_as_bytes(ALBUM_LEN)));
-        let year = Self::trimed_string(&try!(scanner.read_as_bytes(YEAR_LEN)));
-        let comment1 = try!(scanner.read_as_bytes(COMMENT1_LEN));
-        scanner.rewind(30);
-        let comment2 = try!(scanner.read_as_bytes(COMMENT2_LEN));
-        let track_marker = try!(scanner.read_as_string(TRACK_MARKER_LEN));
-        let mut track = String::new();
-        if track_marker != "0" {
-            track = (try!(scanner.read_as_bytes(TRACK_LEN))[0] & 0xff).to_string();
-        }
-        let genre = (try!(scanner.read_as_bytes(GENRE_LEN))[0] & 0xff).to_string();
-        let comment = if track_marker == "0" {
-            Self::trimed_string(&comment1)
+        let title = utility::trimed_string(&readable.as_bytes(TITLE_LEN)?);
+        let artist = utility::trimed_string(&readable.as_bytes(ARTIST_LEN)?);
+        let album = utility::trimed_string(&readable.as_bytes(ALBUM_LEN)?);
+        let year = utility::trimed_string(&readable.as_bytes(YEAR_LEN)?);
+        let comment1 = readable.as_bytes(COMMENT1_LEN)?;
+        readable.skip(-30);
+        let comment2 = readable.as_bytes(COMMENT2_LEN)?;
+        let track_marker = readable.as_string(TRACK_MARKER_LEN)?;
+        let track = if track_marker != "0" {
+            (readable.as_bytes(TRACK_LEN)?[0] & 0xff).to_string()
         } else {
-            Self::trimed_string(&comment2)
+            String::new()
+        };
+        let genre = (readable.as_bytes(GENRE_LEN)?[0] & 0xff).to_string();
+        let comment = if track_marker == "0" {
+            utility::trimed_string(&comment1)
+        } else {
+            utility::trimed_string(&comment2)
         };
 
         Ok(ID3v1Tag {
@@ -136,39 +118,50 @@ impl ID3v1Tag {
     }
 }
 
+pub mod utility {
+    use std::vec;
+
+    pub fn trim_non_ascii(bytes: &vec::Vec<u8>) -> vec::Vec<u8> {
+        let mut idx = 0;
+        for v in bytes.iter().rev() {
+            if v > &32 { break; }
+            idx = idx + 1;
+        }
+        let mut clone = bytes.clone();
+        clone.split_off(bytes.len() - idx);
+        clone
+    }
+
+    pub fn trimed_string(bytes: &vec::Vec<u8>) -> String {
+        let cloned = trim_non_ascii(bytes);
+        let value = String::from_utf8_lossy(&cloned).into_owned();
+        value
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use scanner;
+    use readable;
+    use std::fs;
 
     #[test]
     fn id3v1_test1() {
-        match scanner::Scanner::new("./resources/empty-meta.mp3") {
-            Ok(mut scanner) => {
-                match super::ID3v1Tag::new(&mut scanner) {
-                    Ok(_) => assert!(false),
-                    Err(_) => assert!(true)
-                }
-            },
-            Err(_) => assert!(false)
-        }
+        let file = fs::File::open("./resources/empty-meta.mp3").unwrap();
+        let len = file.metadata().unwrap().len();
+        let mut readable = readable::Readable::new(file);
+        assert! ( super::ID3v1Tag::new(&mut readable, len).is_err() );
     }
 
     #[test]
     fn id3v1_test2() {
-        match scanner::Scanner::new("./resources/id3v1-id3v2.mp3") {
-            Ok(mut scanner) => {
-                match super::ID3v1Tag::new(&mut scanner) {
-                    Ok(id3v1) => {
-                        assert_eq!(id3v1.artist(), "Artist");
-                        assert_eq!(id3v1.album(), "");
-                        assert_eq!(id3v1.comment(), "!@#$");
-                        assert_eq!(id3v1.track(), "1");
-                        assert_eq!(id3v1.genre(), "137");
-                    },
-                    Err(_) => assert!(true)
-                }
-            },
-            Err(_) => assert!(false)
-        }
+        let file = fs::File::open("./resources/id3v1-id3v2.mp3").unwrap();
+        let len = file.metadata().unwrap().len();
+        let mut readable = readable::Readable::new(file);
+        let id3v1 = super::ID3v1Tag::new(&mut readable, len).unwrap();
+        assert_eq! (id3v1.artist(), "Artist");
+        assert_eq!(id3v1.album(), "");
+        assert_eq! (id3v1.comment(), "!@#$");
+        assert_eq! (id3v1.track(), "1");
+        assert_eq! (id3v1.genre(), "137");
     }
 }

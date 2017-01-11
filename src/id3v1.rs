@@ -36,7 +36,7 @@ pub struct ID3v1Tag {
 
 // @see http://id3.org/ID3v1
 impl ID3v1Tag {
-    pub fn new(readable: &mut readable::Readable<fs::File>, file_len: u64) -> Result<Self> {
+    pub fn new<T: io::Read + io::Seek>(readable: &mut readable::Readable<T>, file_len: u64) -> Result<Self> {
         // id3v1 tag length is 128 bytes.
         if file_len < 128 as u64 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Error1"));
@@ -48,24 +48,28 @@ impl ID3v1Tag {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Error2"));
         }
 
+        // offset 3
         let title = Self::_to_string_with_rtrim(&readable.as_bytes(30)?);
+        // offset 33
         let artist = Self::_to_string_with_rtrim(&readable.as_bytes(30)?);
+        // offset 63
         let album = Self::_to_string_with_rtrim(&readable.as_bytes(30)?);
+        // offset 93
         let year = Self::_to_string_with_rtrim(&readable.as_bytes(4)?);
-        let comment1 = readable.as_bytes(30)?;
-        readable.skip(-30);
-        let comment2 = readable.as_bytes(28)?;
+        // goto track marker offset
+        readable.skip(28);
+        // offset 125
         let track_marker = readable.as_string(1)?;
-        let track = if track_marker != "0" {
-            (readable.as_bytes(1)?[0] & 0xff).to_string()
-        } else {
-            String::new()
-        };
+        // offset 126
+        let track = readable.as_string(1)?;
+        // offset 127
         let genre = (readable.as_bytes(1)?[0] & 0xff).to_string();
-        let comment = if track_marker == "0" {
-            Self::_to_string_with_rtrim(&comment1)
+        readable.skip(-31);
+
+        let (comment, track) = if track_marker != "0" {
+            (Self::_to_string_with_rtrim(&readable.as_bytes(30)?), String::new())
         } else {
-            Self::_to_string_with_rtrim(&comment2)
+            (Self::_to_string_with_rtrim(&readable.as_bytes(28)?), (readable.as_bytes(1)?[0] & 0xff).to_string())
         };
 
         Ok(ID3v1Tag {
@@ -157,7 +161,33 @@ mod tests {
         assert_eq! (id3v1.artist(), "Artist");
         assert_eq!(id3v1.album(), "");
         assert_eq! (id3v1.comment(), "!@#$");
-        assert_eq! (id3v1.track(), "1");
+        assert_eq! (id3v1.track(), "");
         assert_eq! (id3v1.genre(), "137");
+    }
+
+    #[test]
+    fn id3v1_test4() {
+        let id3v1_tag = "TAGTITLETITLETITLETITLETITLETITLEARTISTARTISTARTISTARTISTARTISTALBUMALBUMALBUMALBUMALBUMALBUM2017COMMENTCOMMENTCOMMENTCOMMENTCO4";
+
+        let mut readable = readable::factory::from_string(id3v1_tag).unwrap();
+        let id3v1 = super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64).unwrap();
+        assert_eq!(id3v1.title(), "TITLETITLETITLETITLETITLETITLE");
+        assert_eq! (id3v1.artist(), "ARTISTARTISTARTISTARTISTARTIST");
+        assert_eq!(id3v1.album(), "ALBUMALBUMALBUMALBUMALBUMALBUM");
+                assert_eq! (id3v1.comment(), "COMMENTCOMMENTCOMMENTCOMMENTCO");
+        assert_eq!(id3v1.year(), "2017");
+    }
+
+    #[test]
+    fn id3v1_test5() {
+        let id3v1_tag = "TAGTITLE                         ARTIST                        ALBUM                         2017COMMENT                        ";
+
+        let mut readable = readable::factory::from_string(id3v1_tag).unwrap();
+        let id3v1 = super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64).unwrap();
+        assert_eq!(id3v1.title(), "TITLE");
+        assert_eq! (id3v1.artist(), "ARTIST");
+        assert_eq!(id3v1.album(), "ALBUM");
+        assert_eq! (id3v1.comment(), "COMMENT");
+        assert_eq!(id3v1.year(), "2017");
     }
 }

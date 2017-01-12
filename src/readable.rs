@@ -24,11 +24,11 @@ use std::io::Result;
 use std::{io, vec};
 use std::io::{Read, Seek, SeekFrom};
 
-pub struct Readable<I: io::Read + io::Seek> {
+pub struct Readable<I> where I: io::Read + io::Seek {
     input: io::BufReader<I>
 }
 
-impl<I: io::Read + io::Seek> Readable<I> {
+impl<I> Readable<I> where I: io::Read + io::Seek {
     pub fn new(input: I) -> Self {
         Readable {
             input: io::BufReader::new(input)
@@ -64,11 +64,11 @@ pub mod factory {
     use std::{fs, io};
     use std::io::Result;
 
-    pub fn from_path(path: &'static str) -> Result<super::Readable<fs::File>> {
-        Ok(super::Readable::new(fs::File::open(path)?))
+    pub fn from_path(str: &str) -> Result<super::Readable<fs::File>> {
+        Ok(super::Readable::new(fs::File::open(str)?))
     }
 
-    pub fn from_string(str: &'static str) -> Result<super::Readable<io::Cursor<String>>> {
+    pub fn from_str(str: &str) -> Result<super::Readable<io::Cursor<String>>> {
         Ok(super::Readable::new(io::Cursor::new(str.to_string())))
     }
 }
@@ -78,7 +78,7 @@ mod tests {
     #[test]
     fn test_bytes() {
         let valid = "0123456789";
-        if let Ok(mut readable) = super::factory::from_string(valid) {
+        if let Ok(mut readable) = super::factory::from_str(valid) {
             assert!(readable.as_bytes(10).is_ok());
             assert!(readable.as_bytes(10).is_err());
         } else {

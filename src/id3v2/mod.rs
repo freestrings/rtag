@@ -125,4 +125,9 @@ mod tests {
     fn idv3_240_frame_data() {
         _data_compare("./resources/240.mp3", vec!["2017", "1", "1", "아티스트", "Album", "Artist/아티스트", "타이틀", "ABAB", "Alternative", "eng\u{0}~~"]);
     }
+
+    #[test]
+    fn id3_240_frame_data2() {
+        _id_compare("./resources/id3v1-id3v2-albumimage.mp3", vec!["TENC", "WXXX", "TCOP", "TOPE", "TCOM", "COMM", "TPE1", "TALB", "COMM", "TRCK", "TDRC", "TCON", "TIT2", "APIC"]);
+    }
 }

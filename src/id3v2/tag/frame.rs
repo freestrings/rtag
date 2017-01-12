@@ -26,7 +26,7 @@ extern crate regex;
 use id3v2;
 use readable;
 use self::encoding::{Encoding, DecoderTrap};
-use std::{vec, io, fs, result, ops, borrow};
+use std::{vec, io, result, ops, borrow};
 use std::io::Result;
 
 // text encoding
@@ -61,12 +61,14 @@ impl Frame {
         String::from_utf8_lossy(&bytes[0..4]).into_owned()
     }
 
-    fn _frame_size(bytes: &vec::Vec<u8>) -> u32 {
-        id3v2::bytes::to_u32(&bytes[4..8])
+    fn _frame_size(bytes: &vec::Vec<u8>, tag_version: u8) -> u32 {
+        match tag_version {
+            3 => id3v2::bytes::to_u32(&bytes[4..8]),
+            _ => id3v2::bytes::to_synchsafe(&bytes[4..8])
+        }
     }
 
-    pub fn has_next_frame(readable: &mut readable::Readable<fs::File>,
-                          header: &id3v2::tag::header::Header) -> bool {
+    pub fn has_next_frame<T: io::Read + io::Seek>(readable: &mut readable::Readable<T>) -> bool {
         // read frame id 4 bytes
         match readable.as_string(4) {
             Ok(id) => {
@@ -85,11 +87,11 @@ impl Frame {
         }
     }
 
-    pub fn new(readable: &mut readable::Readable<fs::File>) -> Result<Frame> {
+    pub fn new<T: io::Read + io::Seek>(readable: &mut readable::Readable<T>, tag_version: u8) -> Result<Frame> {
         // head 10 bytes
         let header_bytes = readable.as_bytes(10)?;
         let id = Self::_frame_id(&header_bytes);
-        let frame_size = Self::_frame_size(&header_bytes);
+        let frame_size = Self::_frame_size(&header_bytes, tag_version);
         let body_bytes = readable.as_bytes(frame_size as usize)?;
 
         debug!("Frame.new=> frame size: {}", frame_size);

@@ -21,7 +21,7 @@
 //SOFTWARE.
 
 use readable;
-use std::{io, fs, vec};
+use std::{io, vec};
 use std::io::Result;
 
 pub struct ID3v1Tag {
@@ -67,7 +67,7 @@ impl ID3v1Tag {
         // goto comment offset
         readable.skip(-31)?;
 
-        let (comment, mut track) = if track_marker != 0 {
+        let (comment, track) = if track_marker != 0 {
             (
                 Self::_to_string_with_rtrim(&readable.as_bytes(30)?),
                 String::new()
@@ -75,11 +75,7 @@ impl ID3v1Tag {
         } else {
             (
                 Self::_to_string_with_rtrim(&readable.as_bytes(28)?),
-                if _track == 0 {
-                    String::new()
-                } else {
-                    _track.to_string()
-                }
+                if _track == 0 { String::new() } else { _track.to_string() }
             )
         };
 
@@ -180,7 +176,7 @@ mod tests {
     fn id3v1_test4() {
         let id3v1_tag = "TAGTITLETITLETITLETITLETITLETITLEARTISTARTISTARTISTARTISTARTISTALBUMALBUMALBUMALBUMALBUMALBUM2017COMMENTCOMMENTCOMMENTCOMMENTCO4";
 
-        let mut readable = readable::factory::from_string(id3v1_tag).unwrap();
+        let mut readable = readable::factory::from_str(id3v1_tag).unwrap();
         let id3v1 = super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64).unwrap();
         assert_eq!(id3v1.title(), "TITLETITLETITLETITLETITLETITLE");
         assert_eq!(id3v1.artist(), "ARTISTARTISTARTISTARTISTARTIST");
@@ -193,7 +189,7 @@ mod tests {
     fn id3v1_test5() {
         let id3v1_tag = "TAGTITLE                         ARTIST                        ALBUM                         2017COMMENT                        ";
 
-        let mut readable = readable::factory::from_string(id3v1_tag).unwrap();
+        let mut readable = readable::factory::from_str(id3v1_tag).unwrap();
         let id3v1 = super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64).unwrap();
         assert_eq!(id3v1.title(), "TITLE");
         assert_eq!(id3v1.artist(), "ARTIST");

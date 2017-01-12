@@ -22,21 +22,16 @@
 
 use id3v2;
 use readable;
-use std::{io, fs};
+use std::io;
 use std::io::Result;
 
-pub trait FrameIterator {
-    fn has_next_frame(&mut self) -> bool;
-    fn next_frame(&mut self) -> Result<id3v2::tag::frame::Frame>;
+pub struct FrameReader<'a, T: 'a> where T: io::Read + io::Seek {
+    reader: TagReader<'a, T>
 }
 
-pub struct FrameReader<'a> {
-    reader: Reader<'a>
-}
-
-impl<'a> FrameReader<'a> {
-    pub fn new(readable: &'a mut readable::Readable<fs::File>) -> Result<Self> {
-        let mut reader = Reader::new(readable)?;
+impl<'a, T> FrameReader<'a, T> where T: io::Read + io::Seek {
+    pub fn new(readable: &'a mut readable::Readable<T>) -> Result<Self> {
+        let mut reader = TagReader::new(readable)?;
         // skip extended header
         reader.get_extended_header();
 
@@ -46,7 +41,12 @@ impl<'a> FrameReader<'a> {
     }
 }
 
-impl<'a> FrameIterator for FrameReader<'a> {
+pub trait FrameIterator {
+    fn has_next_frame(&mut self) -> bool;
+    fn next_frame(&mut self) -> Result<id3v2::tag::frame::Frame>;
+}
+
+impl<'a, T> FrameIterator for FrameReader<'a, T> where T: io::Read + io::Seek {
     fn has_next_frame(&mut self) -> bool {
         self.reader.has_next_frame()
     }
@@ -56,16 +56,16 @@ impl<'a> FrameIterator for FrameReader<'a> {
     }
 }
 
-pub struct Reader<'a> {
+pub struct TagReader<'a, T: 'a> where T: io::Read + io::Seek {
     header: id3v2::tag::header::Header,
-    readable: &'a mut readable::Readable<fs::File>
+    readable: &'a mut readable::Readable<T>
 }
 
-impl<'a> Reader<'a> {
-    pub fn new(readable: &'a mut readable::Readable<fs::File>) -> Result<Self> {
+impl<'a, T> TagReader<'a, T> where T: io::Read + io::Seek {
+    pub fn new(mut readable: &'a mut readable::Readable<T>) -> Result<Self> {
         // head 10 bytes
         let header = id3v2::tag::header::Header::new(readable.as_bytes(10)?);
-        Ok(Reader {
+        Ok(TagReader {
             header: header,
             readable: readable
         })
@@ -89,12 +89,12 @@ impl<'a> Reader<'a> {
     }
 }
 
-impl<'a> FrameIterator for Reader<'a> {
+impl<'a, T> FrameIterator for TagReader<'a, T> where T: io::Read + io::Seek {
     fn has_next_frame(&mut self) -> bool {
-        id3v2::tag::frame::Frame::has_next_frame(self.readable, &self.header)
+        id3v2::tag::frame::Frame::has_next_frame(&mut self.readable)
     }
 
     fn next_frame(&mut self) -> io::Result<id3v2::tag::frame::Frame> {
-        id3v2::tag::frame::Frame::new(self.readable)
+        id3v2::tag::frame::Frame::new(&mut self.readable, self.header.get_version())
     }
 }

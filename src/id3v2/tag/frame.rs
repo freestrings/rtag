@@ -125,6 +125,46 @@ pub struct ASPI {
     fraction_at_index: u8
 }
 
+impl ASPI {
+    pub fn get_indexed_data_start(&self) -> u32 {
+        self.indexed_data_start
+    }
+
+    pub fn get_indexed_data_length(&self) -> u32 {
+        self.indexed_data_length
+    }
+
+    pub fn get_number_of_index_points(&self) -> u16 {
+        self.number_of_index_points
+    }
+
+    pub fn get_bit_per_index_point(&self) -> u8 {
+        self.bit_per_index_point
+    }
+
+    pub fn get_fraction_at_index(&self) -> u8 {
+        self.fraction_at_index
+    }
+}
+
+impl FrameDataBase<ASPI> for ASPI {
+    fn to_framedata(readable: &mut Readable) -> Result<ASPI> {
+        let indexed_data_start = ::id3v2::bytes::to_u32(&readable.as_bytes(4)?);
+        let indexed_data_length = ::id3v2::bytes::to_u32(&readable.as_bytes(4)?);
+        let number_of_index_points = ::id3v2::bytes::to_u16(&readable.as_bytes(2)?);
+        let bit_per_index_point = readable.as_bytes(1)?[0];
+        let fraction_at_index = readable.as_bytes(1)?[0];
+
+        Ok(ASPI {
+            indexed_data_start: indexed_data_start,
+            indexed_data_length: indexed_data_length,
+            number_of_index_points: number_of_index_points,
+            bit_per_index_point: bit_per_index_point,
+            fraction_at_index: fraction_at_index
+        })
+    }
+}
+
 // Comments
 #[derive(Debug)]
 pub struct COMM {
@@ -579,6 +619,7 @@ impl Frame {
         Ok(match self.id.as_ref() {
             ::id3v2::tag::frame_constants::id::AENC_STR => ::id3v2::tag::frame_constants::FrameData::AENC(AENC::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::APIC_STR => ::id3v2::tag::frame_constants::FrameData::APIC(APIC::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::ASPI_STR => ::id3v2::tag::frame_constants::FrameData::ASPI(ASPI::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::COMM_STR => ::id3v2::tag::frame_constants::FrameData::COMM(COMM::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TALB_STR => ::id3v2::tag::frame_constants::FrameData::TALB(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TBPM_STR => ::id3v2::tag::frame_constants::FrameData::TBPM(TEXT::to_framedata(&mut readable)?),

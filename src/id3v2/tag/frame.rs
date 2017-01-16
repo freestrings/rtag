@@ -27,262 +27,30 @@ use self::encoding::{Encoding, DecoderTrap};
 use std::{borrow, collections, ops, io, vec};
 use std::io::Result;
 
-const AENC_STR: &'static str = "AENC";
-const APIC_STR: &'static str = "APIC";
-const ASPI_STR: &'static str = "ASPI";
-const COMM_STR: &'static str = "COMM";
-const COMR_STR: &'static str = "COMR";
-const ENCR_STR: &'static str = "ENCR";
-const EQU2_STR: &'static str = "EQU2";
-const ETCO_STR: &'static str = "ETCO";
-const GEOB_STR: &'static str = "GEOB";
-const GRID_STR: &'static str = "GRID";
-const LINK_STR: &'static str = "LINK";
-const MCDI_STR: &'static str = "MCDI";
-const MLLT_STR: &'static str = "MLLT";
-const OWNE_STR: &'static str = "OWNE";
-const PRIV_STR: &'static str = "PRIV";
-const PCNT_STR: &'static str = "PCNT";
-const POPM_STR: &'static str = "POPM";
-const POSS_STR: &'static str = "POSS";
-const RBUF_STR: &'static str = "RBUF";
-const RVA2_STR: &'static str = "RVA2";
-const RVRB_STR: &'static str = "RVRB";
-const SEEK_STR: &'static str = "SEEK";
-const SIGN_STR: &'static str = "SIGN";
-const SYLT_STR: &'static str = "SYLT";
-const SYTC_STR: &'static str = "SYTC";
-const TALB_STR: &'static str = "TALB";
-const TBPM_STR: &'static str = "TBPM";
-const TCOM_STR: &'static str = "TCOM";
-const TCON_STR: &'static str = "TCON";
-const TCOP_STR: &'static str = "TCOP";
-const TDEN_STR: &'static str = "TDEN";
-const TDLY_STR: &'static str = "TDLY";
-const TDOR_STR: &'static str = "TDOR";
-const TDRC_STR: &'static str = "TDRC";
-const TDRL_STR: &'static str = "TDRL";
-const TDTG_STR: &'static str = "TDTG";
-const TENC_STR: &'static str = "TENC";
-const TEXT_STR: &'static str = "TEXT";
-const TFLT_STR: &'static str = "TFLT";
-const TIPL_STR: &'static str = "TIPL";
-const TIT1_STR: &'static str = "TIT1";
-const TIT2_STR: &'static str = "TIT2";
-const TIT3_STR: &'static str = "TIT3";
-const TKEY_STR: &'static str = "TKEY";
-const TLAN_STR: &'static str = "TLAN";
-const TLEN_STR: &'static str = "TLEN";
-const TMCL_STR: &'static str = "TMCL";
-const TMED_STR: &'static str = "TMED";
-const TMOO_STR: &'static str = "TMOO";
-const TOAL_STR: &'static str = "TOAL";
-const TOFN_STR: &'static str = "TOFN";
-const TOLY_STR: &'static str = "TOLY";
-const TOPE_STR: &'static str = "TOPE";
-const TOWN_STR: &'static str = "TOWN";
-const TPE1_STR: &'static str = "TPE1";
-const TPE2_STR: &'static str = "TPE2";
-const TPE3_STR: &'static str = "TPE3";
-const TPE4_STR: &'static str = "TPE4";
-const TPOS_STR: &'static str = "TPOS";
-const TPRO_STR: &'static str = "TPRO";
-const TPUB_STR: &'static str = "TPUB";
-const TRCK_STR: &'static str = "TRCK";
-const TRSN_STR: &'static str = "TRSN";
-const TRSO_STR: &'static str = "TRSO";
-const TSOA_STR: &'static str = "TSOA";
-const TSOP_STR: &'static str = "TSOP";
-const TSOT_STR: &'static str = "TSOT";
-const TSRC_STR: &'static str = "TSRC";
-const TSSE_STR: &'static str = "TSSE";
-const TSST_STR: &'static str = "TSST";
-const TXXX_STR: &'static str = "TXXX";
-const UFID_STR: &'static str = "UFID";
-const USER_STR: &'static str = "USER";
-const USLT_STR: &'static str = "USLT";
-const WCOM_STR: &'static str = "WCOM";
-const WCOP_STR: &'static str = "WCOP";
-const WOAF_STR: &'static str = "WOAF";
-const WOAR_STR: &'static str = "WOAR";
-const WOAS_STR: &'static str = "WOAS";
-const WORS_STR: &'static str = "WORS";
-const WPAY_STR: &'static str = "WPAY";
-const WPUB_STR: &'static str = "WPUB";
-const WXXX_STR: &'static str = "WXXX";
-
-#[derive(Debug)]
-pub enum FrameData {
-    AENC(AENC),
-    APIC(APIC),
-    ASPI(ASPI),
-    COMM(COMM),
-    COMR(COMR),
-    ENCR(ENCR),
-    EQU2(EQU2),
-    ETCO(ETCO),
-    GEOB(GEOB),
-    GRID(GRID),
-    LINK(LINK),
-    MCDI(MCDI),
-    MLLT(MLLT),
-    OWNE(OWNE),
-    PRIV(PRIV),
-    PCNT(PCNT),
-    POPM(POPM),
-    POSS(POSS),
-    RBUF(RBUF),
-    RVA2(RVA2),
-    RVRB(RVRB),
-    SEEK(SEEK),
-    SIGN(SIGN),
-    SYLT(SYLT),
-    SYTC(SYTC),
-    TALB(TEXT),
-    TBPM(TEXT),
-    TCOM(TEXT),
-    TCON(TEXT),
-    TCOP(TEXT),
-    TDEN(TEXT),
-    TDLY(TEXT),
-    TDOR(TEXT),
-    TDRC(TEXT),
-    TDRL(TEXT),
-    TDTG(TEXT),
-    TENC(TEXT),
-    TEXT(TEXT),
-    TFLT(TEXT),
-    TIPL(TEXT),
-    TIT1(TEXT),
-    TIT2(TEXT),
-    TIT3(TEXT),
-    TKEY(TEXT),
-    TLAN(TEXT),
-    TLEN(TEXT),
-    TMCL(TEXT),
-    TMED(TEXT),
-    TMOO(TEXT),
-    TOAL(TEXT),
-    TOFN(TEXT),
-    TOLY(TEXT),
-    TOPE(TEXT),
-    TOWN(TEXT),
-    TPE1(TEXT),
-    TPE2(TEXT),
-    TPE3(TEXT),
-    TPE4(TEXT),
-    TPOS(TEXT),
-    TPRO(TEXT),
-    TPUB(TEXT),
-    TRCK(TEXT),
-    TRSO(TEXT),
-    TSOA(TEXT),
-    TSOP(TEXT),
-    TSOT(TEXT),
-    TSRC(TEXT),
-    TSSE(TEXT),
-    TSST(TEXT),
-    TXXX(TEXT),
-    UFID(UFID),
-    USER(USER),
-    USLT(USLT),
-    WXXX(WXXX)
-}
-
-#[derive(Debug)]
-enum PictureType {
-    Other,
-    FileIcon,
-    OtherFileIcon,
-    CoverFront,
-    CoverBack,
-    LeafletPage,
-    Media,
-    LeadArtist,
-    Artist,
-    Conductor,
-    Band,
-    Composer,
-    Lyricist,
-    RecordingLocation,
-    DuringRecording,
-    DuringPerformance,
-    MovieScreenCapture,
-    BrightColouredFish,
-    Illustration,
-    BandLogotype,
-    PublisherLogoType
-}
-
-#[derive(Debug)]
-enum ReceivedAs {
-    Other,
-    StandardCDAlbum,
-    CompressedAudioOnCD,
-    FileOverInternet,
-    StreamOverInternet,
-    AsNoteSheets,
-    AsNoteSheetsInBook,
-    MusicOnMedia,
-    NonMusicalMerchandise
-}
-
-#[derive(Debug)]
-enum ContentType {
-    Other,
-    Lyrics,
-    TextTranscription,
-    MovementName,
-    Events,
-    Chord,
-    Trivia,
-    UrlsToWebpages,
-    UrlsToImages
-}
-
-#[derive(Debug)]
-enum TimeStampFormat {
-    MpecFrames,
-    Milliseconds
-}
-
-enum FrameHeaderFlag {
-    TagAlter,
-    FileAlter,
-    ReadOnly,
-    Compression,
-    Encryption,
-    GroupIdentity,
-    //2.4 only
-    Unsynchronisation,
-    //2.4 only
-    DataLength
-}
-
-fn to_picture_type(t: u8) -> PictureType {
+fn to_picture_type(t: u8) -> ::id3v2::tag::frame_constants::PictureType {
     match t {
-        0x00 => PictureType::Other,
-        0x01 => PictureType::FileIcon,
-        0x02 => PictureType::OtherFileIcon,
-        0x03 => PictureType::CoverFront,
-        0x04 => PictureType::CoverBack,
-        0x05 => PictureType::LeafletPage,
-        0x06 => PictureType::Media,
-        0x07 => PictureType::LeadArtist,
-        0x08 => PictureType::Artist,
-        0x09 => PictureType::Conductor,
-        0x0A => PictureType::Band,
-        0x0B => PictureType::Composer,
-        0x0C => PictureType::Lyricist,
-        0x0D => PictureType::RecordingLocation,
-        0x0E => PictureType::DuringRecording,
-        0x0F => PictureType::DuringPerformance,
-        0x10 => PictureType::MovieScreenCapture,
-        0x11 => PictureType::BrightColouredFish,
-        0x12 => PictureType::Illustration,
-        0x13 => PictureType::BandLogotype,
-        0x14 => PictureType::PublisherLogoType,
-        _ => PictureType::Other
+        0x00 => ::id3v2::tag::frame_constants::PictureType::Other,
+        0x01 => ::id3v2::tag::frame_constants::PictureType::FileIcon,
+        0x02 => ::id3v2::tag::frame_constants::PictureType::OtherFileIcon,
+        0x03 => ::id3v2::tag::frame_constants::PictureType::CoverFront,
+        0x04 => ::id3v2::tag::frame_constants::PictureType::CoverBack,
+        0x05 => ::id3v2::tag::frame_constants::PictureType::LeafletPage,
+        0x06 => ::id3v2::tag::frame_constants::PictureType::Media,
+        0x07 => ::id3v2::tag::frame_constants::PictureType::LeadArtist,
+        0x08 => ::id3v2::tag::frame_constants::PictureType::Artist,
+        0x09 => ::id3v2::tag::frame_constants::PictureType::Conductor,
+        0x0A => ::id3v2::tag::frame_constants::PictureType::Band,
+        0x0B => ::id3v2::tag::frame_constants::PictureType::Composer,
+        0x0C => ::id3v2::tag::frame_constants::PictureType::Lyricist,
+        0x0D => ::id3v2::tag::frame_constants::PictureType::RecordingLocation,
+        0x0E => ::id3v2::tag::frame_constants::PictureType::DuringRecording,
+        0x0F => ::id3v2::tag::frame_constants::PictureType::DuringPerformance,
+        0x10 => ::id3v2::tag::frame_constants::PictureType::MovieScreenCapture,
+        0x11 => ::id3v2::tag::frame_constants::PictureType::BrightColouredFish,
+        0x12 => ::id3v2::tag::frame_constants::PictureType::Illustration,
+        0x13 => ::id3v2::tag::frame_constants::PictureType::BandLogotype,
+        0x14 => ::id3v2::tag::frame_constants::PictureType::PublisherLogoType,
+        _ => ::id3v2::tag::frame_constants::PictureType::Other
     }
 }
 
@@ -295,61 +63,61 @@ fn encoded_text(text_encoding: &::id3v2::bytes::TextEncoding, readable: &mut Rea
 
 type Readable = ::readable::Readable<io::Cursor<vec::Vec<u8>>>;
 
-trait FrameDataBase {
-    fn to_framedata(readable: &mut Readable) -> Result<FrameData>;
+trait FrameDataBase<T> {
+    fn to_framedata(readable: &mut Readable) -> Result<T>;
 }
 
 //Audio encryption
 #[derive(Debug)]
-struct AENC {
+pub struct AENC {
     owner_identifier: String,
     preview_start: u16,
     preview_end: u16,
     encryption_info: vec::Vec<u8>
 }
 
-impl FrameDataBase for AENC {
-    fn to_framedata(readable: &mut Readable) -> Result<FrameData> {
+impl FrameDataBase<AENC> for AENC {
+    fn to_framedata(readable: &mut Readable) -> Result<AENC> {
         let (read, id) = readable.read_non_utf16_string()?;
-        Ok(self::FrameData::AENC(AENC {
+        Ok(AENC {
             owner_identifier: id,
             preview_start: ::id3v2::bytes::to_u16(&readable.as_bytes(2)?),
             preview_end: ::id3v2::bytes::to_u16(&readable.as_bytes(2)?),
             encryption_info: readable.all_bytes()?
-        }))
+        })
     }
 }
 
 //Attached picture
 #[derive(Debug)]
-struct APIC {
+pub struct APIC {
     text_encoding: ::id3v2::bytes::TextEncoding,
     mime_type: String,
-    picture_type: PictureType,
+    picture_type: ::id3v2::tag::frame_constants::PictureType,
     description: String,
     picture_data: vec::Vec<u8>
 }
 
-impl FrameDataBase for APIC {
-    fn to_framedata(readable: &mut Readable) -> Result<FrameData> {
+impl FrameDataBase<APIC> for APIC {
+    fn to_framedata(readable: &mut Readable) -> Result<APIC> {
         let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (read, mine_type) = readable.read_non_utf16_string()?;
         let picture_type = to_picture_type(readable.as_bytes(1)?[0]);
         let (_, description) = encoded_text(&text_encoding, readable)?;
         let picture_data = readable.all_bytes()?;
-        Ok(self::FrameData::APIC(APIC {
+        Ok(APIC {
             text_encoding: text_encoding,
             mime_type: mine_type,
             picture_type: picture_type,
             description: description,
             picture_data: picture_data
-        }))
+        })
     }
 }
 
 // Audio seek point index
 #[derive(Debug)]
-struct ASPI {
+pub struct ASPI {
     indexed_data_start: u32,
     indexed_data_length: u32,
     number_of_index_points: u16,
@@ -359,7 +127,7 @@ struct ASPI {
 
 // Comments
 #[derive(Debug)]
-struct COMM {
+pub struct COMM {
     text_encoding: ::id3v2::bytes::TextEncoding,
     language: String,
     short_description: String,
@@ -367,7 +135,6 @@ struct COMM {
 }
 
 impl COMM {
-
     pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
         &self.text_encoding
     }
@@ -385,30 +152,30 @@ impl COMM {
     }
 }
 
-impl FrameDataBase for COMM {
-    fn to_framedata(readable: &mut Readable) -> Result<FrameData> {
+impl FrameDataBase<COMM> for COMM {
+    fn to_framedata(readable: &mut Readable) -> Result<COMM> {
         let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, short_description) = encoded_text(&text_encoding, readable)?;
         let actual_text = readable.all_string()?;
-        Ok(self::FrameData::COMM(COMM {
+        Ok(COMM {
             text_encoding: text_encoding,
             language: language,
             short_description: short_description,
             actual_text: actual_text
-        }))
+        })
     }
 }
 
 // Commercial frame
 #[derive(Debug)]
-struct COMR {
+pub struct COMR {
     text_encoding: ::id3v2::bytes::TextEncoding,
     price_string: String,
     // 8 bit long
     valid_util: String,
     contat_url: String,
-    received_as: ReceivedAs,
+    received_as: ::id3v2::tag::frame_constants::ReceivedAs,
     name_of_seller: String,
     description: String,
     picture_mime_type: String,
@@ -417,7 +184,7 @@ struct COMR {
 
 // Encryption method registration
 #[derive(Debug)]
-struct ENCR {
+pub struct ENCR {
     owner_identifier: String,
     method_symbol: u8,
     encryption_data: vec::Vec<u8>
@@ -425,20 +192,20 @@ struct ENCR {
 
 // Equalisation (2)
 #[derive(Debug)]
-struct EQU2 {
+pub struct EQU2 {
     interpolation_method: u8,
     identification: String
 }
 
 // Event timing codes
 #[derive(Debug)]
-struct ETCO {
-    time_stamp_format: TimeStampFormat
+pub struct ETCO {
+    time_stamp_format: ::id3v2::tag::frame_constants::TimeStampFormat
 }
 
 // General encapsulated object
 #[derive(Debug)]
-struct GEOB {
+pub struct GEOB {
     text_encoding: ::id3v2::bytes::TextEncoding,
     mine_type: String,
     filename: String,
@@ -448,7 +215,7 @@ struct GEOB {
 
 // Group identification registration
 #[derive(Debug)]
-struct GRID {
+pub struct GRID {
     owner_identifier: String,
     group_symbol: u8,
     group_dependent_data: vec::Vec<u8>
@@ -456,41 +223,41 @@ struct GRID {
 
 // Linked information
 #[derive(Debug)]
-struct LINK {
+pub struct LINK {
     frame_identifier: u32,
     url: String,
     additional_data: String
 }
 
-impl FrameDataBase for LINK {
-    fn to_framedata(readable: &mut Readable) -> Result<FrameData> {
+impl FrameDataBase<LINK> for LINK {
+    fn to_framedata(readable: &mut Readable) -> Result<LINK> {
         let frame_id = ::id3v2::bytes::to_u32(&readable.as_bytes(4)?);
         let (_, url) = readable.read_non_utf16_string()?;
         let additional_data = readable.all_string()?;
-        Ok(self::FrameData::LINK(LINK {
+        Ok(LINK {
             frame_identifier: frame_id,
             url: url,
             additional_data: additional_data
-        }))
+        })
     }
 }
 
 // Music CD identifier
 #[derive(Debug)]
-struct MCDI {
+pub struct MCDI {
     cd_toc: vec::Vec<u8>
 }
 
 // MPEG location lookup table
 // TODO
 #[derive(Debug)]
-struct MLLT {
+pub struct MLLT {
     data: vec::Vec<u8>
 }
 
 // Ownership frame
 #[derive(Debug)]
-struct OWNE {
+pub struct OWNE {
     text_encoding: ::id3v2::bytes::TextEncoding,
     price_paid: String,
     // 8 bit long
@@ -500,20 +267,20 @@ struct OWNE {
 
 // Private frame
 #[derive(Debug)]
-struct PRIV {
+pub struct PRIV {
     owner_identifier: String,
     private_data: vec::Vec<u8>
 }
 
 // Play counter
 #[derive(Debug)]
-struct PCNT {
+pub struct PCNT {
     counter: u32
 }
 
 // Popularimeter
 #[derive(Debug)]
-struct POPM {
+pub struct POPM {
     email_to_user: String,
     rating: u8,
     counter: u32
@@ -521,14 +288,14 @@ struct POPM {
 
 // Position synchronisation frame
 #[derive(Debug)]
-struct POSS {
-    time_stamp_format: TimeStampFormat,
+pub struct POSS {
+    time_stamp_format: ::id3v2::tag::frame_constants::TimeStampFormat,
     position: u8
 }
 
 // Recommended buffer size
 #[derive(Debug)]
-struct RBUF {
+pub struct RBUF {
     buffer_size: u32,
     embedded_info_flag: u8,
     offset_to_next_tag: u32
@@ -536,13 +303,13 @@ struct RBUF {
 
 // Relative volume adjustment (2)
 #[derive(Debug)]
-struct RVA2 {
+pub struct RVA2 {
     identification: String
 }
 
 // Reverb
 #[derive(Debug)]
-struct RVRB {
+pub struct RVRB {
     reverb_left: u16,
     reverb_right: u16,
     reverb_bounce_left: u8,
@@ -557,44 +324,44 @@ struct RVRB {
 
 // Seek frame
 #[derive(Debug)]
-struct SEEK {
+pub struct SEEK {
     next_tag: String
 }
 
 // Signature frame
 #[derive(Debug)]
-struct SIGN {
+pub struct SIGN {
     group_symbol: u8,
     signature: vec::Vec<u8>
 }
 
 // Synchronised lyric/text
 #[derive(Debug)]
-struct SYLT {
+pub struct SYLT {
     text_encoding: ::id3v2::bytes::TextEncoding,
     language: String,
-    time_stamp_format: TimeStampFormat,
-    content_type: ContentType,
+    time_stamp_format: ::id3v2::tag::frame_constants::TimeStampFormat,
+    content_type: ::id3v2::tag::frame_constants::ContentType,
     content_descriptor: String
 }
 
 // Synchronised tempo codes
 #[derive(Debug)]
-struct SYTC {
-    time_stamp_format: TimeStampFormat,
+pub struct SYTC {
+    time_stamp_format: ::id3v2::tag::frame_constants::TimeStampFormat,
     tempo_data: vec::Vec<u8>
 }
 
 // Unique file identifier
 #[derive(Debug)]
-struct UFID {
+pub struct UFID {
     owner_identifier: String,
     identifier: vec::Vec<u8>
 }
 
 // Terms of use
 #[derive(Debug)]
-struct USER {
+pub struct USER {
     text_encoding: ::id3v2::bytes::TextEncoding,
     language: String,
     actual_text: String
@@ -602,7 +369,7 @@ struct USER {
 
 // Unsynchronised lyric/text transcription
 #[derive(Debug)]
-struct USLT {
+pub struct USLT {
     text_encoding: ::id3v2::bytes::TextEncoding,
     language: String,
     content_descriptor: String,
@@ -610,13 +377,12 @@ struct USLT {
 }
 
 #[derive(Debug)]
-struct TEXT {
+pub struct TEXT {
     text_encoding: ::id3v2::bytes::TextEncoding,
     text: String
 }
 
 impl TEXT {
-
     pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
         &self.text_encoding
     }
@@ -626,8 +392,8 @@ impl TEXT {
     }
 }
 
-impl FrameDataBase for TEXT {
-    fn to_framedata(readable: &mut Readable) -> Result<FrameData> {
+impl FrameDataBase<TEXT> for TEXT {
+    fn to_framedata(readable: &mut Readable) -> Result<TEXT> {
         let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
         let data = readable.all_bytes()?;
         let text = match text_encoding {
@@ -644,31 +410,65 @@ impl FrameDataBase for TEXT {
                 .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?
         };
 
-        Ok(self::FrameData::TEXT(TEXT {
+        Ok(TEXT {
             text_encoding: text_encoding,
             text: text
-        }))
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct TXXX {
+    text_encoding: ::id3v2::bytes::TextEncoding,
+    description: String,
+    value: String
+}
+
+impl TXXX {
+    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+        &self.text_encoding
+    }
+
+    pub fn get_description(&self) -> &str {
+        self.description.as_str()
+    }
+
+    pub fn get_value(&self) -> &str {
+        self.value.as_str()
+    }
+}
+
+impl FrameDataBase<TXXX> for TXXX {
+    fn to_framedata(readable: &mut Readable) -> Result<TXXX> {
+        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+        let (_, description) = encoded_text(&text_encoding, readable)?;
+        let value = readable.all_string()?;
+        Ok(TXXX {
+            text_encoding: text_encoding,
+            description: description,
+            value: value
+        })
     }
 }
 
 // User defined URL link frame
 #[derive(Debug)]
-struct WXXX {
+pub struct WXXX {
     text_encoding: ::id3v2::bytes::TextEncoding,
     description: String,
     url: String
 }
 
-impl FrameDataBase for WXXX {
-    fn to_framedata(readable: &mut Readable) -> Result<FrameData> {
+impl FrameDataBase<WXXX> for WXXX {
+    fn to_framedata(readable: &mut Readable) -> Result<WXXX> {
         let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, description) = encoded_text(&text_encoding, readable)?;
         let url = readable.all_string()?;
-        Ok(self::FrameData::WXXX(WXXX {
+        Ok(WXXX {
             text_encoding: text_encoding,
             description: description,
             url: url
-        }))
+        })
     }
 }
 
@@ -745,27 +545,27 @@ impl Frame {
     }
 
     // @see http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
-    pub fn has_flag(&self, flag: FrameHeaderFlag, major_version: u8) -> bool {
+    pub fn has_flag(&self, flag: ::id3v2::tag::frame_constants::FrameHeaderFlag, major_version: u8) -> bool {
         if major_version == 3 {
             match flag {
-                FrameHeaderFlag::TagAlter => self.status_flag & 0x01 << 7 != 0,
-                FrameHeaderFlag::FileAlter => self.status_flag & 0x01 << 6 != 0,
-                FrameHeaderFlag::ReadOnly => self.status_flag & 0x01 << 5 != 0,
-                FrameHeaderFlag::Compression => self.encoding_flag & 0x01 << 7 != 0,
-                FrameHeaderFlag::Encryption => self.encoding_flag & 0x01 << 6 != 0,
-                FrameHeaderFlag::GroupIdentity => self.encoding_flag & 0x01 << 5 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::TagAlter => self.status_flag & 0x01 << 7 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::FileAlter => self.status_flag & 0x01 << 6 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::ReadOnly => self.status_flag & 0x01 << 5 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::Compression => self.encoding_flag & 0x01 << 7 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::Encryption => self.encoding_flag & 0x01 << 6 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::GroupIdentity => self.encoding_flag & 0x01 << 5 != 0,
                 _ => false
             }
         } else if major_version == 4 {
             match flag {
-                FrameHeaderFlag::TagAlter => self.status_flag & 0x01 << 6 != 0,
-                FrameHeaderFlag::FileAlter => self.status_flag & 0x01 << 5 != 0,
-                FrameHeaderFlag::ReadOnly => self.status_flag & 0x01 << 4 != 0,
-                FrameHeaderFlag::GroupIdentity => self.encoding_flag & 0x01 << 6 != 0,
-                FrameHeaderFlag::Compression => self.encoding_flag & 0x01 << 3 != 0,
-                FrameHeaderFlag::Encryption => self.encoding_flag & 0x01 << 2 != 0,
-                FrameHeaderFlag::Unsynchronisation => self.encoding_flag & 0x01 << 1 != 0,
-                FrameHeaderFlag::DataLength => self.encoding_flag & 0x01 != 0
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::TagAlter => self.status_flag & 0x01 << 6 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::FileAlter => self.status_flag & 0x01 << 5 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::ReadOnly => self.status_flag & 0x01 << 4 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::GroupIdentity => self.encoding_flag & 0x01 << 6 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::Compression => self.encoding_flag & 0x01 << 3 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::Encryption => self.encoding_flag & 0x01 << 2 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::Unsynchronisation => self.encoding_flag & 0x01 << 1 != 0,
+                ::id3v2::tag::frame_constants::FrameHeaderFlag::DataLength => self.encoding_flag & 0x01 != 0
             }
         } else {
             warn!("Frame.has_flag=> Unknown version!");
@@ -774,24 +574,67 @@ impl Frame {
     }
 
     // @see http://id3.org/id3v2.4.0-structure > 4. ID3v2 frame overview
-    pub fn get_data(&self) -> Result<FrameData> {
+    pub fn get_data(&self) -> Result<::id3v2::tag::frame_constants::FrameData> {
         let mut readable = ::readable::factory::from_byte(self.data.clone())?;
-        if let Some('T') = self.id.chars().next() {
-            return TEXT::to_framedata(&mut readable);
-        }
-
-        if let Some('W') = self.id.chars().next() {
-            if self.id != WXXX_STR {
-                return LINK::to_framedata(&mut readable);
-            }
-        }
-
-        match self.id.as_ref() {
-            self::AENC_STR => AENC::to_framedata(&mut readable),
-            self::APIC_STR => APIC::to_framedata(&mut readable),
-            self::COMM_STR => COMM::to_framedata(&mut readable),
-            self::WXXX_STR => WXXX::to_framedata(&mut readable),
-            _ => self::TEXT::to_framedata(&mut readable)
-        }
+        Ok(match self.id.as_ref() {
+            ::id3v2::tag::frame_constants::id::AENC_STR => ::id3v2::tag::frame_constants::FrameData::AENC(AENC::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::APIC_STR => ::id3v2::tag::frame_constants::FrameData::APIC(APIC::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::COMM_STR => ::id3v2::tag::frame_constants::FrameData::COMM(COMM::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TALB_STR => ::id3v2::tag::frame_constants::FrameData::TALB(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TBPM_STR => ::id3v2::tag::frame_constants::FrameData::TBPM(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TCOM_STR => ::id3v2::tag::frame_constants::FrameData::TCOM(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TCON_STR => ::id3v2::tag::frame_constants::FrameData::TCON(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TCOP_STR => ::id3v2::tag::frame_constants::FrameData::TCOP(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TDEN_STR => ::id3v2::tag::frame_constants::FrameData::TDEN(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TDLY_STR => ::id3v2::tag::frame_constants::FrameData::TDLY(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TDOR_STR => ::id3v2::tag::frame_constants::FrameData::TDOR(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TDRC_STR => ::id3v2::tag::frame_constants::FrameData::TDRC(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TDRL_STR => ::id3v2::tag::frame_constants::FrameData::TDRL(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TDTG_STR => ::id3v2::tag::frame_constants::FrameData::TDTG(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TENC_STR => ::id3v2::tag::frame_constants::FrameData::TENC(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TEXT_STR => ::id3v2::tag::frame_constants::FrameData::TEXT(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TFLT_STR => ::id3v2::tag::frame_constants::FrameData::TFLT(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TIPL_STR => ::id3v2::tag::frame_constants::FrameData::TIPL(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TIT1_STR => ::id3v2::tag::frame_constants::FrameData::TIT1(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TIT2_STR => ::id3v2::tag::frame_constants::FrameData::TIT2(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TIT3_STR => ::id3v2::tag::frame_constants::FrameData::TIT3(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TKEY_STR => ::id3v2::tag::frame_constants::FrameData::TKEY(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TLAN_STR => ::id3v2::tag::frame_constants::FrameData::TLAN(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TLEN_STR => ::id3v2::tag::frame_constants::FrameData::TLEN(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TMCL_STR => ::id3v2::tag::frame_constants::FrameData::TMCL(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TMED_STR => ::id3v2::tag::frame_constants::FrameData::TMED(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TMOO_STR => ::id3v2::tag::frame_constants::FrameData::TMOO(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TOAL_STR => ::id3v2::tag::frame_constants::FrameData::TOAL(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TOFN_STR => ::id3v2::tag::frame_constants::FrameData::TOFN(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TOLY_STR => ::id3v2::tag::frame_constants::FrameData::TOLY(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TOPE_STR => ::id3v2::tag::frame_constants::FrameData::TOPE(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TOWN_STR => ::id3v2::tag::frame_constants::FrameData::TOWN(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TPE1_STR => ::id3v2::tag::frame_constants::FrameData::TPE1(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TPE2_STR => ::id3v2::tag::frame_constants::FrameData::TPE2(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TPE3_STR => ::id3v2::tag::frame_constants::FrameData::TPE3(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TPE4_STR => ::id3v2::tag::frame_constants::FrameData::TPE4(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TPOS_STR => ::id3v2::tag::frame_constants::FrameData::TPOS(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TPRO_STR => ::id3v2::tag::frame_constants::FrameData::TPRO(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TPUB_STR => ::id3v2::tag::frame_constants::FrameData::TPUB(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TRCK_STR => ::id3v2::tag::frame_constants::FrameData::TRCK(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TRSN_STR => ::id3v2::tag::frame_constants::FrameData::TRSN(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TRSO_STR => ::id3v2::tag::frame_constants::FrameData::TRSO(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TSOA_STR => ::id3v2::tag::frame_constants::FrameData::TSOA(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TSOP_STR => ::id3v2::tag::frame_constants::FrameData::TSOP(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TSOT_STR => ::id3v2::tag::frame_constants::FrameData::TSOT(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TSRC_STR => ::id3v2::tag::frame_constants::FrameData::TSRC(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TSSE_STR => ::id3v2::tag::frame_constants::FrameData::TSSE(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TSST_STR => ::id3v2::tag::frame_constants::FrameData::TSST(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TXXX_STR => ::id3v2::tag::frame_constants::FrameData::TXXX(TXXX::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::WCOM_STR => ::id3v2::tag::frame_constants::FrameData::WCOM(LINK::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::WOAF_STR => ::id3v2::tag::frame_constants::FrameData::WOAF(LINK::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::WOAR_STR => ::id3v2::tag::frame_constants::FrameData::WOAR(LINK::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::WOAS_STR => ::id3v2::tag::frame_constants::FrameData::WOAS(LINK::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::WORS_STR => ::id3v2::tag::frame_constants::FrameData::WORS(LINK::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::WPAY_STR => ::id3v2::tag::frame_constants::FrameData::WPAY(LINK::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::WPUB_STR => ::id3v2::tag::frame_constants::FrameData::WPUB(LINK::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::WXXX_STR => ::id3v2::tag::frame_constants::FrameData::WXXX(WXXX::to_framedata(&mut readable)?),
+            _ => ::id3v2::tag::frame_constants::FrameData::TEXT(self::TEXT::to_framedata(&mut readable)?)
+        })
     }
 }

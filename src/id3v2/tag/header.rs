@@ -20,7 +20,6 @@
 //OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //SOFTWARE.
 
-use id3v2;
 use std::vec;
 
 pub enum HeaderFlag {
@@ -39,7 +38,7 @@ pub struct Header {
 
 impl Header {
     fn _head_size(bytes: &vec::Vec<u8>) -> u32 {
-        id3v2::bytes::to_synchsafe(&bytes[6..10])
+        ::id3v2::bytes::to_synchsafe(&bytes[6..10])
     }
 
     fn _is_valid_id(bytes: &vec::Vec<u8>) -> bool {
@@ -55,7 +54,7 @@ impl Header {
             };
         }
 
-        // see http://id3.org/id3v2.4.0-structure > 3.1 ID3v2 Header
+        // see http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header
         Header {
             version: bytes[3] as u8,
             minor_version: bytes[4] as u8,
@@ -72,7 +71,7 @@ impl Header {
         self.minor_version
     }
 
-    // see references/id3v2.md#ID3v2 Header
+    // see references/id3v2.md#id3v2 Header
     pub fn has_flag(&self, flag: HeaderFlag) -> bool {
         if self.version == 3 {
             match flag {

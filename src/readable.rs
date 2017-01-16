@@ -25,14 +25,24 @@ use std::{io, vec};
 use std::io::{Read, Seek, SeekFrom};
 
 pub struct Readable<I> where I: io::Read + io::Seek {
-    input: io::BufReader<I>
+    input: I
 }
 
 impl<I> Readable<I> where I: io::Read + io::Seek {
     pub fn new(input: I) -> Self {
         Readable {
-            input: io::BufReader::new(input)
+            input: input
         }
+    }
+
+    pub fn all_bytes(&mut self) -> Result<vec::Vec<u8>> {
+        let mut buf = vec![];
+        self.input.read_to_end(&mut buf)?;
+        Ok(buf)
+    }
+
+    pub fn all_string(&mut self) -> Result<String> {
+        Ok(String::from_utf8_lossy(&self.all_bytes()?).into_owned())
     }
 
     pub fn as_bytes(&mut self, amount: usize) -> Result<vec::Vec<u8>> {
@@ -51,6 +61,41 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
         Ok(String::from_utf8_lossy(&self.as_bytes(amount)?).into_owned())
     }
 
+    // <text>0x00 0x00
+    pub fn read_utf16_string(&mut self) -> Result<(usize, String)> {
+        let mut ret = vec![];
+        let mut read = 0;
+        let mut buf = vec![0u8; 1];
+        loop {
+            read = read + self.input.read(&mut buf)?;
+            if buf[0] == 0x00 {
+                read = read + self.input.read(&mut buf)?;
+                if buf[0] == 0x00 { break; }
+                ret.push(0x00);
+                ret.push(buf[0]);
+            } else {
+                ret.push(buf[0]);
+            }
+        }
+        Ok((read, String::from_utf8_lossy(&ret).into_owned()))
+    }
+
+    // <text>0x00
+    pub fn read_non_utf16_string(&mut self) -> Result<(usize, String)> {
+        let mut ret = vec![];
+        let mut read = 0;
+        let mut buf = vec![0u8; 1];
+        loop {
+            read = read + self.input.read(&mut buf)?;
+            if buf[0] == 0x00 {
+                break
+            } else {
+                ret.push(buf[0]);
+            }
+        }
+        Ok((read, String::from_utf8_lossy(&ret).into_owned()))
+    }
+
     pub fn skip(&mut self, amount: i64) -> Result<u64> {
         Ok(self.input.seek(SeekFrom::Current(amount))?)
     }
@@ -61,7 +106,7 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
 }
 
 pub mod factory {
-    use std::{fs, io};
+    use std::{fs, io, vec};
     use std::io::Result;
 
     pub fn from_path(str: &str) -> Result<super::Readable<fs::File>> {
@@ -71,10 +116,16 @@ pub mod factory {
     pub fn from_str(str: &str) -> Result<super::Readable<io::Cursor<String>>> {
         Ok(super::Readable::new(io::Cursor::new(str.to_string())))
     }
+
+    pub fn from_byte(bytes: vec::Vec<u8>) -> Result<super::Readable<io::Cursor<vec::Vec<u8>>>> {
+        Ok(super::Readable::new(io::Cursor::new(bytes)))
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     #[test]
     fn test_bytes() {
         let valid = "0123456789";
@@ -110,5 +161,38 @@ mod tests {
         } else {
             assert!(false);
         }
+    }
+
+    #[test]
+    fn test_byte1() {
+        let str = "AB가나01".to_string();
+        if let Ok(mut readable) = super::factory::from_byte(str.into_bytes()) {
+            assert!(readable.skip(1).is_ok());
+            assert_eq!(readable.as_string(1).unwrap(), "B");
+            // utf8, 3bytes
+            assert_eq!(readable.as_string(3).unwrap(), "가");
+            assert_eq!(readable.as_string(5).unwrap(), "나01");
+            assert!(readable.as_bytes(1).is_err());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_read_utf16_string1() {
+        let str = "AB가나01".to_string();
+        let mut bytes: vec::Vec<u8> = str.into_bytes();
+        bytes.push(0x00);
+        bytes.push(0x01);
+        bytes.push(0x00);
+        bytes.push(0x00);
+        bytes.push(0x02);
+        assert_eq!(bytes.len(), 15);
+        let mut readable = super::factory::from_byte(bytes).unwrap();
+        let (size, read) = readable.read_utf16_string().unwrap();
+        assert_eq!(size, 14);
+        assert_eq!("AB\u{ac00}\u{b098}01\u{0}\u{1}", read);
+        assert!(readable.skip(1).is_ok());
+        assert!(readable.as_bytes(1).is_err());
     }
 }

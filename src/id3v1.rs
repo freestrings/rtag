@@ -20,7 +20,6 @@
 //OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //SOFTWARE.
 
-use readable;
 use std::{io, vec};
 use std::io::Result;
 
@@ -36,7 +35,7 @@ pub struct ID3v1Tag {
 
 // @see http://id3.org/ID3v1
 impl ID3v1Tag {
-    pub fn new<T: io::Read + io::Seek>(readable: &mut readable::Readable<T>, file_len: u64) -> Result<Self> {
+    pub fn new<T: io::Read + io::Seek>(readable: &mut ::readable::Readable<T>, file_len: u64) -> Result<Self> {
         // id3v1 tag length is 128 bytes.
         if file_len < 128 as u64 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Error1"));
@@ -145,7 +144,7 @@ mod tests {
     fn id3v1_test1() {
         let file = fs::File::open("./resources/file1.txt").unwrap();
         let len = file.metadata().unwrap().len();
-        let mut readable = readable::Readable::new(file);
+        let mut readable = ::readable::Readable::new(file);
         if let Err(msg) = super::ID3v1Tag::new(&mut readable, len) {
             assert_eq!(msg.to_string(), "Error1");
         }
@@ -155,7 +154,7 @@ mod tests {
     fn id3v1_test2() {
         let file = fs::File::open("./resources/empty-meta.mp3").unwrap();
         let len = file.metadata().unwrap().len();
-        let mut readable = readable::Readable::new(file);
+        let mut readable = ::readable::Readable::new(file);
         assert!(super::ID3v1Tag::new(&mut readable, len).is_err());
     }
 
@@ -163,7 +162,7 @@ mod tests {
     fn id3v1_test3() {
         let file = fs::File::open("./resources/id3v1-id3v2.mp3").unwrap();
         let len = file.metadata().unwrap().len();
-        let mut readable = readable::Readable::new(file);
+        let mut readable = ::readable::Readable::new(file);
         let id3v1 = super::ID3v1Tag::new(&mut readable, len).unwrap();
         assert_eq!(id3v1.artist(), "Artist");
         assert_eq!(id3v1.album(), "");
@@ -176,7 +175,7 @@ mod tests {
     fn id3v1_test4() {
         let id3v1_tag = "TAGTITLETITLETITLETITLETITLETITLEARTISTARTISTARTISTARTISTARTISTALBUMALBUMALBUMALBUMALBUMALBUM2017COMMENTCOMMENTCOMMENTCOMMENTCO4";
 
-        let mut readable = readable::factory::from_str(id3v1_tag).unwrap();
+        let mut readable = ::readable::factory::from_str(id3v1_tag).unwrap();
         let id3v1 = super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64).unwrap();
         assert_eq!(id3v1.title(), "TITLETITLETITLETITLETITLETITLE");
         assert_eq!(id3v1.artist(), "ARTISTARTISTARTISTARTISTARTIST");
@@ -189,7 +188,7 @@ mod tests {
     fn id3v1_test5() {
         let id3v1_tag = "TAGTITLE                         ARTIST                        ALBUM                         2017COMMENT                        ";
 
-        let mut readable = readable::factory::from_str(id3v1_tag).unwrap();
+        let mut readable = ::readable::factory::from_str(id3v1_tag).unwrap();
         let id3v1 = super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64).unwrap();
         assert_eq!(id3v1.title(), "TITLE");
         assert_eq!(id3v1.artist(), "ARTIST");

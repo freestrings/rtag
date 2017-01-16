@@ -28,48 +28,20 @@ mod tag;
 mod tests {
     extern crate env_logger;
 
-    use readable;
     use std::vec;
-    use super::reader::FrameIterator;
-
-    #[test]
-    fn idv3_230_header() {
-        let _ = env_logger::init();
-        let mut readable = readable::factory::from_path("./resources/230.mp3").unwrap();
-        let bytes = readable.as_bytes(10).unwrap();
-        let header = super::tag::header::Header::new(bytes);
-        assert_eq!(header.get_version(), 3);
-        assert_eq!(header.get_minor_version(), 0);
-        assert_eq!(header.has_flag(super::tag::header::HeaderFlag::Unsynchronisation), false);
-        assert_eq!(header.has_flag(super::tag::header::HeaderFlag::ExtendedHeader), false);
-        assert_eq!(header.has_flag(super::tag::header::HeaderFlag::ExperimentalIndicator), false);
-        assert_eq!(header.get_size(), 1171);
-    }
-
-    #[test]
-    fn idv3_240_header() {
-        let _ = env_logger::init();
-
-        let mut readable = readable::factory::from_path("./resources/240.mp3").unwrap();
-        let bytes = readable.as_bytes(10).unwrap();
-        let header = super::tag::header::Header::new(bytes);
-        assert_eq!(header.get_version(), 4);
-        assert_eq!(header.get_minor_version(), 0);
-        assert_eq!(header.has_flag(super::tag::header::HeaderFlag::Unsynchronisation), false);
-        assert_eq!(header.has_flag(super::tag::header::HeaderFlag::ExtendedHeader), false);
-        assert_eq!(header.has_flag(super::tag::header::HeaderFlag::ExperimentalIndicator), false);
-        assert_eq!(header.get_size(), 165126);
-    }
+    use ::id3v2::reader::FrameIterator;
 
     fn _id_compare(file_path: &'static str, mut ids: vec::Vec<&str>) {
         let _ = env_logger::init();
 
-        let mut readable = readable::factory::from_path(file_path).unwrap();
-        let mut frame_reader = super::reader::FrameReader::new(&mut readable).unwrap();
+        let mut readable = ::readable::factory::from_path(file_path).unwrap();
+        let mut frame_reader = ::id3v2::reader::FrameReader::new(&mut readable).unwrap();
         ids.reverse();
         loop {
             if frame_reader.has_next_frame() {
+
                 if let Ok(frame) = frame_reader.next_frame() {
+                    debug!("{}: {:?}", frame.get_id(), ids);
                     assert_eq!(ids.pop().unwrap(), frame.get_id())
                 }
             } else {
@@ -81,19 +53,54 @@ mod tests {
     fn _data_compare(file_path: &'static str, mut data: vec::Vec<&str>) {
         let _ = env_logger::init();
 
-        let mut readable = readable::factory::from_path(file_path).unwrap();
-        let mut frame_reader = super::reader::FrameReader::new(&mut readable).unwrap();
+        let mut readable = ::readable::factory::from_path(file_path).unwrap();
+        let mut frame_reader = ::id3v2::reader::FrameReader::new(&mut readable).unwrap();
         data.reverse();
         loop {
             if frame_reader.has_next_frame() {
                 if let Ok(frame) = frame_reader.next_frame() {
                     debug!("{}: {:?}", frame.get_id(), frame.get_data());
-                    assert_eq!(data.pop().unwrap(), frame.get_data().unwrap())
+
+                    match frame.get_data().unwrap() {
+                        ::id3v2::tag::frame::FrameData::TEXT(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
+                        ::id3v2::tag::frame::FrameData::COMM(frame) => assert_eq!(data.pop().unwrap(), format!("{}\u{0}{}{}", frame.get_language(), frame.get_short_description(), frame.get_actual_text())),
+                        ::id3v2::tag::frame::FrameData::TRCK(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
+                        _ => ()
+                    };
                 }
             } else {
                 break;
             }
         }
+    }
+
+    #[test]
+    fn idv3_230_header() {
+        let _ = env_logger::init();
+        let mut readable = ::readable::factory::from_path("./resources/230.mp3").unwrap();
+        let bytes = readable.as_bytes(10).unwrap();
+        let header = ::id3v2::tag::header::Header::new(bytes);
+        assert_eq!(header.get_version(), 3);
+        assert_eq!(header.get_minor_version(), 0);
+        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::Unsynchronisation), false);
+        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::ExtendedHeader), false);
+        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::ExperimentalIndicator), false);
+        assert_eq!(header.get_size(), 1171);
+    }
+
+    #[test]
+    fn idv3_240_header() {
+        let _ = env_logger::init();
+
+        let mut readable = ::readable::factory::from_path("./resources/240.mp3").unwrap();
+        let bytes = readable.as_bytes(10).unwrap();
+        let header = ::id3v2::tag::header::Header::new(bytes);
+        assert_eq!(header.get_version(), 4);
+        assert_eq!(header.get_minor_version(), 0);
+        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::Unsynchronisation), false);
+        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::ExtendedHeader), false);
+        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::ExperimentalIndicator), false);
+        assert_eq!(header.get_size(), 165126);
     }
 
     #[test]
@@ -107,12 +114,17 @@ mod tests {
     }
 
     #[test]
-    fn idv3_240_frame_id() {
+    fn idv3_240_frame_id1() {
         _id_compare("./resources/240.mp3", vec!["TDRC", "TRCK", "TPOS", "TPE1", "TALB", "TPE2", "TIT2", "TSRC", "TCON", "COMM"]);
     }
 
     #[test]
-    fn idv3_230_frame_data() {
+    fn id3_240_frame_id2() {
+        _id_compare("./resources/id3v1-id3v2-albumimage.mp3", vec!["TENC", "WXXX", "TCOP", "TOPE", "TCOM", "COMM", "TPE1", "TALB", "COMM", "TRCK", "TDRC", "TCON", "TIT2", "APIC", "WCOM", "WCOP", "WOAR", "WOAF", "WOAS", "WORS", "WPAY", "WPUB"]);
+    }
+
+    #[test]
+    fn idv3_230_frame_data1() {
         _data_compare("./resources/id3v1-id3v2.mp3", vec!["타이틀", "Artist", "アルバム", "Album Artist", "Heavy Metal", "eng\u{0}!@#$", "1", "0"]);
     }
 
@@ -122,12 +134,8 @@ mod tests {
     }
 
     #[test]
-    fn idv3_240_frame_data() {
+    fn idv3_240_frame_data1() {
         _data_compare("./resources/240.mp3", vec!["2017", "1", "1", "아티스트", "Album", "Artist/아티스트", "타이틀", "ABAB", "Alternative", "eng\u{0}~~"]);
     }
 
-    #[test]
-    fn id3_240_frame_data2() {
-        _id_compare("./resources/id3v1-id3v2-albumimage.mp3", vec!["TENC", "WXXX", "TCOP", "TOPE", "TCOM", "COMM", "TPE1", "TALB", "COMM", "TRCK", "TDRC", "TCON", "TIT2", "APIC"]);
-    }
 }

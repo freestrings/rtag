@@ -137,7 +137,6 @@ impl ID3v1Tag {
 
 #[cfg(test)]
 mod tests {
-    use readable;
     use std::fs;
 
     #[test]

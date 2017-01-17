@@ -39,7 +39,6 @@ mod tests {
         ids.reverse();
         loop {
             if frame_reader.has_next_frame() {
-
                 if let Ok(frame) = frame_reader.next_frame() {
                     debug!("{}: {:?}", frame.get_id(), ids);
                     assert_eq!(ids.pop().unwrap(), frame.get_id())
@@ -182,4 +181,51 @@ mod tests {
         _data_compare("./resources/240.mp3", vec!["2017", "1", "1", "아티스트", "Album", "Artist/아티스트", "타이틀", "ABAB", "Alternative", "eng\u{0}~~"]);
     }
 
+    #[test]
+    fn id3v2_etco() {
+        let _ = env_logger::init();
+
+        let mut readable = ::readable::factory::from_path("./resources/230-etco.mp3").unwrap();
+        let mut frame_reader = ::id3v2::reader::FrameReader::new(&mut readable).unwrap();
+        if let Ok(frame) = frame_reader.next_frame() {
+            assert_eq!("ETCO", frame.get_id());
+
+            match frame.get_data().unwrap() {
+                ::id3v2::tag::frame_constants::FrameData::ETCO(frame) => {
+                    let timestamp_format = frame.get_timestamp_format();
+                    assert_eq!(timestamp_format, &::id3v2::tag::frame_constants::TimestampFormat::Milliseconds);
+
+                    let event_timing_codes = frame.get_event_timing_codes();
+                    match event_timing_codes[0] {
+                        ::id3v2::tag::frame_constants::EventTimingCode::MainPartStart(timestamp) => assert_eq!(timestamp, 152110),
+                        _ => assert!(false)
+                    }
+                },
+                _ => assert!(false)
+            }
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn id3v2_pcnt() {
+        let _ = env_logger::init();
+
+        let mut readable = ::readable::factory::from_path("./resources/240-pcnt.mp3").unwrap();
+        let mut frame_reader = ::id3v2::reader::FrameReader::new(&mut readable).unwrap();
+        if let Ok(frame) = frame_reader.next_frame() {
+            assert_eq!("PCNT", frame.get_id());
+
+            match frame.get_data().unwrap() {
+                ::id3v2::tag::frame_constants::FrameData::PCNT(frame) => {
+                    let counter = frame.get_counter();
+                    assert_eq!(counter, 256);
+                },
+                _ => assert!(false)
+            }
+        } else {
+            assert!(false);
+        }
+    }
 }

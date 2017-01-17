@@ -62,14 +62,18 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
     }
 
     // <text>0x00 0x00
-    pub fn read_utf16_string(&mut self) -> Result<(usize, String)> {
+    pub fn read_terminated_utf16(&mut self) -> Result<(usize, String)> {
         let mut ret = vec![];
-        let mut read = 0;
+        let mut read_all = 0;
         let mut buf = vec![0u8; 1];
         loop {
-            read = read + self.input.read(&mut buf)?;
+            let read = self.input.read(&mut buf)?;
+            if read <= 0 {
+                break;
+            }
+            read_all = read_all + read;
             if buf[0] == 0x00 {
-                read = read + self.input.read(&mut buf)?;
+                read_all = read_all + self.input.read(&mut buf)?;
                 if buf[0] == 0x00 { break; }
                 ret.push(0x00);
                 ret.push(buf[0]);
@@ -77,23 +81,27 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
                 ret.push(buf[0]);
             }
         }
-        Ok((read, String::from_utf8_lossy(&ret).into_owned()))
+        Ok((read_all, String::from_utf8_lossy(&ret).into_owned()))
     }
 
     // <text>0x00
-    pub fn read_non_utf16_string(&mut self) -> Result<(usize, String)> {
+    pub fn read_terminated_null(&mut self) -> Result<(usize, String)> {
         let mut ret = vec![];
-        let mut read = 0;
+        let mut read_all = 0;
         let mut buf = vec![0u8; 1];
         loop {
-            read = read + self.input.read(&mut buf)?;
+            let read = self.input.read(&mut buf)?;
+            if read <= 0 {
+                break;
+            }
+            read_all = read_all + read;
             if buf[0] == 0x00 {
-                break
+                break;
             } else {
                 ret.push(buf[0]);
             }
         }
-        Ok((read, String::from_utf8_lossy(&ret).into_owned()))
+        Ok((read_all, String::from_utf8_lossy(&ret).into_owned()))
     }
 
     pub fn skip(&mut self, amount: i64) -> Result<u64> {
@@ -189,7 +197,7 @@ mod tests {
         bytes.push(0x02);
         assert_eq!(bytes.len(), 15);
         let mut readable = super::factory::from_byte(bytes).unwrap();
-        let (size, read) = readable.read_utf16_string().unwrap();
+        let (size, read) = readable.read_terminated_utf16().unwrap();
         assert_eq!(size, 14);
         assert_eq!("AB\u{ac00}\u{b098}01\u{0}\u{1}", read);
         assert!(readable.skip(1).is_ok());

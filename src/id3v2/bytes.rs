@@ -35,11 +35,18 @@ pub fn to_u16(bytes: &[u8]) -> u16 {
 }
 
 pub fn to_u32(bytes: &[u8]) -> u32 {
-    let mut v: u32 = (bytes[3] & 0xff) as u32;
-    v = v | ((bytes[2] & 0xff) as u32) << 8;
-    v = v | ((bytes[1] & 0xff) as u32) << 16;
-    v = v | ((bytes[0] & 0xff) as u32) << 24;
-    v
+    if bytes.len() == 3 {
+        let mut v: u32 = (bytes[2] & 0xff) as u32;
+        v = v | ((bytes[1] & 0xff) as u32) << 8;
+        v = v | ((bytes[0] & 0xff) as u32) << 16;
+        v
+    } else {
+        let mut v: u32 = (bytes[3] & 0xff) as u32;
+        v = v | ((bytes[2] & 0xff) as u32) << 8;
+        v = v | ((bytes[1] & 0xff) as u32) << 16;
+        v = v | ((bytes[0] & 0xff) as u32) << 24;
+        v
+    }
 }
 
 // Sizes are 4bytes long big-endian but first bit is 0

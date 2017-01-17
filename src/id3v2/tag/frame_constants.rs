@@ -174,7 +174,7 @@ pub enum FrameData {
     WXXX(WXXX)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum PictureType {
     Other,
     FileIcon,
@@ -199,7 +199,7 @@ pub enum PictureType {
     PublisherLogoType
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ReceivedAs {
     Other,
     StandardCDAlbum,
@@ -213,6 +213,12 @@ pub enum ReceivedAs {
 }
 
 #[derive(Debug)]
+pub enum InterpolationMethod {
+    Band,
+    Linear
+}
+
+#[derive(Debug, PartialEq)]
 pub enum ContentType {
     Other,
     Lyrics,
@@ -225,12 +231,45 @@ pub enum ContentType {
     UrlsToImages
 }
 
-#[derive(Debug)]
-pub enum TimeStampFormat {
+#[derive(Debug, PartialEq)]
+pub enum TimestampFormat {
     MpecFrames,
     Milliseconds
 }
 
+#[derive(Debug)]
+pub enum EventTimingCode {
+    Padding(u32),
+    EndOfInitialSilence(u32),
+    IntroStart(u32),
+    MainPartStart(u32),
+    OutroStart(u32),
+    OutroEnd(u32),
+    VerseStart(u32),
+    RefrainStart(u32),
+    InterludeStart(u32),
+    ThemeStart(u32),
+    VariationStart(u32),
+    KeyChange(u32),
+    TimeChange(u32),
+    MomentaryUnwantedNoise(u32),
+    SustainedNoise(u32),
+    SustainedNoiseEnd(u32),
+    IntroEnd(u32),
+    MainPartEnd(u32),
+    VerseEnd(u32),
+    RefrainEnd(u32),
+    ThemeEnd(u32),
+    Profanity(u32),
+    ProfanityEnd(u32),
+    ReservedForFutureUse(u32),
+    NotPredefinedSynch(u32),
+    AudioEnd(u32),
+    AudioFileEnds(u32),
+    OneMoreByteOfEventsFollows(u32)
+}
+
+#[derive(Debug, PartialEq)]
 pub enum FrameHeaderFlag {
     TagAlter,
     FileAlter,

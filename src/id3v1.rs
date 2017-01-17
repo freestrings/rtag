@@ -20,8 +20,7 @@
 //OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //SOFTWARE.
 
-use std::{io, vec};
-use std::io::Result;
+use std::{io, result, vec};
 
 pub struct ID3v1Tag {
     title: String,
@@ -35,16 +34,18 @@ pub struct ID3v1Tag {
 
 // @see http://id3.org/ID3v1
 impl ID3v1Tag {
-    pub fn new<T: io::Read + io::Seek>(readable: &mut ::readable::Readable<T>, file_len: u64) -> Result<Self> {
+    pub fn new<T: io::Read + io::Seek>(readable: &mut ::readable::Readable<T>, file_len: u64)
+                                       -> result::Result<Self, ::errors::ParsingError> {
         // id3v1 tag length is 128 bytes.
         if file_len < 128 as u64 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid tag length. [Error1]"));
+            return Err(::errors::ParsingError::BadData(format!("Bad tag length: {}", file_len)));
         }
         // tag position is last 128 bytes.
         readable.skip((file_len - 128 as u64) as i64)?;
 
-        if readable.as_string(3)? != "TAG" {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Support only 'ID3v1'. [Error2]"));
+        let tad_id = readable.as_string(3)?;
+        if tad_id != "TAG" {
+            return Err(::errors::ParsingError::BadData(format!("Bad tag id: {}", tad_id)));
         }
 
         // offset 3
@@ -145,7 +146,7 @@ mod tests {
         let len = file.metadata().unwrap().len();
         let mut readable = ::readable::Readable::new(file);
         if let Err(msg) = super::ID3v1Tag::new(&mut readable, len) {
-            assert_eq!(msg.to_string(), "Error1");
+            assert_eq!(msg.to_string(), "Bad tag length: 20");
         }
     }
 
@@ -203,12 +204,8 @@ mod tests {
         let mut readable = ::readable::Readable::new(file);
         match super::ID3v1Tag::new(&mut readable, len) {
             Ok(_) => assert!(false),
-            Err(err) => {
-                assert!(true);
-                let err = err.into_inner().unwrap();
-                let description = err.description();
-                assert!(description.find("Error2").unwrap() > 0);
-            }
+            Err(::errors::ParsingError::BadData(msg)) => assert!(true),
+            Err(_) => assert!(false)
         }
     }
 }

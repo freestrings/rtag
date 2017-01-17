@@ -25,5 +25,6 @@
 mod id3v1;
 mod id3v2;
 mod readable;
+mod errors;
 
 fn main() {}

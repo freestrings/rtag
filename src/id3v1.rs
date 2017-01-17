@@ -38,13 +38,13 @@ impl ID3v1Tag {
     pub fn new<T: io::Read + io::Seek>(readable: &mut ::readable::Readable<T>, file_len: u64) -> Result<Self> {
         // id3v1 tag length is 128 bytes.
         if file_len < 128 as u64 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Error1"));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid tag length. [Error1]"));
         }
         // tag position is last 128 bytes.
         readable.skip((file_len - 128 as u64) as i64)?;
 
         if readable.as_string(3)? != "TAG" {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Error2"));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Support only 'ID3v1'. [Error2]"));
         }
 
         // offset 3
@@ -106,31 +106,31 @@ impl ID3v1Tag {
         value
     }
 
-    pub fn title(&self) -> &str {
+    pub fn get_title(&self) -> &str {
         self.title.as_ref()
     }
 
-    pub fn artist(&self) -> &str {
+    pub fn get_artist(&self) -> &str {
         self.artist.as_ref()
     }
 
-    pub fn album(&self) -> &str {
+    pub fn get_album(&self) -> &str {
         self.album.as_ref()
     }
 
-    pub fn year(&self) -> &str {
+    pub fn get_year(&self) -> &str {
         self.year.as_ref()
     }
 
-    pub fn comment(&self) -> &str {
+    pub fn get_comment(&self) -> &str {
         self.comment.as_ref()
     }
 
-    pub fn track(&self) -> &str {
+    pub fn get_track(&self) -> &str {
         self.track.as_ref()
     }
 
-    pub fn genre(&self) -> &str {
+    pub fn get_genre(&self) -> &str {
         self.genre.as_ref()
     }
 }
@@ -163,11 +163,11 @@ mod tests {
         let len = file.metadata().unwrap().len();
         let mut readable = ::readable::Readable::new(file);
         let id3v1 = super::ID3v1Tag::new(&mut readable, len).unwrap();
-        assert_eq!(id3v1.artist(), "Artist");
-        assert_eq!(id3v1.album(), "");
-        assert_eq!(id3v1.comment(), "!@#$");
-        assert_eq!(id3v1.track(), "1");
-        assert_eq!(id3v1.genre(), "137");
+        assert_eq!(id3v1.get_artist(), "Artist");
+        assert_eq!(id3v1.get_album(), "");
+        assert_eq!(id3v1.get_comment(), "!@#$");
+        assert_eq!(id3v1.get_track(), "1");
+        assert_eq!(id3v1.get_genre(), "137");
     }
 
     #[test]
@@ -176,11 +176,11 @@ mod tests {
 
         let mut readable = ::readable::factory::from_str(id3v1_tag).unwrap();
         let id3v1 = super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64).unwrap();
-        assert_eq!(id3v1.title(), "TITLETITLETITLETITLETITLETITLE");
-        assert_eq!(id3v1.artist(), "ARTISTARTISTARTISTARTISTARTIST");
-        assert_eq!(id3v1.album(), "ALBUMALBUMALBUMALBUMALBUMALBUM");
-        assert_eq!(id3v1.comment(), "COMMENTCOMMENTCOMMENTCOMMENTCO");
-        assert_eq!(id3v1.year(), "2017");
+        assert_eq!(id3v1.get_title(), "TITLETITLETITLETITLETITLETITLE");
+        assert_eq!(id3v1.get_artist(), "ARTISTARTISTARTISTARTISTARTIST");
+        assert_eq!(id3v1.get_album(), "ALBUMALBUMALBUMALBUMALBUMALBUM");
+        assert_eq!(id3v1.get_comment(), "COMMENTCOMMENTCOMMENTCOMMENTCO");
+        assert_eq!(id3v1.get_year(), "2017");
     }
 
     #[test]
@@ -189,10 +189,26 @@ mod tests {
 
         let mut readable = ::readable::factory::from_str(id3v1_tag).unwrap();
         let id3v1 = super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64).unwrap();
-        assert_eq!(id3v1.title(), "TITLE");
-        assert_eq!(id3v1.artist(), "ARTIST");
-        assert_eq!(id3v1.album(), "ALBUM");
-        assert_eq!(id3v1.comment(), "COMMENT");
-        assert_eq!(id3v1.year(), "2017");
+        assert_eq!(id3v1.get_title(), "TITLE");
+        assert_eq!(id3v1.get_artist(), "ARTIST");
+        assert_eq!(id3v1.get_album(), "ALBUM");
+        assert_eq!(id3v1.get_comment(), "COMMENT");
+        assert_eq!(id3v1.get_year(), "2017");
+    }
+
+    #[test]
+    fn id3v1_test6() {
+        let file = fs::File::open("./resources/230-no-id3.mp3").unwrap();
+        let len = file.metadata().unwrap().len();
+        let mut readable = ::readable::Readable::new(file);
+        match super::ID3v1Tag::new(&mut readable, len) {
+            Ok(_) => assert!(false),
+            Err(err) => {
+                assert!(true);
+                let err = err.into_inner().unwrap();
+                let description = err.description();
+                assert!(description.find("Error2").unwrap() > 0);
+            }
+        }
     }
 }

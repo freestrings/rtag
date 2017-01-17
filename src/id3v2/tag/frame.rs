@@ -415,6 +415,29 @@ impl FrameDataBase<ENCR> for ENCR {
 }
 
 // TODO not yet tested!
+// Equalisation
+#[derive(Debug)]
+pub struct EQUA {
+    adjustment_bit: u8
+}
+
+impl EQUA {
+    pub fn get_adjustment_bit(&self) -> u8 {
+        self.adjustment_bit
+    }
+}
+
+impl FrameDataBase<EQUA> for EQUA {
+    fn to_framedata(readable: &mut Readable) -> Result<EQUA> {
+        let adjustment_bit = readable.as_bytes(1)?[0];
+
+        Ok(EQUA {
+            adjustment_bit: adjustment_bit
+        })
+    }
+}
+
+// TODO not yet tested!
 // Equalisation (2)
 #[derive(Debug)]
 pub struct EQU2 {
@@ -571,6 +594,35 @@ impl FrameDataBase<GRID> for GRID {
             owner_identifier: owner_identifier,
             group_symbol: group_symbol,
             group_dependent_data: group_dependent_data
+        })
+    }
+}
+
+#[derive(Debug)]
+// Involved people list
+pub struct IPLS {
+    text_encoding: ::id3v2::bytes::TextEncoding,
+    people_list_strings: String
+}
+
+impl IPLS {
+    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+        &self.text_encoding
+    }
+
+    pub fn get_people_list_strings(&self) -> &str {
+        self.people_list_strings.as_str()
+    }
+}
+
+impl FrameDataBase<IPLS> for IPLS {
+    fn to_framedata(readable: &mut Readable) -> Result<IPLS> {
+        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+        let (_, people_list_strings) = read_null_terminated(&text_encoding, readable)?;
+
+        Ok(IPLS {
+            text_encoding: text_encoding,
+            people_list_strings: people_list_strings
         })
     }
 }
@@ -1419,10 +1471,12 @@ impl Frame {
             ::id3v2::tag::frame_constants::id::COMM_STR => ::id3v2::tag::frame_constants::FrameData::COMM(COMM::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::COMR_STR => ::id3v2::tag::frame_constants::FrameData::COMR(COMR::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::ENCR_STR => ::id3v2::tag::frame_constants::FrameData::ENCR(ENCR::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::EQUA_STR => ::id3v2::tag::frame_constants::FrameData::EQUA(EQUA::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::EQU2_STR => ::id3v2::tag::frame_constants::FrameData::EQU2(EQU2::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::ETCO_STR => ::id3v2::tag::frame_constants::FrameData::ETCO(ETCO::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::GEOB_STR => ::id3v2::tag::frame_constants::FrameData::GEOB(GEOB::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::GRID_STR => ::id3v2::tag::frame_constants::FrameData::GRID(GRID::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::IPLS_STR => ::id3v2::tag::frame_constants::FrameData::IPLS(IPLS::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::LINK_STR => ::id3v2::tag::frame_constants::FrameData::LINK(LINK::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::MCDI_STR => ::id3v2::tag::frame_constants::FrameData::MCDI(MCDI::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::MLLT_STR => ::id3v2::tag::frame_constants::FrameData::MLLT(MLLT::to_framedata(&mut readable)?),
@@ -1432,6 +1486,7 @@ impl Frame {
             ::id3v2::tag::frame_constants::id::POPM_STR => ::id3v2::tag::frame_constants::FrameData::POPM(POPM::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::POSS_STR => ::id3v2::tag::frame_constants::FrameData::POSS(POSS::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::RBUF_STR => ::id3v2::tag::frame_constants::FrameData::RBUF(RBUF::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::RVAD_STR => ::id3v2::tag::frame_constants::FrameData::RVAD(RVA2::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::RVA2_STR => ::id3v2::tag::frame_constants::FrameData::RVA2(RVA2::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::RVRB_STR => ::id3v2::tag::frame_constants::FrameData::RVRB(RVRB::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::SEEK_STR => ::id3v2::tag::frame_constants::FrameData::SEEK(SEEK::to_framedata(&mut readable)?),
@@ -1446,6 +1501,7 @@ impl Frame {
             ::id3v2::tag::frame_constants::id::TCOM_STR => ::id3v2::tag::frame_constants::FrameData::TCOM(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TCON_STR => ::id3v2::tag::frame_constants::FrameData::TCON(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TCOP_STR => ::id3v2::tag::frame_constants::FrameData::TCOP(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TDAT_STR => ::id3v2::tag::frame_constants::FrameData::TDAT(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TDEN_STR => ::id3v2::tag::frame_constants::FrameData::TDEN(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TDLY_STR => ::id3v2::tag::frame_constants::FrameData::TDLY(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TDOR_STR => ::id3v2::tag::frame_constants::FrameData::TDOR(TEXT::to_framedata(&mut readable)?),
@@ -1454,6 +1510,7 @@ impl Frame {
             ::id3v2::tag::frame_constants::id::TDTG_STR => ::id3v2::tag::frame_constants::FrameData::TDTG(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TENC_STR => ::id3v2::tag::frame_constants::FrameData::TENC(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TEXT_STR => ::id3v2::tag::frame_constants::FrameData::TEXT(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TIME_STR => ::id3v2::tag::frame_constants::FrameData::TIME(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TFLT_STR => ::id3v2::tag::frame_constants::FrameData::TFLT(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TIPL_STR => ::id3v2::tag::frame_constants::FrameData::TIPL(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TIT1_STR => ::id3v2::tag::frame_constants::FrameData::TIT1(TEXT::to_framedata(&mut readable)?),
@@ -1469,6 +1526,7 @@ impl Frame {
             ::id3v2::tag::frame_constants::id::TOFN_STR => ::id3v2::tag::frame_constants::FrameData::TOFN(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TOLY_STR => ::id3v2::tag::frame_constants::FrameData::TOLY(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TOPE_STR => ::id3v2::tag::frame_constants::FrameData::TOPE(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TORY_STR => ::id3v2::tag::frame_constants::FrameData::TORY(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TOWN_STR => ::id3v2::tag::frame_constants::FrameData::TOWN(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TPE1_STR => ::id3v2::tag::frame_constants::FrameData::TPE1(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TPE2_STR => ::id3v2::tag::frame_constants::FrameData::TPE2(TEXT::to_framedata(&mut readable)?),
@@ -1478,13 +1536,16 @@ impl Frame {
             ::id3v2::tag::frame_constants::id::TPRO_STR => ::id3v2::tag::frame_constants::FrameData::TPRO(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TPUB_STR => ::id3v2::tag::frame_constants::FrameData::TPUB(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TRCK_STR => ::id3v2::tag::frame_constants::FrameData::TRCK(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TRDA_STR => ::id3v2::tag::frame_constants::FrameData::TRDA(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TRSN_STR => ::id3v2::tag::frame_constants::FrameData::TRSN(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TSIZ_STR => ::id3v2::tag::frame_constants::FrameData::TSIZ(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TRSO_STR => ::id3v2::tag::frame_constants::FrameData::TRSO(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TSOA_STR => ::id3v2::tag::frame_constants::FrameData::TSOA(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TSOP_STR => ::id3v2::tag::frame_constants::FrameData::TSOP(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TSOT_STR => ::id3v2::tag::frame_constants::FrameData::TSOT(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TSRC_STR => ::id3v2::tag::frame_constants::FrameData::TSRC(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TSSE_STR => ::id3v2::tag::frame_constants::FrameData::TSSE(TEXT::to_framedata(&mut readable)?),
+            ::id3v2::tag::frame_constants::id::TYER_STR => ::id3v2::tag::frame_constants::FrameData::TYER(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TSST_STR => ::id3v2::tag::frame_constants::FrameData::TSST(TEXT::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::TXXX_STR => ::id3v2::tag::frame_constants::FrameData::TXXX(TXXX::to_framedata(&mut readable)?),
             ::id3v2::tag::frame_constants::id::WCOM_STR => ::id3v2::tag::frame_constants::FrameData::WCOM(LINK::to_framedata(&mut readable)?),

@@ -8,9 +8,13 @@ pub mod id {
     pub const COMR_STR: &'static str = "COMR";
     pub const ENCR_STR: &'static str = "ENCR";
     pub const EQU2_STR: &'static str = "EQU2";
+    // 2.3 only
+    pub const EQUA_STR: &'static str = "EQUA";
     pub const ETCO_STR: &'static str = "ETCO";
     pub const GEOB_STR: &'static str = "GEOB";
     pub const GRID_STR: &'static str = "GRID";
+    // 2.3 only
+    pub const IPLS_STR: &'static str = "IPLS";
     pub const LINK_STR: &'static str = "LINK";
     pub const MCDI_STR: &'static str = "MCDI";
     pub const MLLT_STR: &'static str = "MLLT";
@@ -20,6 +24,8 @@ pub mod id {
     pub const POPM_STR: &'static str = "POPM";
     pub const POSS_STR: &'static str = "POSS";
     pub const RBUF_STR: &'static str = "RBUF";
+    // 2.3 only
+    pub const RVAD_STR: &'static str = "RVAD";
     pub const RVA2_STR: &'static str = "RVA2";
     pub const RVRB_STR: &'static str = "RVRB";
     pub const SEEK_STR: &'static str = "SEEK";
@@ -31,6 +37,8 @@ pub mod id {
     pub const TCOM_STR: &'static str = "TCOM";
     pub const TCON_STR: &'static str = "TCON";
     pub const TCOP_STR: &'static str = "TCOP";
+    // 2.3 only
+    pub const TDAT_STR: &'static str = "TDAT";
     pub const TDEN_STR: &'static str = "TDEN";
     pub const TDLY_STR: &'static str = "TDLY";
     pub const TDOR_STR: &'static str = "TDOR";
@@ -40,6 +48,8 @@ pub mod id {
     pub const TENC_STR: &'static str = "TENC";
     pub const TEXT_STR: &'static str = "TEXT";
     pub const TFLT_STR: &'static str = "TFLT";
+    // 2.3 only
+    pub const TIME_STR: &'static str = "TIME";
     pub const TIPL_STR: &'static str = "TIPL";
     pub const TIT1_STR: &'static str = "TIT1";
     pub const TIT2_STR: &'static str = "TIT2";
@@ -54,6 +64,7 @@ pub mod id {
     pub const TOFN_STR: &'static str = "TOFN";
     pub const TOLY_STR: &'static str = "TOLY";
     pub const TOPE_STR: &'static str = "TOPE";
+    pub const TORY_STR: &'static str = "TORY";
     pub const TOWN_STR: &'static str = "TOWN";
     pub const TPE1_STR: &'static str = "TPE1";
     pub const TPE2_STR: &'static str = "TPE2";
@@ -63,13 +74,18 @@ pub mod id {
     pub const TPRO_STR: &'static str = "TPRO";
     pub const TPUB_STR: &'static str = "TPUB";
     pub const TRCK_STR: &'static str = "TRCK";
+    pub const TRDA_STR: &'static str = "TRDA";
     pub const TRSN_STR: &'static str = "TRSN";
     pub const TRSO_STR: &'static str = "TRSO";
+    // 2.3 only
+    pub const TSIZ_STR: &'static str = "TSIZ";
     pub const TSOA_STR: &'static str = "TSOA";
     pub const TSOP_STR: &'static str = "TSOP";
     pub const TSOT_STR: &'static str = "TSOT";
     pub const TSRC_STR: &'static str = "TSRC";
     pub const TSSE_STR: &'static str = "TSSE";
+    // 2.3 only
+    pub const TYER_STR: &'static str = "TYER";
     pub const TSST_STR: &'static str = "TSST";
     pub const TXXX_STR: &'static str = "TXXX";
     pub const UFID_STR: &'static str = "UFID";
@@ -95,10 +111,14 @@ pub enum FrameData {
     COMM(COMM),
     COMR(COMR),
     ENCR(ENCR),
+    // 2.3 only
+    EQUA(EQUA),
     EQU2(EQU2),
     ETCO(ETCO),
     GEOB(GEOB),
     GRID(GRID),
+    // 2.3 only
+    IPLS(IPLS),
     LINK(LINK),
     MCDI(MCDI),
     MLLT(MLLT),
@@ -108,6 +128,8 @@ pub enum FrameData {
     POPM(POPM),
     POSS(POSS),
     RBUF(RBUF),
+    // 2.3 only
+    RVAD(RVA2),
     RVA2(RVA2),
     RVRB(RVRB),
     SEEK(SEEK),
@@ -119,6 +141,8 @@ pub enum FrameData {
     TCOM(TEXT),
     TCON(TEXT),
     TCOP(TEXT),
+    // 2.3 only
+    TDAT(TEXT),
     TDEN(TEXT),
     TDLY(TEXT),
     TDOR(TEXT),
@@ -128,6 +152,8 @@ pub enum FrameData {
     TENC(TEXT),
     TEXT(TEXT),
     TFLT(TEXT),
+    // 2.3 only
+    TIME(TEXT),
     TIPL(TEXT),
     TIT1(TEXT),
     TIT2(TEXT),
@@ -142,6 +168,7 @@ pub enum FrameData {
     TOFN(TEXT),
     TOLY(TEXT),
     TOPE(TEXT),
+    TORY(TEXT),
     TOWN(TEXT),
     TPE1(TEXT),
     TPE2(TEXT),
@@ -151,13 +178,19 @@ pub enum FrameData {
     TPRO(TEXT),
     TPUB(TEXT),
     TRCK(TEXT),
+    // 2.3 only
+    TRDA(TEXT),
     TRSN(TEXT),
     TRSO(TEXT),
+    // 2.3 only
+    TSIZ(TEXT),
     TSOA(TEXT),
     TSOP(TEXT),
     TSOT(TEXT),
     TSRC(TEXT),
     TSSE(TEXT),
+    // 2.3 only
+    TYER(TEXT),
     TSST(TEXT),
     TXXX(TXXX),
     UFID(UFID),

@@ -23,6 +23,73 @@
 use id3v2::frame::*;
 
 pub mod id {
+
+    // 2.2
+    pub const BUF_STR: &'static str = "BUF";
+    pub const CNT_STR: &'static str = "CNT";
+    pub const COM_STR: &'static str = "COM";
+    pub const CRA_STR: &'static str = "CRA";
+    pub const CRM_STR: &'static str = "CRM";
+    pub const ETC_STR: &'static str = "ETC";
+    pub const EQU_STR: &'static str = "EQU";
+    pub const GEO_STR: &'static str = "GEO";
+    pub const IPL_STR: &'static str = "IPL";
+    pub const LNK_STR: &'static str = "LNK";
+    pub const MCI_STR: &'static str = "MCI";
+    pub const MLL_STR: &'static str = "MLL";
+    pub const PIC_STR: &'static str = "PIC";
+    pub const POP_STR: &'static str = "POP";
+    pub const REV_STR: &'static str = "REV";
+    pub const RVA_STR: &'static str = "RVA";
+    pub const SLT_STR: &'static str = "SLT";
+    pub const STC_STR: &'static str = "STC";
+    pub const TAL_STR: &'static str = "TAL";
+    pub const TBP_STR: &'static str = "TBP";
+    pub const TCM_STR: &'static str = "TCM";
+    pub const TCO_STR: &'static str = "TCO";
+    pub const TCR_STR: &'static str = "TCR";
+    pub const TDA_STR: &'static str = "TDA";
+    pub const TDY_STR: &'static str = "TDY";
+    pub const TEN_STR: &'static str = "TEN";
+    pub const TFT_STR: &'static str = "TFT";
+    pub const TIM_STR: &'static str = "TIM";
+    pub const TKE_STR: &'static str = "TKE";
+    pub const TLA_STR: &'static str = "TLA";
+    pub const TLE_STR: &'static str = "TLE";
+    pub const TMT_STR: &'static str = "TMT";
+    pub const TOA_STR: &'static str = "TOA";
+    pub const TOF_STR: &'static str = "TOF";
+    pub const TOL_STR: &'static str = "TOL";
+    pub const TOR_STR: &'static str = "TOR";
+    pub const TOT_STR: &'static str = "TOT";
+    pub const TP1_STR: &'static str = "TP1";
+    pub const TP2_STR: &'static str = "TP2";
+    pub const TP3_STR: &'static str = "TP3";
+    pub const TP4_STR: &'static str = "TP4";
+    pub const TPA_STR: &'static str = "TPA";
+    pub const TPB_STR: &'static str = "TPB";
+    pub const TRC_STR: &'static str = "TRC";
+    pub const TRD_STR: &'static str = "TRD";
+    pub const TRK_STR: &'static str = "TRK";
+    pub const TSI_STR: &'static str = "TSI";
+    pub const TSS_STR: &'static str = "TSS";
+    pub const TT1_STR: &'static str = "TT1";
+    pub const TT2_STR: &'static str = "TT2";
+    pub const TT3_STR: &'static str = "TT3";
+    pub const TXT_STR: &'static str = "TXT";
+    pub const TXX_STR: &'static str = "TXX";
+    pub const TYE_STR: &'static str = "TYE";
+    pub const UFI_STR: &'static str = "UFI";
+    pub const ULT_STR: &'static str = "ULT";
+    pub const WAF_STR: &'static str = "WAF";
+    pub const WAR_STR: &'static str = "WAR";
+    pub const WAS_STR: &'static str = "WAS";
+    pub const WCM_STR: &'static str = "WCM";
+    pub const WCP_STR: &'static str = "WCP";
+    pub const WPB_STR: &'static str = "WPB";
+    pub const WXX_STR: &'static str = "WXX";
+
+    // 2.4
     pub const AENC_STR: &'static str = "AENC";
     pub const APIC_STR: &'static str = "APIC";
     pub const ASPI_STR: &'static str = "ASPI";
@@ -131,6 +198,11 @@ pub enum FrameData2<T> {
 
 #[derive(Debug)]
 pub enum FrameData {
+    // 2.2 only
+    CRM(CRM),
+    // 2.2 only
+    PIC(PIC),
+
     AENC(AENC),
     APIC(APIC),
     ASPI(ASPI),

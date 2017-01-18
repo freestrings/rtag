@@ -24,6 +24,7 @@ use std::vec;
 
 pub enum HeaderFlag {
     Unsynchronisation,
+    Compression,
     ExtendedHeader,
     ExperimentalIndicator,
     FooterPresent
@@ -45,22 +46,18 @@ impl Header {
         bytes[0] as char == 'I' && bytes[1] as char == 'D' && bytes[2] as char == '3'
     }
 
-    pub fn new(bytes: vec::Vec<u8>) -> Self {
+    pub fn new(bytes: vec::Vec<u8>) -> ::std::result::Result<Self, ::errors::ParsingError> {
         if !Self::_is_valid_id(&bytes) {
-            debug!("Invalid IDv2: `{}`", String::from_utf8_lossy(&bytes[0..4]));
-
-            return Header {
-                version: 0, minor_version: 0, flag: 0, size: 0
-            };
+            return Err(::errors::ParsingError::BadData(format!("Invalid IDv2: `{}`", String::from_utf8_lossy(&bytes[0..4]))))
         }
 
         // see http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header
-        Header {
+        Ok(Header {
             version: bytes[3] as u8,
             minor_version: bytes[4] as u8,
             flag: bytes[5] as u8,
             size: Self::_head_size(&bytes)
-        }
+        })
     }
 
     pub fn get_version(&self) -> u8 {
@@ -73,7 +70,13 @@ impl Header {
 
     // see references/id3v2.md#id3v2 Header
     pub fn has_flag(&self, flag: HeaderFlag) -> bool {
-        if self.version == 3 {
+        if self.version == 2 {
+            match flag {
+                HeaderFlag::Unsynchronisation => self.flag & 0x01 << 7 != 0,
+                HeaderFlag::Compression => self.flag & 0x01 << 6 != 0,
+                _ => false
+            }
+        } else if self.version == 3 {
             match flag {
                 HeaderFlag::Unsynchronisation => self.flag & 0x01 << 7 != 0,
                 HeaderFlag::ExtendedHeader => self.flag & 0x01 << 6 != 0,
@@ -85,7 +88,8 @@ impl Header {
                 HeaderFlag::Unsynchronisation => self.flag & 0x01 << 7 != 0,
                 HeaderFlag::ExtendedHeader => self.flag & 0x01 << 6 != 0,
                 HeaderFlag::ExperimentalIndicator => self.flag & 0x01 << 5 != 0,
-                HeaderFlag::FooterPresent => self.flag & 0x01 << 4 != 0
+                HeaderFlag::FooterPresent => self.flag & 0x01 << 4 != 0,
+                _ => false
             }
         } else {
             warn!("Header.has_flag=> Unknown version!");

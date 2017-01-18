@@ -164,7 +164,7 @@ mod tests {
         let _ = env_logger::init();
         let mut readable = ::readable::factory::from_path("./resources/230.mp3").unwrap();
         let bytes = readable.as_bytes(10).unwrap();
-        let header = ::id3v2::header::Header::new(bytes);
+        let header = ::id3v2::header::Header::new(bytes).unwrap();
         assert_eq!(header.get_version(), 3);
         assert_eq!(header.get_minor_version(), 0);
         assert_eq!(header.has_flag(::id3v2::header::HeaderFlag::Unsynchronisation), false);
@@ -179,7 +179,7 @@ mod tests {
 
         let mut readable = ::readable::factory::from_path("./resources/240.mp3").unwrap();
         let bytes = readable.as_bytes(10).unwrap();
-        let header = ::id3v2::header::Header::new(bytes);
+        let header = ::id3v2::header::Header::new(bytes).unwrap();
         assert_eq!(header.get_version(), 4);
         assert_eq!(header.get_minor_version(), 0);
         assert_eq!(header.has_flag(::id3v2::header::HeaderFlag::Unsynchronisation), false);

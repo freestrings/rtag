@@ -63,7 +63,7 @@ pub struct TagReader<'a, T: 'a> where T: io::Read + io::Seek {
 impl<'a, T> TagReader<'a, T> where T: io::Read + io::Seek {
     pub fn new(mut readable: &'a mut ::readable::Readable<T>) -> ReadResult<Self> {
         // head 10 bytes
-        let header = ::id3v2::header::Header::new(readable.as_bytes(10)?);
+        let header = ::id3v2::header::Header::new(readable.as_bytes(10)?)?;
         Ok(TagReader {
             header: header,
             readable: readable

@@ -21,8 +21,10 @@
 //SOFTWARE.
 
 mod bytes;
+mod header;
+mod frame;
+mod frame_constants;
 mod reader;
-mod tag;
 
 #[cfg(test)]
 mod tests {
@@ -30,6 +32,7 @@ mod tests {
 
     use std::vec;
     use ::id3v2::reader::FrameIterator;
+    use ::id3v2::frame_constants::FrameData;
 
     fn _id_compare(file_path: &'static str, mut ids: vec::Vec<&str>) {
         let _ = env_logger::init();
@@ -60,54 +63,93 @@ mod tests {
                 if let Ok(frame) = frame_reader.next_frame() {
                     debug!("{}: {:?}", frame.get_id(), frame.get_data());
 
+                    let comp_data = data.pop().unwrap();
                     match frame.get_data().unwrap() {
-                        ::id3v2::tag::frame_constants::FrameData::COMM(frame) => assert_eq!(data.pop().unwrap(), format!("{}\u{0}{}{}", frame.get_language(), frame.get_short_description(), frame.get_actual_text())),
-                        ::id3v2::tag::frame_constants::FrameData::TALB(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TBPM(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TCOM(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TCON(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TCOP(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TDEN(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TDLY(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TDOR(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TDRC(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TDRL(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TDTG(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TENC(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TEXT(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TFLT(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TIPL(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TIT1(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TIT2(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TIT3(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TKEY(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TLAN(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TLEN(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TMCL(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TMED(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TMOO(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TOAL(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TOFN(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TOLY(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TOPE(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TOWN(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TPE1(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TPE2(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TPE3(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TPE4(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TPOS(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TPRO(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TPUB(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TRCK(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TRSN(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TRSO(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TSOA(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TSOP(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TSOT(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TSRC(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TSSE(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TSST(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
-                        ::id3v2::tag::frame_constants::FrameData::TXXX(frame) => assert_eq!(data.pop().unwrap(), format!("{}:{}", frame.get_description(), frame.get_value())),
+                        FrameData::COMM(frame) => {
+                            assert_eq!(comp_data, format!("{}\u{0}{}{}",
+                                                          frame.get_language(),
+                                                          frame.get_short_description(),
+                                                          frame.get_actual_text()));
+                        },
+                        FrameData::TALB(frame) |
+                        FrameData::TBPM(frame) |
+                        FrameData::TCOM(frame) |
+                        FrameData::TCON(frame) |
+                        FrameData::TCOP(frame) |
+                        FrameData::TDAT(frame) |
+                        FrameData::TDEN(frame) |
+                        FrameData::TDLY(frame) |
+                        FrameData::TDOR(frame) |
+                        FrameData::TDRC(frame) |
+                        FrameData::TDRL(frame) |
+                        FrameData::TDTG(frame) |
+                        FrameData::TENC(frame) |
+                        FrameData::TEXT(frame) |
+                        FrameData::TIME(frame) |
+                        FrameData::TFLT(frame) |
+                        FrameData::TIPL(frame) |
+                        FrameData::TIT1(frame) |
+                        FrameData::TIT2(frame) |
+                        FrameData::TIT3(frame) |
+                        FrameData::TKEY(frame) |
+                        FrameData::TLAN(frame) |
+                        FrameData::TLEN(frame) |
+                        FrameData::TMCL(frame) |
+                        FrameData::TMED(frame) |
+                        FrameData::TMOO(frame) |
+                        FrameData::TOAL(frame) |
+                        FrameData::TOFN(frame) |
+                        FrameData::TOLY(frame) |
+                        FrameData::TOPE(frame) |
+                        FrameData::TORY(frame) |
+                        FrameData::TOWN(frame) |
+                        FrameData::TPE1(frame) |
+                        FrameData::TPE2(frame) |
+                        FrameData::TPE3(frame) |
+                        FrameData::TPE4(frame) |
+                        FrameData::TPOS(frame) |
+                        FrameData::TPRO(frame) |
+                        FrameData::TPUB(frame) |
+                        FrameData::TRCK(frame) |
+                        FrameData::TRDA(frame) |
+                        FrameData::TRSN(frame) |
+                        FrameData::TSIZ(frame) |
+                        FrameData::TRSO(frame) |
+                        FrameData::TSOA(frame) |
+                        FrameData::TSOP(frame) |
+                        FrameData::TSOT(frame) |
+                        FrameData::TSRC(frame) |
+                        FrameData::TSSE(frame) |
+                        FrameData::TYER(frame) |
+                        FrameData::TSST(frame)
+                        => {
+                            assert_eq!(comp_data, frame.get_text())
+                        },
+                        FrameData::TXXX(frame) => {
+                            assert_eq!(comp_data, format!("{}:{}",
+                                                          frame.get_description(),
+                                                          frame.get_value()))
+                        },
+
+                        FrameData::LINK(frame) |
+
+                        FrameData::WCOM(frame) |
+                        FrameData::WCOP(frame) |
+                        FrameData::WOAF(frame) |
+                        FrameData::WOAR(frame) |
+                        FrameData::WOAS(frame) |
+                        FrameData::WORS(frame) |
+                        FrameData::WPAY(frame) |
+                        FrameData::WPUB(frame) => {
+                            assert_eq!(comp_data, format!("{}:{}",
+                                                          frame.get_url(),
+                                                          frame.get_additional_data()));
+                        },
+                        FrameData::WXXX(frame) => {
+                            assert_eq!(comp_data, format!("{}:{}",
+                                                          frame.get_url(),
+                                                          frame.get_description()));
+                        }
                         _ => ()
                     };
                 }
@@ -122,12 +164,12 @@ mod tests {
         let _ = env_logger::init();
         let mut readable = ::readable::factory::from_path("./resources/230.mp3").unwrap();
         let bytes = readable.as_bytes(10).unwrap();
-        let header = ::id3v2::tag::header::Header::new(bytes);
+        let header = ::id3v2::header::Header::new(bytes);
         assert_eq!(header.get_version(), 3);
         assert_eq!(header.get_minor_version(), 0);
-        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::Unsynchronisation), false);
-        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::ExtendedHeader), false);
-        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::ExperimentalIndicator), false);
+        assert_eq!(header.has_flag(::id3v2::header::HeaderFlag::Unsynchronisation), false);
+        assert_eq!(header.has_flag(::id3v2::header::HeaderFlag::ExtendedHeader), false);
+        assert_eq!(header.has_flag(::id3v2::header::HeaderFlag::ExperimentalIndicator), false);
         assert_eq!(header.get_size(), 1171);
     }
 
@@ -137,12 +179,12 @@ mod tests {
 
         let mut readable = ::readable::factory::from_path("./resources/240.mp3").unwrap();
         let bytes = readable.as_bytes(10).unwrap();
-        let header = ::id3v2::tag::header::Header::new(bytes);
+        let header = ::id3v2::header::Header::new(bytes);
         assert_eq!(header.get_version(), 4);
         assert_eq!(header.get_minor_version(), 0);
-        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::Unsynchronisation), false);
-        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::ExtendedHeader), false);
-        assert_eq!(header.has_flag(::id3v2::tag::header::HeaderFlag::ExperimentalIndicator), false);
+        assert_eq!(header.has_flag(::id3v2::header::HeaderFlag::Unsynchronisation), false);
+        assert_eq!(header.has_flag(::id3v2::header::HeaderFlag::ExtendedHeader), false);
+        assert_eq!(header.has_flag(::id3v2::header::HeaderFlag::ExperimentalIndicator), false);
         assert_eq!(header.get_size(), 165126);
     }
 
@@ -191,13 +233,13 @@ mod tests {
             assert_eq!("ETCO", frame.get_id());
 
             match frame.get_data().unwrap() {
-                ::id3v2::tag::frame_constants::FrameData::ETCO(frame) => {
+                ::id3v2::frame_constants::FrameData::ETCO(frame) => {
                     let timestamp_format = frame.get_timestamp_format();
-                    assert_eq!(timestamp_format, &::id3v2::tag::frame_constants::TimestampFormat::Milliseconds);
+                    assert_eq!(timestamp_format, &::id3v2::frame_constants::TimestampFormat::Milliseconds);
 
                     let event_timing_codes = frame.get_event_timing_codes();
                     match event_timing_codes[0] {
-                        ::id3v2::tag::frame_constants::EventTimingCode::MainPartStart(timestamp) => assert_eq!(timestamp, 152110),
+                        ::id3v2::frame_constants::EventTimingCode::MainPartStart(timestamp) => assert_eq!(timestamp, 152110),
                         _ => assert!(false)
                     }
                 },
@@ -218,7 +260,7 @@ mod tests {
             assert_eq!("PCNT", frame.get_id());
 
             match frame.get_data().unwrap() {
-                ::id3v2::tag::frame_constants::FrameData::PCNT(frame) => {
+                ::id3v2::frame_constants::FrameData::PCNT(frame) => {
                     let counter = frame.get_counter();
                     assert_eq!(counter, 256);
                 },

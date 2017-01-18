@@ -20,7 +20,7 @@
 //OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //SOFTWARE.
 
-use id3v2::tag::frame::*;
+use id3v2::frame::*;
 
 pub mod id {
     pub const AENC_STR: &'static str = "AENC";
@@ -124,6 +124,10 @@ pub mod id {
     pub const WXXX_STR: &'static str = "WXXX";
 }
 
+pub enum FrameData2<T> {
+    Other(T),
+
+}
 
 #[derive(Debug)]
 pub enum FrameData {

@@ -21,14 +21,15 @@
 //SOFTWARE.
 
 use std::io;
-use std::io::Result;
+
+type ReadResult<T> = ::std::result::Result<T, ::errors::ParsingError>;
 
 pub struct FrameReader<'a, T: 'a> where T: io::Read + io::Seek {
     reader: TagReader<'a, T>
 }
 
 impl<'a, T> FrameReader<'a, T> where T: io::Read + io::Seek {
-    pub fn new(readable: &'a mut ::readable::Readable<T>) -> Result<Self> {
+    pub fn new(readable: &'a mut ::readable::Readable<T>) -> ReadResult<Self> {
         let mut reader = TagReader::new(readable)?;
         // skip extended header
         reader.get_extended_header();
@@ -41,7 +42,7 @@ impl<'a, T> FrameReader<'a, T> where T: io::Read + io::Seek {
 
 pub trait FrameIterator {
     fn has_next_frame(&mut self) -> bool;
-    fn next_frame(&mut self) -> Result<::id3v2::tag::frame::Frame>;
+    fn next_frame(&mut self) -> ReadResult<::id3v2::frame::Frame>;
 }
 
 impl<'a, T> FrameIterator for FrameReader<'a, T> where T: io::Read + io::Seek {
@@ -49,29 +50,29 @@ impl<'a, T> FrameIterator for FrameReader<'a, T> where T: io::Read + io::Seek {
         self.reader.has_next_frame()
     }
 
-    fn next_frame(&mut self) -> Result<::id3v2::tag::frame::Frame> {
+    fn next_frame(&mut self) -> ReadResult<::id3v2::frame::Frame> {
         self.reader.next_frame()
     }
 }
 
 pub struct TagReader<'a, T: 'a> where T: io::Read + io::Seek {
-    header: ::id3v2::tag::header::Header,
+    header: ::id3v2::header::Header,
     readable: &'a mut ::readable::Readable<T>
 }
 
 impl<'a, T> TagReader<'a, T> where T: io::Read + io::Seek {
-    pub fn new(mut readable: &'a mut ::readable::Readable<T>) -> Result<Self> {
+    pub fn new(mut readable: &'a mut ::readable::Readable<T>) -> ReadResult<Self> {
         // head 10 bytes
-        let header = ::id3v2::tag::header::Header::new(readable.as_bytes(10)?);
+        let header = ::id3v2::header::Header::new(readable.as_bytes(10)?);
         Ok(TagReader {
             header: header,
             readable: readable
         })
     }
 
-    pub fn get_extended_header(&mut self) -> Result<::id3v2::tag::header::ExtendedHeader> {
-        if !self.header.has_flag(::id3v2::tag::header::HeaderFlag::ExtendedHeader) {
-            return Err(io::Error::new(io::ErrorKind::Other, "Extended hader is not exist."));
+    pub fn get_extended_header(&mut self) -> ReadResult<::id3v2::header::ExtendedHeader> {
+        if !self.header.has_flag(::id3v2::header::HeaderFlag::ExtendedHeader) {
+            return Err(::errors::ParsingError::BadData("Extended header does not exist.".to_string()));
         }
 
         // extended header 4bytes
@@ -83,16 +84,16 @@ impl<'a, T> TagReader<'a, T> where T: io::Read + io::Seek {
             _ => ::id3v2::bytes::to_synchsafe(&head_bytes),
         };
 
-        Ok(::id3v2::tag::header::ExtendedHeader::new(size, &self.readable.as_bytes(size as usize)?))
+        Ok(::id3v2::header::ExtendedHeader::new(size, &self.readable.as_bytes(size as usize)?))
     }
 }
 
 impl<'a, T> FrameIterator for TagReader<'a, T> where T: io::Read + io::Seek {
     fn has_next_frame(&mut self) -> bool {
-        ::id3v2::tag::frame::Frame::has_next_frame(&mut self.readable)
+        ::id3v2::frame::Frame::has_next_frame(&mut self.readable)
     }
 
-    fn next_frame(&mut self) -> io::Result<::id3v2::tag::frame::Frame> {
-        ::id3v2::tag::frame::Frame::new(&mut self.readable, self.header.get_version())
+    fn next_frame(&mut self) -> ReadResult<::id3v2::frame::Frame> {
+        ::id3v2::frame::Frame::new(&mut self.readable, self.header.get_version())
     }
 }

@@ -48,7 +48,7 @@ impl Header {
 
     pub fn new(bytes: vec::Vec<u8>) -> ::std::result::Result<Self, ::errors::ParsingError> {
         if !Self::_is_valid_id(&bytes) {
-            return Err(::errors::ParsingError::BadData(format!("Invalid IDv2: `{}`", String::from_utf8_lossy(&bytes[0..4]))))
+            return Err(::errors::ParsingError::Id2TagNotFound)
         }
 
         // see http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header

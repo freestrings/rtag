@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn idv3_240_header() {
+    fn v240_header() {
         let _ = env_logger::init();
 
         let mut readable = ::readable::factory::from_path("./test-resources/240.mp3").unwrap();
@@ -180,42 +180,42 @@ mod tests {
     }
 
     #[test]
-    fn idv3_230_frame_id() {
-        _id_compare("./test-resources/id3v1-id3v2.mp3", vec!["TIT2", "TPE1", "TALB", "TPE2", "TCON", "COMM", "TRCK", "TPOS"]);
+    fn v230_frame_id() {
+        _id_compare("./test-resources/v1-v2.mp3", vec!["TIT2", "TPE1", "TALB", "TPE2", "TCON", "COMM", "TRCK", "TPOS"]);
     }
 
     #[test]
-    fn idv3_230_frame_id2() {
+    fn v230_frame_id2() {
         _id_compare("./test-resources/230.mp3", vec!["TALB", "TCON", "TIT2", "TLEN", "TPE1", "TRCK", "COMM", "TYER"]);
     }
 
     #[test]
-    fn idv3_240_frame_id1() {
+    fn v240_frame_id1() {
         _id_compare("./test-resources/240.mp3", vec!["TDRC", "TRCK", "TPOS", "TPE1", "TALB", "TPE2", "TIT2", "TSRC", "TCON", "COMM"]);
     }
 
     #[test]
-    fn id3_240_frame_id2() {
-        _id_compare("./test-resources/id3v1-id3v2-albumimage.mp3", vec!["TENC", "WXXX", "TCOP", "TOPE", "TCOM", "COMM", "TPE1", "TALB", "COMM", "TRCK", "TDRC", "TCON", "TIT2", "APIC", "WCOM", "WCOP", "WOAR", "WOAF", "WOAS", "WORS", "WPAY", "WPUB"]);
+    fn v240_frame_id2() {
+        _id_compare("./test-resources/v1-v2-albumimage.mp3", vec!["TENC", "WXXX", "TCOP", "TOPE", "TCOM", "COMM", "TPE1", "TALB", "COMM", "TRCK", "TDRC", "TCON", "TIT2", "APIC", "WCOM", "WCOP", "WOAR", "WOAF", "WOAS", "WORS", "WPAY", "WPUB"]);
     }
 
     #[test]
     fn idv3_230_frame_data1() {
-        _data_compare("./test-resources/id3v1-id3v2.mp3", vec!["타이틀", "Artist", "アルバム", "Album Artist", "Heavy Metal", "eng::!@#$", "1", "0"]);
+        _data_compare("./test-resources/v1-v2.mp3", vec!["타이틀", "Artist", "アルバム", "Album Artist", "Heavy Metal", "eng::!@#$", "1", "0"]);
     }
 
     #[test]
-    fn idv3_230_frame_data2() {
+    fn v230_frame_data2() {
         _data_compare("./test-resources/230.mp3", vec!["앨범", "Rock", "Tㅏi틀", "0", "아티st", "1", "eng::!!!@@#$@$^#$%^\\n123", "2017"]);
     }
 
     #[test]
-    fn idv3_240_frame_data1() {
+    fn v240_frame_data1() {
         _data_compare("./test-resources/240.mp3", vec!["2017", "1", "1", "아티스트", "Album", "Artist/아티스트", "타이틀", "ABAB", "Alternative", "eng::~~"]);
     }
 
     #[test]
-    fn id3v2_etco() {
+    fn v2_etco() {
         let _ = env_logger::init();
 
         let mut readable = ::readable::factory::from_path("./test-resources/230-etco.mp3").unwrap();
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn id3v2_pcnt() {
+    fn v2_pcnt() {
         let _ = env_logger::init();
 
         let mut readable = ::readable::factory::from_path("./test-resources/240-pcnt.mp3").unwrap();
@@ -263,8 +263,20 @@ mod tests {
     }
 
     #[test]
-    fn id3v2_tbpm() {
+    fn v2_tbpm() {
         _id_compare("./test-resources/230-tbpm.mp3", vec!["TRCK", "TBPM", "TCON", "TPE1", "TALB", "TIT2"]);
         _data_compare("./test-resources/230-tbpm.mp3", vec!["26", "0", "JPop", "aiko", "aikosingles", "花火"]);
     }
+
+    #[test]
+    fn v2_no_tag() {
+        let _ = env_logger::init();
+
+        let mut readable = ::readable::factory::from_path("./test-resources/empty-meta.mp3").unwrap();
+        match ::id3v2::reader::FrameReader::new(&mut readable) {
+            Err(::errors::ParsingError::Id2TagNotFound) => assert!(true),
+            _ => assert!(false)
+        }
+    }
+
 }

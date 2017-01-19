@@ -20,7 +20,10 @@
 //OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //SOFTWARE.
 
+extern crate encoding;
+
 use std::{io, result, vec};
+use self::encoding::{Encoding, DecoderTrap};
 
 pub struct ID3v1Tag {
     title: String,
@@ -45,19 +48,32 @@ impl ID3v1Tag {
 
         let tad_id = readable.as_string(3)?;
         if tad_id != "TAG" {
-            return Err(::errors::ParsingError::BadData(format!("Bad tag id: {}", tad_id)));
+            return Err(::errors::ParsingError::Id1TagNotFound);
         }
 
         // offset 3
-        let title = Self::_to_string_with_rtrim(&readable.as_bytes(30)?);
+        let title = &readable.as_bytes(30)?;
+        trace!("title: {:?}", title);
+        let title = Self::_to_string_with_rtrim(&title);
+
         // offset 33
-        let artist = Self::_to_string_with_rtrim(&readable.as_bytes(30)?);
+        let artist = &readable.as_bytes(30)?;
+        trace!("artist: {:?}", artist);
+        let artist = Self::_to_string_with_rtrim(&artist);
+
         // offset 63
-        let album = Self::_to_string_with_rtrim(&readable.as_bytes(30)?);
+        let album = readable.as_bytes(30)?;
+        trace!("album: {:?}", album);
+        let album = Self::_to_string_with_rtrim(&album);
+
         // offset 93
-        let year = Self::_to_string_with_rtrim(&readable.as_bytes(4)?);
+        let year = readable.as_bytes(4)?;
+        trace!("year: {:?}", year);
+        let year = Self::_to_string_with_rtrim(&year);
+
         // goto track marker offset
         readable.skip(28)?;
+
         // offset 125
         let track_marker = readable.as_bytes(1)?[0];
         // offset 126
@@ -101,10 +117,13 @@ impl ID3v1Tag {
         clone
     }
 
+    // default encoding is ISO-8859-1
     fn _to_string_with_rtrim(bytes: &vec::Vec<u8>) -> String {
         let cloned = Self::_rtrim(bytes);
-        let value = String::from_utf8_lossy(&cloned).into_owned();
-        value
+        match encoding::all::ISO_8859_1.decode(&cloned, encoding::DecoderTrap::Strict) {
+            Ok(text) => text,
+            Err(_) => "".to_string()
+        }
     }
 
     pub fn get_title(&self) -> &str {
@@ -138,20 +157,42 @@ impl ID3v1Tag {
 
 #[cfg(test)]
 mod tests {
+    extern crate env_logger;
+    extern crate encoding;
+
+    use std::{io, result, vec};
+    use self::encoding::{Encoding, DecoderTrap};
     use std::fs;
 
     #[test]
-    fn id3v1_test1() {
-        let file = fs::File::open("./test-resources/file1.txt").unwrap();
-        let len = file.metadata().unwrap().len();
-        let mut readable = ::readable::Readable::new(file);
-        if let Err(msg) = super::ID3v1Tag::new(&mut readable, len) {
-            assert_eq!(msg.to_string(), "Bad tag length: 20");
+    fn v1_bad_length() {
+        let _ = env_logger::init();
+
+        let id3v1_tag = "1234567890abcdefghij";
+        let mut readable = ::readable::factory::from_str(id3v1_tag).unwrap();
+        match super::ID3v1Tag::new(&mut readable, id3v1_tag.len() as u64) {
+            Err(::errors::ParsingError::BadData(msg)) => assert_eq!("Bad tag length: 20", msg),
+            _ => assert!(false)
         }
     }
 
     #[test]
-    fn id3v1_test2() {
+    fn v1_invalid_id3_tag() {
+        let _ = env_logger::init();
+
+        let file = fs::File::open("./test-resources/230-no-id3.mp3").unwrap();
+        let len = file.metadata().unwrap().len();
+        let mut readable = ::readable::Readable::new(file);
+        match super::ID3v1Tag::new(&mut readable, len) {
+            Err(::errors::ParsingError::Id1TagNotFound) => assert!(true),
+            _ => assert!(false)
+        }
+    }
+
+    #[test]
+    fn v1_empty() {
+        let _ = env_logger::init();
+
         let file = fs::File::open("./test-resources/empty-meta.mp3").unwrap();
         let len = file.metadata().unwrap().len();
         let mut readable = ::readable::Readable::new(file);
@@ -159,8 +200,10 @@ mod tests {
     }
 
     #[test]
-    fn id3v1_test3() {
-        let file = fs::File::open("./test-resources/id3v1-id3v2.mp3").unwrap();
+    fn v1_test1() {
+        let _ = env_logger::init();
+
+        let file = fs::File::open("./test-resources/v1-v2.mp3").unwrap();
         let len = file.metadata().unwrap().len();
         let mut readable = ::readable::Readable::new(file);
         let id3v1 = super::ID3v1Tag::new(&mut readable, len).unwrap();
@@ -172,7 +215,9 @@ mod tests {
     }
 
     #[test]
-    fn id3v1_test4() {
+    fn v1_test2() {
+        let _ = env_logger::init();
+
         let id3v1_tag = "TAGTITLETITLETITLETITLETITLETITLEARTISTARTISTARTISTARTISTARTISTALBUMALBUMALBUMALBUMALBUMALBUM2017COMMENTCOMMENTCOMMENTCOMMENTCO4";
 
         let mut readable = ::readable::factory::from_str(id3v1_tag).unwrap();
@@ -185,7 +230,9 @@ mod tests {
     }
 
     #[test]
-    fn id3v1_test5() {
+    fn v1_test3() {
+        let _ = env_logger::init();
+
         let id3v1_tag = "TAGTITLE                         ARTIST                        ALBUM                         2017COMMENT                        ";
 
         let mut readable = ::readable::factory::from_str(id3v1_tag).unwrap();
@@ -198,14 +245,32 @@ mod tests {
     }
 
     #[test]
-    fn id3v1_test6() {
-        let file = fs::File::open("./test-resources/230-no-id3.mp3").unwrap();
+    fn v1_iso_8859_1() {
+        let _ = env_logger::init();
+
+        let file = fs::File::open("./test-resources/v1-iso-8859-1.mp3").unwrap();
         let len = file.metadata().unwrap().len();
         let mut readable = ::readable::Readable::new(file);
-        match super::ID3v1Tag::new(&mut readable, len) {
-            Ok(_) => assert!(false),
-            Err(::errors::ParsingError::BadData(msg)) => assert!(true),
-            Err(_) => assert!(false)
-        }
+        let id3v1 = super::ID3v1Tag::new(&mut readable, len).unwrap();
+
+        assert_eq!("räksmörgås", id3v1.get_title());
+        assert_eq!("räksmörgås", id3v1.get_artist());
+        assert_eq!("räksmörgås", id3v1.get_album());
+        assert_eq!("räksmörgås", id3v1.get_comment());
+    }
+
+    #[test]
+    fn v1_utf8() {
+        let _ = env_logger::init();
+
+        let file = fs::File::open("./test-resources/v1-utf8.mp3").unwrap();
+        let len = file.metadata().unwrap().len();
+        let mut readable = ::readable::Readable::new(file);
+        let id3v1 = super::ID3v1Tag::new(&mut readable, len).unwrap();
+
+        assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", id3v1.get_title());
+        assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", id3v1.get_artist());
+        assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", id3v1.get_album());
+        assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", id3v1.get_comment());
     }
 }

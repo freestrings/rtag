@@ -68,7 +68,7 @@ impl Header {
         self.minor_version
     }
 
-    // see references/id3v2.md#id3v2 Header
+    // see references/id3v2_summary.md#id3v2 Header
     pub fn has_flag(&self, flag: HeaderFlag) -> bool {
         if self.version == 2 {
             match flag {

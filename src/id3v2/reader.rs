@@ -21,6 +21,7 @@
 //SOFTWARE.
 
 use std::io;
+use std::error::Error;
 
 type ReadResult<T> = ::std::result::Result<T, ::errors::ParsingError>;
 
@@ -52,6 +53,25 @@ impl<'a, T> FrameIterator for FrameReader<'a, T> where T: io::Read + io::Seek {
 
     fn next_frame(&mut self) -> ReadResult<::id3v2::frame::Frame> {
         self.reader.next_frame()
+    }
+}
+
+impl<'a, T> ::std::iter::Iterator for FrameReader<'a, T> where T: io::Read + io::Seek {
+
+    type Item = ::id3v2::frame::Frame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.reader.has_next_frame() {
+            match self.reader.next_frame() {
+                Ok(frame) => Some(frame),
+                Err(err) => {
+                    error!("{}", err.description());
+                    None
+                }
+            }
+        } else {
+            None
+        }
     }
 }
 

@@ -20,14 +20,6 @@
 //OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //SOFTWARE.
 
-#[derive(Debug)]
-pub enum TextEncoding {
-    ISO8859_1,
-    UTF16LE,
-    UTF16BE,
-    UTF8
-}
-
 pub fn to_u16(bytes: &[u8]) -> u16 {
     let mut v: u16 = (bytes[1] & 0xff) as u16;
     v = v | ((bytes[0] & 0xff) as u16) << 8;
@@ -57,14 +49,4 @@ pub fn to_synchsafe(bytes: &[u8]) -> u32 {
     v = v | ((bytes[1] & 0x7f) as u32) << 14;
     v = v | ((bytes[0] & 0x7f) as u32) << 21;
     v
-}
-
-pub fn to_encoding(encoding: u8) -> ::id3v2::bytes::TextEncoding {
-    match encoding {
-        0 => self::TextEncoding::ISO8859_1,
-        1 => self::TextEncoding::UTF16LE,
-        2 => self::TextEncoding::UTF16BE,
-        3 => self::TextEncoding::UTF8,
-        _ => self::TextEncoding::ISO8859_1
-    }
 }

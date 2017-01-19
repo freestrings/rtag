@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn id3v1_test1() {
-        let file = fs::File::open("./resources/file1.txt").unwrap();
+        let file = fs::File::open("./test-resources/file1.txt").unwrap();
         let len = file.metadata().unwrap().len();
         let mut readable = ::readable::Readable::new(file);
         if let Err(msg) = super::ID3v1Tag::new(&mut readable, len) {
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn id3v1_test2() {
-        let file = fs::File::open("./resources/empty-meta.mp3").unwrap();
+        let file = fs::File::open("./test-resources/empty-meta.mp3").unwrap();
         let len = file.metadata().unwrap().len();
         let mut readable = ::readable::Readable::new(file);
         assert!(super::ID3v1Tag::new(&mut readable, len).is_err());
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn id3v1_test3() {
-        let file = fs::File::open("./resources/id3v1-id3v2.mp3").unwrap();
+        let file = fs::File::open("./test-resources/id3v1-id3v2.mp3").unwrap();
         let len = file.metadata().unwrap().len();
         let mut readable = ::readable::Readable::new(file);
         let id3v1 = super::ID3v1Tag::new(&mut readable, len).unwrap();
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn id3v1_test6() {
-        let file = fs::File::open("./resources/230-no-id3.mp3").unwrap();
+        let file = fs::File::open("./test-resources/230-no-id3.mp3").unwrap();
         let len = file.metadata().unwrap().len();
         let mut readable = ::readable::Readable::new(file);
         match super::ID3v1Tag::new(&mut readable, len) {

@@ -26,8 +26,21 @@ extern crate regex;
 use self::encoding::{Encoding, DecoderTrap};
 use std::{io, vec};
 
+
 type FrameResult<T> = ::std::result::Result<T, ::errors::ParsingError>;
 type Readable = ::readable::Readable<io::Cursor<vec::Vec<u8>>>;
+
+fn is_valid_frame_id(id: &str) -> bool {
+    // TODO const
+    let reg = regex::Regex::new(r"^[A-Z][A-Z0-9]{3}$").unwrap();
+    reg.is_match(id)
+}
+
+fn trim_white_space_include_bom(text: String) -> String {
+    // TODO const
+    let reg = regex::Regex::new(r"(^[\x{0}|\x{feff}|\x{fffe}]*|[\x{0}|\x{feff}|\x{fffe}]*$)").unwrap();
+    reg.replace_all(text.as_str(), "").into_owned()
+}
 
 fn to_picture_type(t: u8) -> ::id3v2::frame_constants::PictureType {
     match t {
@@ -122,14 +135,26 @@ fn to_event_timing_code(t: u8, timestamp: u32) -> ::id3v2::frame_constants::Even
     }
 }
 
-fn read_null_terminated(text_encoding: &::id3v2::bytes::TextEncoding, readable: &mut Readable)
+fn read_null_terminated(text_encoding: &::id3v2::frame_constants::TextEncoding, readable: &mut Readable)
                         -> FrameResult<(usize, String)> {
     Ok(match text_encoding {
-        &::id3v2::bytes::TextEncoding::ISO8859_1 | &::id3v2::bytes::TextEncoding::UTF8 =>
+        &::id3v2::frame_constants::TextEncoding::ISO8859_1 | &::id3v2::frame_constants::TextEncoding::UTF8 =>
             readable.read_terminated_null()?,
         _ => {
             debug!("Unknown text_encoding {:?}", text_encoding);
             readable.read_terminated_utf16()?
+        }
+    })
+}
+
+fn read_null_terminated_bytes(text_encoding: &::id3v2::frame_constants::TextEncoding, readable: &mut Readable)
+                              -> FrameResult<vec::Vec<u8>> {
+    Ok(match text_encoding {
+        &::id3v2::frame_constants::TextEncoding::ISO8859_1 | &::id3v2::frame_constants::TextEncoding::UTF8 =>
+            readable.read_terminated_null_bytes()?,
+        _ => {
+            debug!("Unknown text_encoding {:?}", text_encoding);
+            readable.read_terminated_utf16_bytes()?
         }
     })
 }
@@ -140,6 +165,26 @@ fn trim_to_u32(bytes: &mut vec::Vec<u8>) -> u32 {
         bytes.split_off(len - 4);
     }
     ::id3v2::bytes::to_u32(&bytes)
+}
+
+fn as_encoded_text(text_encoding: &::id3v2::frame_constants::TextEncoding, data: &vec::Vec<u8>) -> FrameResult<String> {
+    fn to_parsing_err(err: ::std::borrow::Cow<'static, str>) -> ::errors::ParsingError {
+        ::errors::ParsingError::EncodeDecodeError(err)
+    }
+
+    Ok(match text_encoding {
+        &::id3v2::frame_constants::TextEncoding::ISO8859_1 => encoding::all::ISO_8859_1
+            .decode(data, encoding::DecoderTrap::Strict).map_err(to_parsing_err)?,
+
+        &::id3v2::frame_constants::TextEncoding::UTF16LE => encoding::all::UTF_16LE
+            .decode(data, encoding::DecoderTrap::Strict).map_err(to_parsing_err)?,
+
+        &::id3v2::frame_constants::TextEncoding::UTF16BE => encoding::all::UTF_16BE
+            .decode(data, encoding::DecoderTrap::Strict).map_err(to_parsing_err)?,
+
+        &::id3v2::frame_constants::TextEncoding::UTF8 => encoding::all::UTF_8
+            .decode(data, encoding::DecoderTrap::Strict).map_err(to_parsing_err)?,
+    })
 }
 
 fn to_content_type(t: u8) -> ::id3v2::frame_constants::ContentType {
@@ -157,8 +202,18 @@ fn to_content_type(t: u8) -> ::id3v2::frame_constants::ContentType {
     }
 }
 
+fn to_encoding(encoding: u8) -> ::id3v2::frame_constants::TextEncoding {
+    match encoding {
+        0 => ::id3v2::frame_constants::TextEncoding::ISO8859_1,
+        1 => ::id3v2::frame_constants::TextEncoding::UTF16LE,
+        2 => ::id3v2::frame_constants::TextEncoding::UTF16BE,
+        3 => ::id3v2::frame_constants::TextEncoding::UTF8,
+        _ => ::id3v2::frame_constants::TextEncoding::ISO8859_1
+    }
+}
+
 trait FrameDataBase<T> {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<T>;
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<T>;
 }
 
 // TODO not yet tested
@@ -184,7 +239,7 @@ impl CRM {
 }
 
 impl FrameDataBase<CRM> for CRM {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<CRM> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<CRM> {
         let (_, owner_identifier) = readable.read_terminated_null()?;
         let (_, content) = readable.read_terminated_null()?;
         let encrypted_datablock = readable.all_bytes()?;
@@ -206,7 +261,7 @@ impl FrameDataBase<CRM> for CRM {
 // Attached picture
 #[derive(Debug)]
 pub struct PIC {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     image_format: String,
     picture_type: ::id3v2::frame_constants::PictureType,
     description: String,
@@ -214,7 +269,7 @@ pub struct PIC {
 }
 
 impl PIC {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -236,8 +291,8 @@ impl PIC {
 }
 
 impl FrameDataBase<PIC> for PIC {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<PIC> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<PIC> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let image_format = readable.as_string(3)?;
         let picture_type = to_picture_type(readable.as_bytes(1)?[0]);
         let (_, description) = read_null_terminated(&text_encoding, readable)?;
@@ -285,7 +340,7 @@ impl AENC {
 }
 
 impl FrameDataBase<AENC> for AENC {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<AENC> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<AENC> {
         let (_, id) = readable.read_terminated_null()?;
         let preview_start = ::id3v2::bytes::to_u16(&readable.as_bytes(2)?);
         let preview_end = ::id3v2::bytes::to_u16(&readable.as_bytes(2)?);
@@ -307,7 +362,7 @@ impl FrameDataBase<AENC> for AENC {
 //Attached picture
 #[derive(Debug)]
 pub struct APIC {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     mime_type: String,
     picture_type: ::id3v2::frame_constants::PictureType,
     description: String,
@@ -315,7 +370,7 @@ pub struct APIC {
 }
 
 impl APIC {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
     pub fn get_mime_type(&self) -> &str {
@@ -333,8 +388,8 @@ impl APIC {
 }
 
 impl FrameDataBase<APIC> for APIC {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<APIC> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<APIC> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let (_, mine_type) = readable.read_terminated_null()?;
         let picture_type = to_picture_type(readable.as_bytes(1)?[0]);
         let (_, description) = read_null_terminated(&text_encoding, readable)?;
@@ -388,7 +443,7 @@ impl ASPI {
 }
 
 impl FrameDataBase<ASPI> for ASPI {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<ASPI> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<ASPI> {
         let indexed_data_start = ::id3v2::bytes::to_u32(&readable.as_bytes(4)?);
         let indexed_data_length = ::id3v2::bytes::to_u32(&readable.as_bytes(4)?);
         let number_of_index_points = ::id3v2::bytes::to_u16(&readable.as_bytes(2)?);
@@ -412,14 +467,14 @@ impl FrameDataBase<ASPI> for ASPI {
 // Comments
 #[derive(Debug)]
 pub struct COMM {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     language: String,
     short_description: String,
     actual_text: String
 }
 
 impl COMM {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -437,8 +492,8 @@ impl COMM {
 }
 
 impl FrameDataBase<COMM> for COMM {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<COMM> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<COMM> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, short_description) = read_null_terminated(&text_encoding, readable)?;
         let actual_text = readable.all_string()?;
@@ -460,7 +515,7 @@ impl FrameDataBase<COMM> for COMM {
 // Commercial frame
 #[derive(Debug)]
 pub struct COMR {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     price_string: String,
     // 8 bit long
     valid_util: String,
@@ -473,7 +528,7 @@ pub struct COMR {
 }
 
 impl COMR {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -511,8 +566,8 @@ impl COMR {
 }
 
 impl FrameDataBase<COMR> for COMR {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<COMR> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<COMR> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let (_, price_string) = readable.read_terminated_null()?;
         let valid_util = readable.as_string(8)?;
         let (_, contact_url) = readable.read_terminated_null()?;
@@ -564,7 +619,7 @@ impl ENCR {
 }
 
 impl FrameDataBase<ENCR> for ENCR {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<ENCR> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<ENCR> {
         let (_, owner_identifier) = readable.read_terminated_null()?;
         let method_symbol = readable.as_bytes(1)?[0];
         let encryption_data = readable.all_bytes()?;
@@ -595,7 +650,7 @@ impl EQUA {
 }
 
 impl FrameDataBase<EQUA> for EQUA {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<EQUA> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<EQUA> {
         let adjustment_bit = readable.as_bytes(1)?[0];
 
         let ret = Ok(EQUA {
@@ -627,7 +682,7 @@ impl EQU2 {
 }
 
 impl FrameDataBase<EQU2> for EQU2 {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<EQU2> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<EQU2> {
         let interpolation_method = to_interpolation_method(readable.as_bytes(1)?[0]);
         let (_, identification) = readable.read_terminated_null()?;
 
@@ -660,7 +715,7 @@ impl ETCO {
 }
 
 impl FrameDataBase<ETCO> for ETCO {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<ETCO> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<ETCO> {
         let timestamp_format = to_timestamp_format(readable.as_bytes(1)?[0]);
         let mut event_timing_codes: vec::Vec<::id3v2::frame_constants::EventTimingCode> = vec::Vec::new();
         loop {
@@ -693,7 +748,7 @@ impl FrameDataBase<ETCO> for ETCO {
 // General encapsulated object
 #[derive(Debug)]
 pub struct GEOB {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     mine_type: String,
     filename: String,
     content_description: String,
@@ -701,7 +756,7 @@ pub struct GEOB {
 }
 
 impl GEOB {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -723,8 +778,8 @@ impl GEOB {
 }
 
 impl FrameDataBase<GEOB> for GEOB {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<GEOB> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<GEOB> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let (_, mine_type) = readable.read_terminated_null()?;
         let (_, filename) = readable.read_terminated_utf16()?;
         let (_, content_description) = readable.read_terminated_utf16()?;
@@ -768,7 +823,7 @@ impl GRID {
 }
 
 impl FrameDataBase<GRID> for GRID {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<GRID> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<GRID> {
         let (_, owner_identifier) = readable.read_terminated_null()?;
         let group_symbol = readable.as_bytes(1)?[0];
         let group_dependent_data = readable.all_bytes()?;
@@ -788,12 +843,12 @@ impl FrameDataBase<GRID> for GRID {
 #[derive(Debug)]
 // Involved people list
 pub struct IPLS {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     people_list_strings: String
 }
 
 impl IPLS {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -803,8 +858,8 @@ impl IPLS {
 }
 
 impl FrameDataBase<IPLS> for IPLS {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<IPLS> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<IPLS> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let (_, people_list_strings) = read_null_terminated(&text_encoding, readable)?;
 
         let ret = Ok(IPLS {
@@ -842,7 +897,7 @@ impl LINK {
 }
 
 impl FrameDataBase<LINK> for LINK {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<LINK> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<LINK> {
         let frame_id = ::id3v2::bytes::to_u32(&readable.as_bytes(4)?);
         let (_, url) = readable.read_terminated_null()?;
         let additional_data = readable.all_string()?;
@@ -873,7 +928,7 @@ impl MCDI {
 }
 
 impl FrameDataBase<MCDI> for MCDI {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<MCDI> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<MCDI> {
         let cd_toc = readable.all_bytes()?;
 
         let ret = Ok(MCDI {
@@ -901,7 +956,7 @@ impl MLLT {
 }
 
 impl FrameDataBase<MLLT> for MLLT {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<MLLT> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<MLLT> {
         let data = readable.all_bytes()?;
 
         let ret = Ok(MLLT {
@@ -918,7 +973,7 @@ impl FrameDataBase<MLLT> for MLLT {
 // Ownership frame
 #[derive(Debug)]
 pub struct OWNE {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     price_paid: String,
     // 8 bit long
     date_of_purch: String,
@@ -926,7 +981,7 @@ pub struct OWNE {
 }
 
 impl OWNE {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -944,8 +999,8 @@ impl OWNE {
 }
 
 impl FrameDataBase<OWNE> for OWNE {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<OWNE> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<OWNE> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let (_, price_paid) = readable.read_terminated_null()?;
         let date_of_purch = readable.as_string(4)?;
         let (_, seller) = read_null_terminated(&text_encoding, readable)?;
@@ -982,7 +1037,7 @@ impl PRIV {
 }
 
 impl FrameDataBase<PRIV> for PRIV {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<PRIV> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<PRIV> {
         let (_, owner_identifier) = readable.read_terminated_null()?;
         let private_data = readable.all_bytes()?;
 
@@ -1011,7 +1066,7 @@ impl PCNT {
 }
 
 impl FrameDataBase<PCNT> for PCNT {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<PCNT> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<PCNT> {
         let mut all_bytes = readable.all_bytes()?;
         let counter = trim_to_u32(&mut all_bytes);
 
@@ -1050,7 +1105,7 @@ impl POPM {
 }
 
 impl FrameDataBase<POPM> for POPM {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<POPM> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<POPM> {
         let (_, email_to_user) = readable.read_terminated_null()?;
         let rating = readable.as_bytes(1)?[0];
         let counter = {
@@ -1090,7 +1145,7 @@ impl POSS {
 }
 
 impl FrameDataBase<POSS> for POSS {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<POSS> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<POSS> {
         let timestamp_format = to_timestamp_format(readable.as_bytes(1)?[0]);
         let position = readable.all_bytes()?;
 
@@ -1129,7 +1184,7 @@ impl RBUF {
 }
 
 impl FrameDataBase<RBUF> for RBUF {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<RBUF> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<RBUF> {
         let buffer_size = ::id3v2::bytes::to_u32(&readable.as_bytes(3)?);
         let embedded_info_flag = readable.as_bytes(1)?[0] & 0x01;
         let offset_to_next_tag = ::id3v2::bytes::to_u32(&readable.as_bytes(4)?);
@@ -1161,7 +1216,7 @@ impl RVA2 {
 }
 
 impl FrameDataBase<RVA2> for RVA2 {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<RVA2> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<RVA2> {
         let data = readable.all_bytes()?;
 
         let ret = Ok(RVA2 {
@@ -1224,7 +1279,7 @@ impl RVRB {
 }
 
 impl FrameDataBase<RVRB> for RVRB {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<RVRB> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<RVRB> {
         let reverb_left = ::id3v2::bytes::to_u16(&readable.as_bytes(2)?);
         let reverb_right = ::id3v2::bytes::to_u16(&readable.as_bytes(2)?);
         let reverb_bounce_left = readable.as_bytes(1)?[0];
@@ -1269,7 +1324,7 @@ impl SEEK {
 }
 
 impl FrameDataBase<SEEK> for SEEK {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<SEEK> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<SEEK> {
         let next_tag = readable.all_string()?;
 
         let ret = Ok(SEEK {
@@ -1301,7 +1356,7 @@ impl SIGN {
 }
 
 impl FrameDataBase<SIGN> for SIGN {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<SIGN> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<SIGN> {
         let group_symbol = readable.as_bytes(1)?[0];
         let signature = readable.all_bytes()?;
 
@@ -1320,7 +1375,7 @@ impl FrameDataBase<SIGN> for SIGN {
 // Synchronised lyric/text
 #[derive(Debug)]
 pub struct SYLT {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     language: String,
     timestamp_format: ::id3v2::frame_constants::TimestampFormat,
     content_type: ::id3v2::frame_constants::ContentType,
@@ -1328,7 +1383,7 @@ pub struct SYLT {
 }
 
 impl SYLT {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -1350,8 +1405,8 @@ impl SYLT {
 }
 
 impl FrameDataBase<SYLT> for SYLT {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<SYLT> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<SYLT> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let timestamp_format = to_timestamp_format(readable.as_bytes(1)?[0]);
         let content_type = to_content_type(readable.as_bytes(1)?[0]);
@@ -1390,7 +1445,7 @@ impl SYTC {
 }
 
 impl FrameDataBase<SYTC> for SYTC {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<SYTC> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<SYTC> {
         let timestamp_format = to_timestamp_format(readable.as_bytes(1)?[0]);
         let tempo_data = readable.all_bytes()?;
 
@@ -1424,7 +1479,7 @@ impl UFID {
 }
 
 impl FrameDataBase<UFID> for UFID {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<UFID> {
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<UFID> {
         let (_, owner_identifier) = readable.read_terminated_null()?;
         let identifier = readable.all_bytes()?;
 
@@ -1443,13 +1498,13 @@ impl FrameDataBase<UFID> for UFID {
 // Terms of use
 #[derive(Debug)]
 pub struct USER {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     language: String,
     actual_text: String
 }
 
 impl USER {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -1463,8 +1518,8 @@ impl USER {
 }
 
 impl FrameDataBase<USER> for USER {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<USER> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<USER> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, actual_text) = read_null_terminated(&text_encoding, readable)?;
 
@@ -1484,14 +1539,14 @@ impl FrameDataBase<USER> for USER {
 // Unsynchronised lyric/text transcription
 #[derive(Debug)]
 pub struct USLT {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     language: String,
     content_descriptor: String,
     lyrics: String
 }
 
 impl USLT {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -1509,8 +1564,8 @@ impl USLT {
 }
 
 impl FrameDataBase<USLT> for USLT {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<USLT> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<USLT> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, content_descriptor) = read_null_terminated(&text_encoding, readable)?;
         let (_, lyrics) = read_null_terminated(&text_encoding, readable)?;
@@ -1530,12 +1585,12 @@ impl FrameDataBase<USLT> for USLT {
 
 #[derive(Debug)]
 pub struct TEXT {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     text: String
 }
 
 impl TEXT {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -1545,25 +1600,20 @@ impl TEXT {
 }
 
 impl FrameDataBase<TEXT> for TEXT {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<TEXT> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<TEXT> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let data = readable.all_bytes()?;
-        let text = match text_encoding {
-            ::id3v2::bytes::TextEncoding::ISO8859_1 => encoding::all::ISO_8859_1
-                .decode(&data, encoding::DecoderTrap::Strict)
-                .map_err(|err| ::errors::ParsingError::BadData(err.to_string()))?,
-
-            ::id3v2::bytes::TextEncoding::UTF16LE => encoding::all::UTF_16LE
-                .decode(&data, encoding::DecoderTrap::Strict)
-                .map_err(|err| ::errors::ParsingError::BadData(err.to_string()))?,
-
-            ::id3v2::bytes::TextEncoding::UTF16BE => encoding::all::UTF_16BE
-                .decode(&data, encoding::DecoderTrap::Strict)
-                .map_err(|err| ::errors::ParsingError::BadData(err.to_string()))?,
-
-            ::id3v2::bytes::TextEncoding::UTF8 => encoding::all::UTF_8
-                .decode(&data, encoding::DecoderTrap::Strict)
-                .map_err(|err| ::errors::ParsingError::BadData(err.to_string()))?
+        let text = match as_encoded_text(&text_encoding, &data) {
+            Err(::errors::ParsingError::EncodeDecodeError(_)) => {
+                // The BPM is text frame but it is an integer and represented as a numerical string.
+                if id == ::id3v2::frame_constants::id::TBP_STR || id == ::id3v2::frame_constants::id::TBPM_STR {
+                    "0".to_string()
+                } else {
+                    "".to_string()
+                }
+            },
+            Err(_) => "".to_string(),
+            Ok(text) => trim_white_space_include_bom(text)
         };
 
         let ret = Ok(TEXT {
@@ -1579,13 +1629,13 @@ impl FrameDataBase<TEXT> for TEXT {
 
 #[derive(Debug)]
 pub struct TXXX {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     description: String,
     value: String
 }
 
 impl TXXX {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -1599,8 +1649,8 @@ impl TXXX {
 }
 
 impl FrameDataBase<TXXX> for TXXX {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<TXXX> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<TXXX> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let (_, description) = read_null_terminated(&text_encoding, readable)?;
         let value = readable.all_string()?;
 
@@ -1620,13 +1670,13 @@ impl FrameDataBase<TXXX> for TXXX {
 // User defined URL link frame
 #[derive(Debug)]
 pub struct WXXX {
-    text_encoding: ::id3v2::bytes::TextEncoding,
+    text_encoding: ::id3v2::frame_constants::TextEncoding,
     description: String,
     url: String
 }
 
 impl WXXX {
-    pub fn get_text_encoding(&self) -> &::id3v2::bytes::TextEncoding {
+    pub fn get_text_encoding(&self) -> &::id3v2::frame_constants::TextEncoding {
         &self.text_encoding
     }
 
@@ -1640,8 +1690,8 @@ impl WXXX {
 }
 
 impl FrameDataBase<WXXX> for WXXX {
-    fn to_framedata(readable: &mut Readable) -> FrameResult<WXXX> {
-        let text_encoding = ::id3v2::bytes::to_encoding(readable.as_bytes(1)?[0]);
+    fn to_framedata(readable: &mut Readable, id: &str) -> FrameResult<WXXX> {
+        let text_encoding = to_encoding(readable.as_bytes(1)?[0]);
         let (_, description) = read_null_terminated(&text_encoding, readable)?;
         let url = readable.all_string()?;
 
@@ -1687,8 +1737,7 @@ impl Frame {
                 // rewind
                 readable.skip(-4);
                 // @see http://id3.org/id3v2.4.0-structure > 4. ID3v2 frame overview
-                let re = regex::Regex::new(r"^[A-Z][A-Z0-9]{3}$").unwrap();
-                let matched = re.is_match(&id);
+                let matched = is_valid_frame_id(&id);
                 debug!("Frame.has_next_frame=> Frame Id:{}, matched: {}", id, matched);
                 matched
             },
@@ -1773,163 +1822,165 @@ impl Frame {
             readable.skip(3);
         }
 
+        let id = self.id.as_str();
+
         Ok(match self.id.as_ref() {
-            ::id3v2::frame_constants::id::BUF_STR => ::id3v2::frame_constants::FrameData::RBUF(RBUF::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::CNT_STR => ::id3v2::frame_constants::FrameData::PCNT(PCNT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::COM_STR => ::id3v2::frame_constants::FrameData::COMM(COMM::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::CRA_STR => ::id3v2::frame_constants::FrameData::AENC(AENC::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::CRM_STR => ::id3v2::frame_constants::FrameData::CRM(CRM::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::ETC_STR => ::id3v2::frame_constants::FrameData::ETCO(ETCO::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::EQU_STR => ::id3v2::frame_constants::FrameData::EQUA(EQUA::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::GEO_STR => ::id3v2::frame_constants::FrameData::GEOB(GEOB::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::IPL_STR => ::id3v2::frame_constants::FrameData::IPLS(IPLS::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::LNK_STR => ::id3v2::frame_constants::FrameData::LINK(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::MCI_STR => ::id3v2::frame_constants::FrameData::MCDI(MCDI::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::MLL_STR => ::id3v2::frame_constants::FrameData::MLLT(MLLT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::PIC_STR => ::id3v2::frame_constants::FrameData::PIC(PIC::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::POP_STR => ::id3v2::frame_constants::FrameData::POPM(POPM::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::REV_STR => ::id3v2::frame_constants::FrameData::RVRB(RVRB::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::RVA_STR => ::id3v2::frame_constants::FrameData::RVAD(RVA2::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::SLT_STR => ::id3v2::frame_constants::FrameData::SYLT(SYLT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::STC_STR => ::id3v2::frame_constants::FrameData::SYTC(SYTC::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TAL_STR => ::id3v2::frame_constants::FrameData::TALB(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TBP_STR => ::id3v2::frame_constants::FrameData::TBPM(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TCM_STR => ::id3v2::frame_constants::FrameData::TCOM(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TCO_STR => ::id3v2::frame_constants::FrameData::TCON(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TCR_STR => ::id3v2::frame_constants::FrameData::TCOP(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TDA_STR => ::id3v2::frame_constants::FrameData::TDAT(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TDY_STR => ::id3v2::frame_constants::FrameData::TDLY(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TEN_STR => ::id3v2::frame_constants::FrameData::TENC(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TFT_STR => ::id3v2::frame_constants::FrameData::TFLT(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TIM_STR => ::id3v2::frame_constants::FrameData::TIME(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TKE_STR => ::id3v2::frame_constants::FrameData::TKEY(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TLA_STR => ::id3v2::frame_constants::FrameData::TLAN(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TLE_STR => ::id3v2::frame_constants::FrameData::TLEN(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TMT_STR => ::id3v2::frame_constants::FrameData::TMED(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TOA_STR => ::id3v2::frame_constants::FrameData::TOPE(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TOF_STR => ::id3v2::frame_constants::FrameData::TOFN(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TOL_STR => ::id3v2::frame_constants::FrameData::TOLY(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TOR_STR => ::id3v2::frame_constants::FrameData::TORY(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TOT_STR => ::id3v2::frame_constants::FrameData::TOAL(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TP1_STR => ::id3v2::frame_constants::FrameData::TPE1(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TP2_STR => ::id3v2::frame_constants::FrameData::TPE2(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TP3_STR => ::id3v2::frame_constants::FrameData::TPE3(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TP4_STR => ::id3v2::frame_constants::FrameData::TPE4(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TPA_STR => ::id3v2::frame_constants::FrameData::TPOS(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TPB_STR => ::id3v2::frame_constants::FrameData::TPUB(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TRC_STR => ::id3v2::frame_constants::FrameData::TRCK(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TRD_STR => ::id3v2::frame_constants::FrameData::TRDA(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TRK_STR => ::id3v2::frame_constants::FrameData::TRCK(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TSI_STR => ::id3v2::frame_constants::FrameData::TSIZ(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TSS_STR => ::id3v2::frame_constants::FrameData::TSSE(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TT1_STR => ::id3v2::frame_constants::FrameData::TIT1(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TT2_STR => ::id3v2::frame_constants::FrameData::TIT2(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TT3_STR => ::id3v2::frame_constants::FrameData::TIT3(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TXT_STR => ::id3v2::frame_constants::FrameData::TEXT(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TXX_STR => ::id3v2::frame_constants::FrameData::TXXX(TXXX::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TYE_STR => ::id3v2::frame_constants::FrameData::TYER(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::UFI_STR => ::id3v2::frame_constants::FrameData::UFID(UFID::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::ULT_STR => ::id3v2::frame_constants::FrameData::USLT(USLT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WAF_STR => ::id3v2::frame_constants::FrameData::WOAF(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WAR_STR => ::id3v2::frame_constants::FrameData::WOAR(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WAS_STR => ::id3v2::frame_constants::FrameData::WOAS(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WCM_STR => ::id3v2::frame_constants::FrameData::WCOM(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WCP_STR => ::id3v2::frame_constants::FrameData::WCOP(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WPB_STR => ::id3v2::frame_constants::FrameData::WPUB(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WXX_STR => ::id3v2::frame_constants::FrameData::WXXX(WXXX::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::AENC_STR => ::id3v2::frame_constants::FrameData::AENC(AENC::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::APIC_STR => ::id3v2::frame_constants::FrameData::APIC(APIC::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::ASPI_STR => ::id3v2::frame_constants::FrameData::ASPI(ASPI::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::COMM_STR => ::id3v2::frame_constants::FrameData::COMM(COMM::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::COMR_STR => ::id3v2::frame_constants::FrameData::COMR(COMR::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::ENCR_STR => ::id3v2::frame_constants::FrameData::ENCR(ENCR::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::EQUA_STR => ::id3v2::frame_constants::FrameData::EQUA(EQUA::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::EQU2_STR => ::id3v2::frame_constants::FrameData::EQU2(EQU2::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::ETCO_STR => ::id3v2::frame_constants::FrameData::ETCO(ETCO::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::GEOB_STR => ::id3v2::frame_constants::FrameData::GEOB(GEOB::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::GRID_STR => ::id3v2::frame_constants::FrameData::GRID(GRID::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::IPLS_STR => ::id3v2::frame_constants::FrameData::IPLS(IPLS::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::LINK_STR => ::id3v2::frame_constants::FrameData::LINK(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::MCDI_STR => ::id3v2::frame_constants::FrameData::MCDI(MCDI::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::MLLT_STR => ::id3v2::frame_constants::FrameData::MLLT(MLLT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::OWNE_STR => ::id3v2::frame_constants::FrameData::OWNE(OWNE::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::PRIV_STR => ::id3v2::frame_constants::FrameData::PRIV(PRIV::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::PCNT_STR => ::id3v2::frame_constants::FrameData::PCNT(PCNT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::POPM_STR => ::id3v2::frame_constants::FrameData::POPM(POPM::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::POSS_STR => ::id3v2::frame_constants::FrameData::POSS(POSS::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::RBUF_STR => ::id3v2::frame_constants::FrameData::RBUF(RBUF::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::RVAD_STR => ::id3v2::frame_constants::FrameData::RVAD(RVA2::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::RVA2_STR => ::id3v2::frame_constants::FrameData::RVA2(RVA2::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::RVRB_STR => ::id3v2::frame_constants::FrameData::RVRB(RVRB::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::SEEK_STR => ::id3v2::frame_constants::FrameData::SEEK(SEEK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::SIGN_STR => ::id3v2::frame_constants::FrameData::SIGN(SIGN::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::SYLT_STR => ::id3v2::frame_constants::FrameData::SYLT(SYLT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::SYTC_STR => ::id3v2::frame_constants::FrameData::SYTC(SYTC::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::UFID_STR => ::id3v2::frame_constants::FrameData::UFID(UFID::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::USER_STR => ::id3v2::frame_constants::FrameData::USER(USER::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::USLT_STR => ::id3v2::frame_constants::FrameData::USLT(USLT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TALB_STR => ::id3v2::frame_constants::FrameData::TALB(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TBPM_STR => ::id3v2::frame_constants::FrameData::TBPM(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TCOM_STR => ::id3v2::frame_constants::FrameData::TCOM(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TCON_STR => ::id3v2::frame_constants::FrameData::TCON(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TCOP_STR => ::id3v2::frame_constants::FrameData::TCOP(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TDAT_STR => ::id3v2::frame_constants::FrameData::TDAT(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TDEN_STR => ::id3v2::frame_constants::FrameData::TDEN(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TDLY_STR => ::id3v2::frame_constants::FrameData::TDLY(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TDOR_STR => ::id3v2::frame_constants::FrameData::TDOR(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TDRC_STR => ::id3v2::frame_constants::FrameData::TDRC(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TDRL_STR => ::id3v2::frame_constants::FrameData::TDRL(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TDTG_STR => ::id3v2::frame_constants::FrameData::TDTG(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TENC_STR => ::id3v2::frame_constants::FrameData::TENC(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TEXT_STR => ::id3v2::frame_constants::FrameData::TEXT(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TIME_STR => ::id3v2::frame_constants::FrameData::TIME(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TFLT_STR => ::id3v2::frame_constants::FrameData::TFLT(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TIPL_STR => ::id3v2::frame_constants::FrameData::TIPL(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TIT1_STR => ::id3v2::frame_constants::FrameData::TIT1(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TIT2_STR => ::id3v2::frame_constants::FrameData::TIT2(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TIT3_STR => ::id3v2::frame_constants::FrameData::TIT3(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TKEY_STR => ::id3v2::frame_constants::FrameData::TKEY(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TLAN_STR => ::id3v2::frame_constants::FrameData::TLAN(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TLEN_STR => ::id3v2::frame_constants::FrameData::TLEN(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TMCL_STR => ::id3v2::frame_constants::FrameData::TMCL(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TMED_STR => ::id3v2::frame_constants::FrameData::TMED(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TMOO_STR => ::id3v2::frame_constants::FrameData::TMOO(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TOAL_STR => ::id3v2::frame_constants::FrameData::TOAL(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TOFN_STR => ::id3v2::frame_constants::FrameData::TOFN(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TOLY_STR => ::id3v2::frame_constants::FrameData::TOLY(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TOPE_STR => ::id3v2::frame_constants::FrameData::TOPE(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TORY_STR => ::id3v2::frame_constants::FrameData::TORY(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TOWN_STR => ::id3v2::frame_constants::FrameData::TOWN(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TPE1_STR => ::id3v2::frame_constants::FrameData::TPE1(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TPE2_STR => ::id3v2::frame_constants::FrameData::TPE2(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TPE3_STR => ::id3v2::frame_constants::FrameData::TPE3(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TPE4_STR => ::id3v2::frame_constants::FrameData::TPE4(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TPOS_STR => ::id3v2::frame_constants::FrameData::TPOS(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TPRO_STR => ::id3v2::frame_constants::FrameData::TPRO(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TPUB_STR => ::id3v2::frame_constants::FrameData::TPUB(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TRCK_STR => ::id3v2::frame_constants::FrameData::TRCK(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TRDA_STR => ::id3v2::frame_constants::FrameData::TRDA(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TRSN_STR => ::id3v2::frame_constants::FrameData::TRSN(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TSIZ_STR => ::id3v2::frame_constants::FrameData::TSIZ(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TRSO_STR => ::id3v2::frame_constants::FrameData::TRSO(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TSOA_STR => ::id3v2::frame_constants::FrameData::TSOA(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TSOP_STR => ::id3v2::frame_constants::FrameData::TSOP(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TSOT_STR => ::id3v2::frame_constants::FrameData::TSOT(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TSRC_STR => ::id3v2::frame_constants::FrameData::TSRC(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TSSE_STR => ::id3v2::frame_constants::FrameData::TSSE(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TYER_STR => ::id3v2::frame_constants::FrameData::TYER(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TSST_STR => ::id3v2::frame_constants::FrameData::TSST(TEXT::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::TXXX_STR => ::id3v2::frame_constants::FrameData::TXXX(TXXX::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WCOM_STR => ::id3v2::frame_constants::FrameData::WCOM(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WCOP_STR => ::id3v2::frame_constants::FrameData::WCOP(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WOAF_STR => ::id3v2::frame_constants::FrameData::WOAF(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WOAR_STR => ::id3v2::frame_constants::FrameData::WOAR(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WOAS_STR => ::id3v2::frame_constants::FrameData::WOAS(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WORS_STR => ::id3v2::frame_constants::FrameData::WORS(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WPAY_STR => ::id3v2::frame_constants::FrameData::WPAY(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WPUB_STR => ::id3v2::frame_constants::FrameData::WPUB(LINK::to_framedata(&mut readable)?),
-            ::id3v2::frame_constants::id::WXXX_STR => ::id3v2::frame_constants::FrameData::WXXX(WXXX::to_framedata(&mut readable)?),
-            _ => ::id3v2::frame_constants::FrameData::TEXT(self::TEXT::to_framedata(&mut readable)?)
+            ::id3v2::frame_constants::id::BUF_STR => ::id3v2::frame_constants::FrameData::RBUF(RBUF::to_framedata(&mut readable, self.id.as_ref())?),
+            ::id3v2::frame_constants::id::CNT_STR => ::id3v2::frame_constants::FrameData::PCNT(PCNT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::COM_STR => ::id3v2::frame_constants::FrameData::COMM(COMM::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::CRA_STR => ::id3v2::frame_constants::FrameData::AENC(AENC::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::CRM_STR => ::id3v2::frame_constants::FrameData::CRM(CRM::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::ETC_STR => ::id3v2::frame_constants::FrameData::ETCO(ETCO::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::EQU_STR => ::id3v2::frame_constants::FrameData::EQUA(EQUA::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::GEO_STR => ::id3v2::frame_constants::FrameData::GEOB(GEOB::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::IPL_STR => ::id3v2::frame_constants::FrameData::IPLS(IPLS::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::LNK_STR => ::id3v2::frame_constants::FrameData::LINK(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::MCI_STR => ::id3v2::frame_constants::FrameData::MCDI(MCDI::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::MLL_STR => ::id3v2::frame_constants::FrameData::MLLT(MLLT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::PIC_STR => ::id3v2::frame_constants::FrameData::PIC(PIC::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::POP_STR => ::id3v2::frame_constants::FrameData::POPM(POPM::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::REV_STR => ::id3v2::frame_constants::FrameData::RVRB(RVRB::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::RVA_STR => ::id3v2::frame_constants::FrameData::RVAD(RVA2::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::SLT_STR => ::id3v2::frame_constants::FrameData::SYLT(SYLT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::STC_STR => ::id3v2::frame_constants::FrameData::SYTC(SYTC::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TAL_STR => ::id3v2::frame_constants::FrameData::TALB(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TBP_STR => ::id3v2::frame_constants::FrameData::TBPM(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TCM_STR => ::id3v2::frame_constants::FrameData::TCOM(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TCO_STR => ::id3v2::frame_constants::FrameData::TCON(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TCR_STR => ::id3v2::frame_constants::FrameData::TCOP(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TDA_STR => ::id3v2::frame_constants::FrameData::TDAT(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TDY_STR => ::id3v2::frame_constants::FrameData::TDLY(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TEN_STR => ::id3v2::frame_constants::FrameData::TENC(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TFT_STR => ::id3v2::frame_constants::FrameData::TFLT(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TIM_STR => ::id3v2::frame_constants::FrameData::TIME(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TKE_STR => ::id3v2::frame_constants::FrameData::TKEY(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TLA_STR => ::id3v2::frame_constants::FrameData::TLAN(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TLE_STR => ::id3v2::frame_constants::FrameData::TLEN(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TMT_STR => ::id3v2::frame_constants::FrameData::TMED(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TOA_STR => ::id3v2::frame_constants::FrameData::TOPE(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TOF_STR => ::id3v2::frame_constants::FrameData::TOFN(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TOL_STR => ::id3v2::frame_constants::FrameData::TOLY(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TOR_STR => ::id3v2::frame_constants::FrameData::TORY(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TOT_STR => ::id3v2::frame_constants::FrameData::TOAL(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TP1_STR => ::id3v2::frame_constants::FrameData::TPE1(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TP2_STR => ::id3v2::frame_constants::FrameData::TPE2(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TP3_STR => ::id3v2::frame_constants::FrameData::TPE3(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TP4_STR => ::id3v2::frame_constants::FrameData::TPE4(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TPA_STR => ::id3v2::frame_constants::FrameData::TPOS(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TPB_STR => ::id3v2::frame_constants::FrameData::TPUB(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TRC_STR => ::id3v2::frame_constants::FrameData::TRCK(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TRD_STR => ::id3v2::frame_constants::FrameData::TRDA(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TRK_STR => ::id3v2::frame_constants::FrameData::TRCK(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TSI_STR => ::id3v2::frame_constants::FrameData::TSIZ(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TSS_STR => ::id3v2::frame_constants::FrameData::TSSE(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TT1_STR => ::id3v2::frame_constants::FrameData::TIT1(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TT2_STR => ::id3v2::frame_constants::FrameData::TIT2(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TT3_STR => ::id3v2::frame_constants::FrameData::TIT3(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TXT_STR => ::id3v2::frame_constants::FrameData::TEXT(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TXX_STR => ::id3v2::frame_constants::FrameData::TXXX(TXXX::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TYE_STR => ::id3v2::frame_constants::FrameData::TYER(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::UFI_STR => ::id3v2::frame_constants::FrameData::UFID(UFID::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::ULT_STR => ::id3v2::frame_constants::FrameData::USLT(USLT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WAF_STR => ::id3v2::frame_constants::FrameData::WOAF(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WAR_STR => ::id3v2::frame_constants::FrameData::WOAR(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WAS_STR => ::id3v2::frame_constants::FrameData::WOAS(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WCM_STR => ::id3v2::frame_constants::FrameData::WCOM(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WCP_STR => ::id3v2::frame_constants::FrameData::WCOP(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WPB_STR => ::id3v2::frame_constants::FrameData::WPUB(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WXX_STR => ::id3v2::frame_constants::FrameData::WXXX(WXXX::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::AENC_STR => ::id3v2::frame_constants::FrameData::AENC(AENC::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::APIC_STR => ::id3v2::frame_constants::FrameData::APIC(APIC::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::ASPI_STR => ::id3v2::frame_constants::FrameData::ASPI(ASPI::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::COMM_STR => ::id3v2::frame_constants::FrameData::COMM(COMM::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::COMR_STR => ::id3v2::frame_constants::FrameData::COMR(COMR::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::ENCR_STR => ::id3v2::frame_constants::FrameData::ENCR(ENCR::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::EQUA_STR => ::id3v2::frame_constants::FrameData::EQUA(EQUA::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::EQU2_STR => ::id3v2::frame_constants::FrameData::EQU2(EQU2::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::ETCO_STR => ::id3v2::frame_constants::FrameData::ETCO(ETCO::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::GEOB_STR => ::id3v2::frame_constants::FrameData::GEOB(GEOB::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::GRID_STR => ::id3v2::frame_constants::FrameData::GRID(GRID::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::IPLS_STR => ::id3v2::frame_constants::FrameData::IPLS(IPLS::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::LINK_STR => ::id3v2::frame_constants::FrameData::LINK(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::MCDI_STR => ::id3v2::frame_constants::FrameData::MCDI(MCDI::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::MLLT_STR => ::id3v2::frame_constants::FrameData::MLLT(MLLT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::OWNE_STR => ::id3v2::frame_constants::FrameData::OWNE(OWNE::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::PRIV_STR => ::id3v2::frame_constants::FrameData::PRIV(PRIV::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::PCNT_STR => ::id3v2::frame_constants::FrameData::PCNT(PCNT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::POPM_STR => ::id3v2::frame_constants::FrameData::POPM(POPM::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::POSS_STR => ::id3v2::frame_constants::FrameData::POSS(POSS::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::RBUF_STR => ::id3v2::frame_constants::FrameData::RBUF(RBUF::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::RVAD_STR => ::id3v2::frame_constants::FrameData::RVAD(RVA2::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::RVA2_STR => ::id3v2::frame_constants::FrameData::RVA2(RVA2::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::RVRB_STR => ::id3v2::frame_constants::FrameData::RVRB(RVRB::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::SEEK_STR => ::id3v2::frame_constants::FrameData::SEEK(SEEK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::SIGN_STR => ::id3v2::frame_constants::FrameData::SIGN(SIGN::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::SYLT_STR => ::id3v2::frame_constants::FrameData::SYLT(SYLT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::SYTC_STR => ::id3v2::frame_constants::FrameData::SYTC(SYTC::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::UFID_STR => ::id3v2::frame_constants::FrameData::UFID(UFID::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::USER_STR => ::id3v2::frame_constants::FrameData::USER(USER::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::USLT_STR => ::id3v2::frame_constants::FrameData::USLT(USLT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TALB_STR => ::id3v2::frame_constants::FrameData::TALB(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TBPM_STR => ::id3v2::frame_constants::FrameData::TBPM(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TCOM_STR => ::id3v2::frame_constants::FrameData::TCOM(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TCON_STR => ::id3v2::frame_constants::FrameData::TCON(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TCOP_STR => ::id3v2::frame_constants::FrameData::TCOP(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TDAT_STR => ::id3v2::frame_constants::FrameData::TDAT(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TDEN_STR => ::id3v2::frame_constants::FrameData::TDEN(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TDLY_STR => ::id3v2::frame_constants::FrameData::TDLY(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TDOR_STR => ::id3v2::frame_constants::FrameData::TDOR(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TDRC_STR => ::id3v2::frame_constants::FrameData::TDRC(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TDRL_STR => ::id3v2::frame_constants::FrameData::TDRL(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TDTG_STR => ::id3v2::frame_constants::FrameData::TDTG(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TENC_STR => ::id3v2::frame_constants::FrameData::TENC(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TEXT_STR => ::id3v2::frame_constants::FrameData::TEXT(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TIME_STR => ::id3v2::frame_constants::FrameData::TIME(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TFLT_STR => ::id3v2::frame_constants::FrameData::TFLT(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TIPL_STR => ::id3v2::frame_constants::FrameData::TIPL(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TIT1_STR => ::id3v2::frame_constants::FrameData::TIT1(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TIT2_STR => ::id3v2::frame_constants::FrameData::TIT2(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TIT3_STR => ::id3v2::frame_constants::FrameData::TIT3(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TKEY_STR => ::id3v2::frame_constants::FrameData::TKEY(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TLAN_STR => ::id3v2::frame_constants::FrameData::TLAN(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TLEN_STR => ::id3v2::frame_constants::FrameData::TLEN(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TMCL_STR => ::id3v2::frame_constants::FrameData::TMCL(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TMED_STR => ::id3v2::frame_constants::FrameData::TMED(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TMOO_STR => ::id3v2::frame_constants::FrameData::TMOO(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TOAL_STR => ::id3v2::frame_constants::FrameData::TOAL(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TOFN_STR => ::id3v2::frame_constants::FrameData::TOFN(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TOLY_STR => ::id3v2::frame_constants::FrameData::TOLY(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TOPE_STR => ::id3v2::frame_constants::FrameData::TOPE(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TORY_STR => ::id3v2::frame_constants::FrameData::TORY(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TOWN_STR => ::id3v2::frame_constants::FrameData::TOWN(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TPE1_STR => ::id3v2::frame_constants::FrameData::TPE1(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TPE2_STR => ::id3v2::frame_constants::FrameData::TPE2(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TPE3_STR => ::id3v2::frame_constants::FrameData::TPE3(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TPE4_STR => ::id3v2::frame_constants::FrameData::TPE4(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TPOS_STR => ::id3v2::frame_constants::FrameData::TPOS(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TPRO_STR => ::id3v2::frame_constants::FrameData::TPRO(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TPUB_STR => ::id3v2::frame_constants::FrameData::TPUB(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TRCK_STR => ::id3v2::frame_constants::FrameData::TRCK(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TRDA_STR => ::id3v2::frame_constants::FrameData::TRDA(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TRSN_STR => ::id3v2::frame_constants::FrameData::TRSN(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TSIZ_STR => ::id3v2::frame_constants::FrameData::TSIZ(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TRSO_STR => ::id3v2::frame_constants::FrameData::TRSO(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TSOA_STR => ::id3v2::frame_constants::FrameData::TSOA(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TSOP_STR => ::id3v2::frame_constants::FrameData::TSOP(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TSOT_STR => ::id3v2::frame_constants::FrameData::TSOT(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TSRC_STR => ::id3v2::frame_constants::FrameData::TSRC(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TSSE_STR => ::id3v2::frame_constants::FrameData::TSSE(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TYER_STR => ::id3v2::frame_constants::FrameData::TYER(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TSST_STR => ::id3v2::frame_constants::FrameData::TSST(TEXT::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::TXXX_STR => ::id3v2::frame_constants::FrameData::TXXX(TXXX::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WCOM_STR => ::id3v2::frame_constants::FrameData::WCOM(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WCOP_STR => ::id3v2::frame_constants::FrameData::WCOP(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WOAF_STR => ::id3v2::frame_constants::FrameData::WOAF(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WOAR_STR => ::id3v2::frame_constants::FrameData::WOAR(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WOAS_STR => ::id3v2::frame_constants::FrameData::WOAS(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WORS_STR => ::id3v2::frame_constants::FrameData::WORS(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WPAY_STR => ::id3v2::frame_constants::FrameData::WPAY(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WPUB_STR => ::id3v2::frame_constants::FrameData::WPUB(LINK::to_framedata(&mut readable, id)?),
+            ::id3v2::frame_constants::id::WXXX_STR => ::id3v2::frame_constants::FrameData::WXXX(WXXX::to_framedata(&mut readable, id)?),
+            _ => ::id3v2::frame_constants::FrameData::TEXT(self::TEXT::to_framedata(&mut readable, id)?)
         })
     }
 }

@@ -191,11 +191,6 @@ pub mod id {
     pub const WXXX_STR: &'static str = "WXXX";
 }
 
-pub enum FrameData2<T> {
-    Other(T),
-
-}
-
 #[derive(Debug)]
 pub enum FrameData {
     // 2.2 only
@@ -303,6 +298,15 @@ pub enum FrameData {
     WPAY(LINK),
     WPUB(LINK),
     WXXX(WXXX)
+}
+
+
+#[derive(Debug)]
+pub enum TextEncoding {
+    ISO8859_1,
+    UTF16LE,
+    UTF16BE,
+    UTF8
 }
 
 #[derive(Debug, PartialEq)]

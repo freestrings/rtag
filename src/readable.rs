@@ -61,8 +61,7 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
         Ok(String::from_utf8_lossy(&self.as_bytes(amount)?).into_owned())
     }
 
-    // <text>0x00 0x00
-    pub fn read_terminated_utf16(&mut self) -> Result<(usize, String)> {
+    pub fn read_terminated_utf16_bytes(&mut self) -> Result<vec::Vec<u8>> {
         let mut ret = vec![];
         let mut read_all = 0;
         let mut buf = vec![0u8; 1];
@@ -81,11 +80,17 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
                 ret.push(buf[0]);
             }
         }
-        Ok((read_all, String::from_utf8_lossy(&ret).into_owned()))
+        Ok(ret)
+    }
+
+    // <text>0x00 0x00
+    pub fn read_terminated_utf16(&mut self) -> Result<(usize, String)> {
+        let mut ret = self.read_terminated_utf16_bytes()?;
+        Ok((ret.len() + 2, String::from_utf8_lossy(&ret).into_owned()))
     }
 
     // <text>0x00
-    pub fn read_terminated_null(&mut self) -> Result<(usize, String)> {
+    pub fn read_terminated_null_bytes(&mut self) -> Result<vec::Vec<u8>> {
         let mut ret = vec![];
         let mut read_all = 0;
         let mut buf = vec![0u8; 1];
@@ -101,7 +106,12 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
                 ret.push(buf[0]);
             }
         }
-        Ok((read_all, String::from_utf8_lossy(&ret).into_owned()))
+        Ok(ret)
+    }
+
+    pub fn read_terminated_null(&mut self) -> Result<(usize, String)> {
+        let mut ret = self.read_terminated_null_bytes()?;
+        Ok((ret.len() + 1, String::from_utf8_lossy(&ret).into_owned()))
     }
 
     pub fn skip(&mut self, amount: i64) -> Result<u64> {
@@ -147,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_file() {
-        if let Ok(mut readable) = super::factory::from_path("./resources/file1.txt") {
+        if let Ok(mut readable) = super::factory::from_path("./test-resources/file1.txt") {
             assert!(readable.as_bytes(10).is_ok());
             assert!(readable.as_bytes(10).is_ok());
             assert!(readable.skip(-5).is_ok());
@@ -160,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_file2() {
-        if let Ok(mut readable) = super::factory::from_path("./resources/file1.txt") {
+        if let Ok(mut readable) = super::factory::from_path("./test-resources/file1.txt") {
             assert!(readable.skip(10).is_ok());
             assert!(readable.as_bytes(10).is_ok());
             assert!(readable.skip(-5).is_ok());

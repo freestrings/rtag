@@ -1,27 +1,3 @@
-//MIT License
-//
-//Copyright (c) [2017] [Mark Han]
-//
-//Permission is hereby granted, free of charge, to any person obtaining a copy
-//of this software and associated documentation files (the "Software"), to deal
-//in the Software without restriction, including without limitation the rights
-//to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-//copies of the Software, and to permit persons to whom the Software is
-//furnished to do so, subject to the following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all
-//copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-//AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-//OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-//SOFTWARE.
-
-use id3v2::tag::frame::*;
-
 pub mod id {
     pub const AENC_STR: &'static str = "AENC";
     pub const APIC_STR: &'static str = "APIC";
@@ -124,6 +100,15 @@ pub mod id {
     pub const WXXX_STR: &'static str = "WXXX";
 }
 
+#[derive(Debug)]
+pub enum TextEncoding {
+    ISO8859_1,
+    UTF16LE,
+    UTF16BE,
+    UTF8
+}
+
+use ::frame::*;
 
 #[derive(Debug)]
 pub enum FrameData {
@@ -226,7 +211,8 @@ pub enum FrameData {
     WORS(LINK),
     WPAY(LINK),
     WPUB(LINK),
-    WXXX(WXXX)
+    WXXX(WXXX),
+    INVALID(String)
 }
 
 #[derive(Debug, PartialEq)]

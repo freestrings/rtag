@@ -1,27 +1,5 @@
-//MIT License
-//
-//Copyright (c) [2017] [Mark Han]
-//
-//Permission is hereby granted, free of charge, to any person obtaining a copy
-//of this software and associated documentation files (the "Software"), to deal
-//in the Software without restriction, including without limitation the rights
-//to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-//copies of the Software, and to permit persons to whom the Software is
-//furnished to do so, subject to the following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all
-//copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-//AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-//OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-//SOFTWARE.
-
-use std::io::Result;
 use std::{io, vec};
+use std::io::Result;
 use std::io::{Read, Seek, SeekFrom};
 
 pub struct Readable<I> where I: io::Read + io::Seek {
@@ -61,8 +39,7 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
         Ok(String::from_utf8_lossy(&self.as_bytes(amount)?).into_owned())
     }
 
-    // <text>0x00 0x00
-    pub fn read_terminated_utf16(&mut self) -> Result<(usize, String)> {
+    pub fn utf16_bytes(&mut self) -> Result<vec::Vec<u8>> {
         let mut ret = vec![];
         let mut read_all = 0;
         let mut buf = vec![0u8; 1];
@@ -74,18 +51,26 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
             read_all = read_all + read;
             if buf[0] == 0x00 {
                 read_all = read_all + self.input.read(&mut buf)?;
-                if buf[0] == 0x00 { break; }
+                if buf[0] == 0x00 {
+                    break;
+                }
                 ret.push(0x00);
                 ret.push(buf[0]);
             } else {
                 ret.push(buf[0]);
             }
         }
-        Ok((read_all, String::from_utf8_lossy(&ret).into_owned()))
+        Ok(ret)
+    }
+
+    // <text>0x00 0x00
+    pub fn utf16_string(&mut self) -> Result<(usize, String)> {
+        let ret = self.utf16_bytes()?;
+        Ok((ret.len() + 2, String::from_utf8_lossy(&ret).into_owned()))
     }
 
     // <text>0x00
-    pub fn read_terminated_null(&mut self) -> Result<(usize, String)> {
+    pub fn non_utf16_bytes(&mut self) -> Result<vec::Vec<u8>> {
         let mut ret = vec![];
         let mut read_all = 0;
         let mut buf = vec![0u8; 1];
@@ -101,7 +86,12 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
                 ret.push(buf[0]);
             }
         }
-        Ok((read_all, String::from_utf8_lossy(&ret).into_owned()))
+        Ok(ret)
+    }
+
+    pub fn non_utf16_string(&mut self) -> Result<(usize, String)> {
+        let ret = self.non_utf16_bytes()?;
+        Ok((ret.len() + 1, String::from_utf8_lossy(&ret).into_owned()))
     }
 
     pub fn skip(&mut self, amount: i64) -> Result<u64> {
@@ -117,6 +107,10 @@ pub mod factory {
     use std::{fs, io, vec};
     use std::io::Result;
 
+    pub fn from_file(file: fs::File) -> Result<super::Readable<fs::File>> {
+        Ok(super::Readable::new(file))
+    }
+
     pub fn from_path(str: &str) -> Result<super::Readable<fs::File>> {
         Ok(super::Readable::new(fs::File::open(str)?))
     }
@@ -130,12 +124,13 @@ pub mod factory {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use std::vec;
 
     #[test]
-    fn test_bytes() {
+    fn bytes1() {
         let valid = "0123456789";
         if let Ok(mut readable) = super::factory::from_str(valid) {
             assert!(readable.as_bytes(10).is_ok());
@@ -146,33 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn test_file() {
-        if let Ok(mut readable) = super::factory::from_path("./resources/file1.txt") {
-            assert!(readable.as_bytes(10).is_ok());
-            assert!(readable.as_bytes(10).is_ok());
-            assert!(readable.skip(-5).is_ok());
-            assert_eq!(readable.as_string(10).unwrap(), "fghij");
-            assert!(readable.as_bytes(10).is_err());
-        } else {
-            assert!(false);
-        }
-    }
-
-    #[test]
-    fn test_file2() {
-        if let Ok(mut readable) = super::factory::from_path("./resources/file1.txt") {
-            assert!(readable.skip(10).is_ok());
-            assert!(readable.as_bytes(10).is_ok());
-            assert!(readable.skip(-5).is_ok());
-            assert_eq!(readable.as_string(10).unwrap(), "fghij");
-            assert!(readable.as_bytes(10).is_err());
-        } else {
-            assert!(false);
-        }
-    }
-
-    #[test]
-    fn test_byte1() {
+    fn byte2() {
         let str = "AB가나01".to_string();
         if let Ok(mut readable) = super::factory::from_byte(str.into_bytes()) {
             assert!(readable.skip(1).is_ok());
@@ -187,7 +156,35 @@ mod tests {
     }
 
     #[test]
-    fn test_read_utf16_string1() {
+    fn file1() {
+        if let Ok(mut readable) = super::factory::from_path("./test-resources/file1.txt") {
+            assert!(readable.as_bytes(10).is_ok());
+            assert!(readable.as_bytes(10).is_ok());
+            assert!(readable.skip(-5).is_ok());
+            assert_eq!(readable.as_string(10).unwrap(), "fghij");
+            assert!(readable.as_bytes(10).is_err());
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn file2() {
+        if let Ok(mut readable) = super::factory::from_path("./test-resources/file1.txt") {
+            assert!(readable.skip(10).is_ok());
+            assert!(readable.as_bytes(10).is_ok());
+            assert!(readable.skip(-5).is_ok());
+            assert_eq!(readable.as_string(10).unwrap(), "fghij");
+            assert!(readable.as_bytes(10).is_err());
+        } else {
+            assert!(false);
+        }
+    }
+
+
+
+    #[test]
+    fn utf16_string() {
         let str = "AB가나01".to_string();
         let mut bytes: vec::Vec<u8> = str.into_bytes();
         bytes.push(0x00);
@@ -197,7 +194,7 @@ mod tests {
         bytes.push(0x02);
         assert_eq!(bytes.len(), 15);
         let mut readable = super::factory::from_byte(bytes).unwrap();
-        let (size, read) = readable.read_terminated_utf16().unwrap();
+        let (size, read) = readable.utf16_string().unwrap();
         assert_eq!(size, 14);
         assert_eq!("AB\u{ac00}\u{b098}01\u{0}\u{1}", read);
         assert!(readable.skip(1).is_ok());

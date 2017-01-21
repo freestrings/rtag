@@ -1,5 +1,5 @@
 [package]
-name = "rust-id3"
+name = "rust_id3"
 version = "0.1.0"
 authors = ["Mark Han <freestrings@gmail.com>"]
 description = "A rust id3 read/write library"

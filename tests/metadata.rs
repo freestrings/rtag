@@ -1,5 +1,6 @@
 #[macro_use] extern crate log;
 
+pub extern crate regex;
 extern crate env_logger;
 extern crate rust_id3 as id3;
 
@@ -7,6 +8,86 @@ use std::vec::Vec;
 use id3::frame::constants::{EventTimingCode, FrameData, TimestampFormat};
 use id3::metadata::{header, frames, MetadataIterator, Unit};
 use id3::readable;
+
+fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
+    data.reverse();
+    match frame_data {
+        FrameData::COMM(frame) => assert_eq!(data.pop().unwrap(), format!("{}:{}:{}",
+                                                                          frame.language,
+                                                                          frame.short_description,
+                                                                          frame.actual_text)),
+        FrameData::PIC(frame) => assert_eq!(data.pop().unwrap(), format!("{}:{:?}:{}:{}",
+                                                                         frame.image_format,
+                                                                         frame.picture_type,
+                                                                         frame.description,
+                                                                         frame.picture_data.len())),
+        FrameData::APIC(frame) => assert_eq!(data.pop().unwrap(), format!("{}:{:?}:{}:{}",
+                                                                          frame.mime_type,
+                                                                          frame.picture_type,
+                                                                          frame.description,
+                                                                          frame.picture_data.len())),
+        FrameData::TALB(frame) |
+        FrameData::TBPM(frame) |
+        FrameData::TCOM(frame) |
+        FrameData::TCON(frame) |
+        FrameData::TCOP(frame) |
+        FrameData::TDEN(frame) |
+        FrameData::TDLY(frame) |
+        FrameData::TDOR(frame) |
+        FrameData::TDRC(frame) |
+        FrameData::TDRL(frame) |
+        FrameData::TDTG(frame) |
+        FrameData::TENC(frame) |
+        FrameData::TEXT(frame) |
+        FrameData::TFLT(frame) |
+        FrameData::TIPL(frame) |
+        FrameData::TIT1(frame) |
+        FrameData::TIT2(frame) |
+        FrameData::TIT3(frame) |
+        FrameData::TKEY(frame) |
+        FrameData::TLAN(frame) |
+        FrameData::TLEN(frame) |
+        FrameData::TMCL(frame) |
+        FrameData::TMED(frame) |
+        FrameData::TMOO(frame) |
+        FrameData::TOAL(frame) |
+        FrameData::TOFN(frame) |
+        FrameData::TOLY(frame) |
+        FrameData::TOPE(frame) |
+        FrameData::TOWN(frame) |
+        FrameData::TPE1(frame) |
+        FrameData::TPE2(frame) |
+        FrameData::TPE3(frame) |
+        FrameData::TPE4(frame) |
+        FrameData::TPOS(frame) |
+        FrameData::TPRO(frame) |
+        FrameData::TPUB(frame) |
+        FrameData::TRCK(frame) |
+        FrameData::TRSN(frame) |
+        FrameData::TRSO(frame) |
+        FrameData::TSOA(frame) |
+        FrameData::TSOP(frame) |
+        FrameData::TSOT(frame) |
+        FrameData::TSRC(frame) |
+        FrameData::TSSE(frame) |
+        FrameData::TSST(frame) => assert_eq!(data.pop().unwrap(), frame.text),
+        FrameData::TXXX(frame) => assert_eq!(data.pop().unwrap(), format!("{}:{}",
+                                                                          frame.description,
+                                                                          frame.value)),
+        _ => ()
+    }
+    data.reverse();
+}
+
+#[test]
+fn regex() {
+    let frame_id = regex::Regex::new(r"^[A-Z][A-Z0-9]{2,}$").unwrap();
+    assert!(frame_id.is_match("AAA0"));
+    assert!(frame_id.is_match("AAA"));
+    assert!(!frame_id.is_match("0AA"));
+    assert!(!frame_id.is_match("AA"));
+    assert!(frame_id.is_match("COM"));
+}
 
 #[test]
 fn iterator() {
@@ -18,7 +99,7 @@ fn iterator() {
                 Unit::Header(bytes) => assert_eq! (10, bytes.len()),
                 Unit::ExtendedHeader(bytes) => assert_eq! (0, bytes.len()),
                 Unit::FrameV1(bytes) => assert_eq! (128, bytes.len()),
-                Unit::FrameV2(head, _) => assert_eq! (10, head.len()),
+                Unit::FrameV2(_, head, _) => assert_eq! (6, head.len()),
             }
         },
         _ => ()
@@ -32,7 +113,7 @@ fn empty() {
     for m in MetadataIterator::new("./test-resources/empty-meta.mp3").unwrap() {
         match m {
             Unit::FrameV1(_) => assert!(false),
-            Unit::FrameV2(_, _) => assert!(false),
+            Unit::FrameV2(_, _, _) => assert!(false),
             _ => ()
         }
     }
@@ -150,7 +231,7 @@ fn frame_id() {
     fn test(path: &str, mut data: Vec<&str>) {
         for m in MetadataIterator::new(path).unwrap() {
             match m {
-                Unit::FrameV2(head, body) => comp_id(frames::V2::new(head, body), &mut data),
+                Unit::FrameV2(head, body, version) => comp_id(frames::V2::new(head, body, version), &mut data),
                 _ => ()
             }
         }
@@ -172,72 +253,12 @@ fn frame_id() {
 #[test]
 fn frame_data() {
     let _ = env_logger::init();
-    //
-    fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
-        data.reverse();
-        match frame_data {
-            FrameData::COMM(frame) => assert_eq!(data.pop().unwrap(), format!("{}:{}:{}",
-                                                                              frame.language,
-                                                                              frame.short_description,
-                                                                              frame.actual_text)),
-            FrameData::TALB(frame) |
-            FrameData::TBPM(frame) |
-            FrameData::TCOM(frame) |
-            FrameData::TCON(frame) |
-            FrameData::TCOP(frame) |
-            FrameData::TDEN(frame) |
-            FrameData::TDLY(frame) |
-            FrameData::TDOR(frame) |
-            FrameData::TDRC(frame) |
-            FrameData::TDRL(frame) |
-            FrameData::TDTG(frame) |
-            FrameData::TENC(frame) |
-            FrameData::TEXT(frame) |
-            FrameData::TFLT(frame) |
-            FrameData::TIPL(frame) |
-            FrameData::TIT1(frame) |
-            FrameData::TIT2(frame) |
-            FrameData::TIT3(frame) |
-            FrameData::TKEY(frame) |
-            FrameData::TLAN(frame) |
-            FrameData::TLEN(frame) |
-            FrameData::TMCL(frame) |
-            FrameData::TMED(frame) |
-            FrameData::TMOO(frame) |
-            FrameData::TOAL(frame) |
-            FrameData::TOFN(frame) |
-            FrameData::TOLY(frame) |
-            FrameData::TOPE(frame) |
-            FrameData::TOWN(frame) |
-            FrameData::TPE1(frame) |
-            FrameData::TPE2(frame) |
-            FrameData::TPE3(frame) |
-            FrameData::TPE4(frame) |
-            FrameData::TPOS(frame) |
-            FrameData::TPRO(frame) |
-            FrameData::TPUB(frame) |
-            FrameData::TRCK(frame) |
-            FrameData::TRSN(frame) |
-            FrameData::TRSO(frame) |
-            FrameData::TSOA(frame) |
-            FrameData::TSOP(frame) |
-            FrameData::TSOT(frame) |
-            FrameData::TSRC(frame) |
-            FrameData::TSSE(frame) |
-            FrameData::TSST(frame) => assert_eq!(data.pop().unwrap(), frame.text),
-            FrameData::TXXX(frame) => assert_eq!(data.pop().unwrap(), format!("{}:{}",
-                                                                              frame.description,
-                                                                              frame.value)),
-            _ => ()
-        }
-        data.reverse();
-    }
 
     fn test(path: &str, mut data: Vec<&str>) {
         for m in MetadataIterator::new(path).unwrap() {
             match m {
-                Unit::FrameV2(head, body) => {
-                    let v2 = frames::V2::new(head, body);
+                Unit::FrameV2(head, body, version) => {
+                    let v2 = frames::V2::new(head, body, version);
                     let frame = v2.read().unwrap();
                     debug!("v2: {:?}", frame);
                     comp_frame(frame, &mut data);
@@ -255,6 +276,9 @@ fn frame_data() {
 
     test("./test-resources/240.mp3",
          vec!["2017", "1", "1", "아티스트", "Album", "Artist/아티스트", "타이틀", "ABAB", "Alternative", "eng::~~"]);
+
+    test("./test-resources/v2.2.mp3",
+         vec!["Test v2.2.0", "Pudge", "2", "(37)", "eng::All Rights Reserved", "1998"]);
 }
 
 #[test]
@@ -263,8 +287,8 @@ fn frame_etco() {
 
     for m in MetadataIterator::new("./test-resources/230-etco.mp3").unwrap() {
         match m {
-            Unit::FrameV2(head, body) => {
-                let v2 = frames::V2::new(head, body);
+            Unit::FrameV2(head, body, version) => {
+                let v2 = frames::V2::new(head, body, version);
                 let frame = v2.read().unwrap();
                 match frame {
                     FrameData::ETCO(frame) => {
@@ -289,8 +313,8 @@ fn frame_pcnt() {
 
     for m in MetadataIterator::new("./test-resources/240-pcnt.mp3").unwrap() {
         match m {
-            Unit::FrameV2(head, body) => {
-                let v2 = frames::V2::new(head, body);
+            Unit::FrameV2(head, body, version) => {
+                let v2 = frames::V2::new(head, body, version);
                 let frame = v2.read().unwrap();
                 match frame {
                     FrameData::PCNT(frame) => assert_eq!(256, frame.counter),
@@ -308,8 +332,8 @@ fn frame_tbpm() {
 
     for m in MetadataIterator::new("./test-resources/230-tbpm.mp3").unwrap() {
         match m {
-            Unit::FrameV2(head, body) => {
-                let v2 = frames::V2::new(head, body);
+            Unit::FrameV2(head, body, version) => {
+                let v2 = frames::V2::new(head, body, version);
                 let frame = v2.read().unwrap();
                 match frame {
                     FrameData::TBPM(frame) => {
@@ -350,6 +374,27 @@ fn v1_encoding() {
                 assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.artist);
                 assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.album);
                 assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.comment);
+            },
+            _ => ()
+        }
+    }
+}
+
+#[test]
+fn v220() {
+    let _ = env_logger::init();
+
+    for m in MetadataIterator::new("./test-resources/v2.2-pic.mp3").unwrap() {
+        match m {
+            Unit::FrameV2(head, body, version) => {
+                let v2 = frames::V2::new(head, body, version);
+                let frame = v2.read().unwrap();
+                match frame {
+                    FrameData::PIC(frame) => {
+                        comp_frame(FrameData::PIC(frame), &mut vec!["PNG:Other::61007"]);
+                    },
+                    _ => ()
+                }
             },
             _ => ()
         }

@@ -23,6 +23,13 @@ use frame::constants::{
 
 type Readable = ::readable::Readable<Cursor<Vec<u8>>>;
 
+fn trim(text: String) -> String {
+    // TODO const
+    let re = regex::Regex::new(r"(^[\x{0}|\x{feff}|\x{fffe}]*|[\x{0}|\x{feff}|\x{fffe}]*$)").unwrap();
+    let text = text.trim();
+    re.replace_all(text, "").into_owned()
+}
+
 pub trait FrameDefault<T> {
     fn read(readable: &mut Readable, id: &str) -> Result<T>;
 }
@@ -69,6 +76,34 @@ impl FrameDefault<CRM> for CRM {
             owner_identifier: owner_identifier,
             content: content,
             encrypted_datablock: encrypted_datablock
+        })
+    }
+}
+
+// Attached picture
+#[derive(Debug)]
+pub struct PIC {
+    pub text_encoding: TextEncoding,
+    pub image_format: String,
+    pub picture_type: PictureType,
+    pub description: String,
+    pub picture_data: Vec<u8>
+}
+
+impl FrameDefault<PIC> for PIC {
+    fn read(readable: &mut Readable, id: &str) -> Result<PIC> {
+        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
+        let image_format = readable.as_string(3)?;
+        let picture_type = util::to_picture_type(readable.as_bytes(1)?[0]);
+        let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
+        let picture_data = readable.all_bytes()?;
+
+        Ok(PIC {
+            text_encoding: text_encoding,
+            image_format: image_format,
+            picture_type: picture_type,
+            description: description,
+            picture_data: picture_data
         })
     }
 }
@@ -168,7 +203,7 @@ impl FrameDefault<COMM> for COMM {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, short_description) = util::read_null_terminated(&text_encoding, readable)?;
-        let actual_text = readable.all_string()?;
+        let actual_text = self::trim(readable.all_string()?);
 
         Ok(COMM {
             text_encoding: text_encoding,
@@ -825,14 +860,9 @@ impl FrameDefault<TEXT> for TEXT {
             TextEncoding::UTF8 => _default(id, encoding::all::UTF_8.decode(&data, encoding::DecoderTrap::Strict))
         };
 
-        // TODO const
-        let re = regex::Regex::new(r"(^[\x{0}|\x{feff}|\x{fffe}]*|[\x{0}|\x{feff}|\x{fffe}]*$)").unwrap();
-        let text = text.trim();
-        let text = re.replace_all(text, "").into_owned();
-
         Ok(TEXT {
             text_encoding: text_encoding,
-            text: text
+            text: self::trim(text)
         })
     }
 }

@@ -250,6 +250,8 @@ pub enum FrameData {
     BUF(BUF),
     //2.2 only
     CRM(CRM),
+    //2.2 only
+    PIC(PIC),
 
     AENC(AENC),
     APIC(APIC),

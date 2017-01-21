@@ -1,4 +1,4 @@
-extern crate regex;
+pub extern crate regex;
 
 use bytes;
 use readable;
@@ -31,60 +31,41 @@ impl MetadataIterator {
         })
     }
 
-    fn head(&mut self) -> Option<Unit> {
-        match self.readable.as_bytes(10) {
-            Ok(bytes) => {
-                if header::has_flag(header::Flag::ExtendedHeader,
-                                    header::version(&bytes),
-                                    header::flag(&bytes)) {
-                    self.next = Status::ExtendedHeader;
-                } else {
-                    self.next = Status::Frame;
-                }
-
-                Some(Unit::Header(bytes))
-            },
-            _ => None
+    fn head(&mut self) -> Result<Unit> {
+        let bytes = self.readable.as_bytes(10)?;
+        let flag = header::flag(&bytes);
+        let version = header::version(&bytes);
+        if header::has_flag(header::Flag::ExtendedHeader, flag, version) {
+            self.next = Status::ExtendedHeader;
+        } else {
+            self.next = Status::Frame;
         }
+        self.version = version;
+
+        Ok(Unit::Header(bytes))
     }
 
-    fn extended_head(&mut self) -> Option<Unit> {
-        match self.readable.as_bytes(4) {
-            Ok(bytes) => {
-                let size = match self.version {
-                    // Did not explained for whether big-endian or synchsafe in "http://id3.org/id3v2.3.0".
-                    3 => bytes::to_u32(&bytes),
-                    // `Extended header size` stored as a 32 bit synchsafe integer in "2.4.0".
-                    _ => bytes::to_synchsafe(&bytes),
-                };
+    fn extended_head(&mut self) -> Result<Unit> {
+        self.next = Status::Frame;
 
-                match self.readable.as_bytes(size as usize) {
-                    Ok(bytes) => {
-                        self.next = Status::Frame;
-                        Some(Unit::ExtendedHeader(bytes))
-                    },
-                    _ => {
-                        None
-                    }
-                }
-            },
-            _ => None
-        }
+        let bytes = self.readable.as_bytes(4)?;
+        let size = match self.version {
+            // Did not explained for whether big-endian or synchsafe in "http://id3.org/id3v2.3.0".
+            3 => bytes::to_u32(&bytes),
+            // `Extended header size` stored as a 32 bit synchsafe integer in "2.4.0".
+            _ => bytes::to_synchsafe(&bytes),
+        };
+
+        Ok(Unit::ExtendedHeader(self.readable.as_bytes(size as usize)?))
     }
 
-    fn frame(&mut self) -> Option<Unit> {
-        // http://id3.org/id3v2.4.0-structure > 4. ID3v2 frame overview
-        fn is_valid_frame_id(id: &str) -> bool {
-            // TODO const
-            let reg = regex::Regex::new(r"^[A-Z][A-Z0-9]{3}$").unwrap();
-            reg.is_match(id)
-        }
-
+    fn frame(&mut self) -> Result<Unit> {
         let is_valid_id = match self.readable.as_string(4) {
             Ok(id) => {
-                // rewind
                 self.readable.skip(-4);
-                let matched = is_valid_frame_id(&id);
+                // TODO const
+                // http://id3.org/id3v2.4.0-structure > 4. ID3v2 frame overview
+                let matched = regex::Regex::new(r"^[A-Z][A-Z0-9]{2,}").unwrap().is_match(&id);
                 debug!("Frame Id:{}, matched: {}", id, matched);
                 matched
             },
@@ -92,47 +73,43 @@ impl MetadataIterator {
         };
 
         if is_valid_id {
-            match self.readable.as_bytes(10) {
-                Ok(head_bytes) => {
-                    let size = match self.version {
-                        3 => bytes::to_u32(&head_bytes[4..8]),
-                        _ => bytes::to_synchsafe(&head_bytes[4..8])
-                    };
+            // frame v2
+            if self.version == 2 {
+                let id = self.readable.as_string(3)?;
+                let head_bytes = self.readable.as_bytes(3)?;
+                let size = bytes::to_u32(&head_bytes[0..3]);
+                let body_bytes = self.readable.as_bytes(size as usize)?;
+                Ok(Unit::FrameV2(id, head_bytes, body_bytes))
+            } else {
+                let id = self.readable.as_string(4)?;
+                let head_bytes = self.readable.as_bytes(6)?;
+                let size = match self.version {
+                    // v2.3 read as a regular big endian number.
+                    3 => bytes::to_u32(&head_bytes[0..4]),
+                    // v2.4 uses sync-safe frame sizes
+                    _ => bytes::to_synchsafe(&head_bytes[0..4])
+                };
+                let body_bytes = self.readable.as_bytes(size as usize)?;
 
-                    match self.readable.as_bytes(size as usize) {
-                        Ok(body_bytes) => Some(Unit::FrameV2(head_bytes, body_bytes)),
-                        _ => None
-                    }
-                },
-                _ => None
+                Ok(Unit::FrameV2(id, head_bytes, body_bytes))
             }
         } else {
+            // frame v1
+
             if self.file_len < 128 as u64 {
-                return None;
+                return Err(::std::io::Error::new(::std::io::ErrorKind::Other, "Bad v2 tag length"));
             }
 
-            match self.readable.position(0) {
-                Ok(_) => match self.readable.skip((self.file_len - 128 as u64) as i64) {
-                    Ok(_) => {
-                        if let Ok(tag_id) = self.readable.as_string(3) {
-                            if tag_id != "TAG" {
-                                debug!("Ignored v1! '{}'", tag_id);
-                                return None
-                            }
-                        }
-                        self.readable.skip(-3);
-                        match self.readable.all_bytes() {
-                            Ok(bytes) => {
-                                self.next = Status::None;
-                                Some(Unit::FrameV1(bytes))
-                            },
-                            _ => None
-                        }
-                    },
-                    _ => None
-                },
-                _ => None
+            self.readable.position(0)?;
+            self.readable.skip((self.file_len - 128 as u64) as i64)?;
+            if self.readable.as_string(3)? != "TAG" {
+                return Err(::std::io::Error::new(::std::io::ErrorKind::Other, "Ignored v1! '{}'"));
             }
+            self.readable.skip(-3)?;
+            let bytes = self.readable.all_bytes()?;
+            self.next = Status::None;
+
+            Ok(Unit::FrameV1(bytes))
         }
     }
 }
@@ -149,7 +126,7 @@ enum Status {
 pub enum Unit {
     Header(Vec<u8>),
     ExtendedHeader(Vec<u8>),
-    FrameV2(Vec<u8>, Vec<u8>),
+    FrameV2(String, Vec<u8>, Vec<u8>),
     FrameV1(Vec<u8>)
 }
 
@@ -160,11 +137,13 @@ pub mod header {
     #[derive(Debug, PartialEq)]
     pub enum Flag {
         Unsynchronisation,
+        Compression,
         ExtendedHeader,
         ExperimentalIndicator,
         FooterPresent
     }
 
+    #[derive(Debug)]
     pub struct HeadFrame {
         pub version: u8,
         pub minor_version: u8,
@@ -173,17 +152,16 @@ pub mod header {
     }
 
     impl HeadFrame {
-
         pub fn has_flag(&self, flag: Flag) -> bool {
             self::has_flag(flag, self.flag, self.version)
         }
-
     }
 
     pub struct Head {
         bytes: Vec<u8>
     }
 
+    // http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header
     impl Head {
         pub fn new(bytes: Vec<u8>) -> Self {
             Head {
@@ -194,8 +172,10 @@ pub mod header {
         pub fn read(&self) -> Result<HeadFrame> {
             let tag_id = String::from_utf8_lossy(&self.bytes[0..3]);
             if tag_id != "ID3" {
-                return Err(::std::io::Error::new(::std::io::ErrorKind::Other, format!("Bad v2 tag id: {}", tag_id)));
+                return Err(::std::io::Error::new(::std::io::ErrorKind::Other,
+                                                 format!("Bad v2 tag id: {}", tag_id)));
             }
+
             Ok(HeadFrame {
                 version: self::version(&self.bytes),
                 minor_version: self.bytes[4],
@@ -213,7 +193,7 @@ pub mod header {
         bytes[5]
     }
 
-    // see references/id3v2.md#id3v2 Header
+    // ./references/id3v2.md#id3v2 Header
     pub fn has_flag(flag: Flag, flag_value: u8, version: u8) -> bool {
         if version == 3 {
             match flag {
@@ -227,7 +207,14 @@ pub mod header {
                 Flag::Unsynchronisation => flag_value & 0x01 << 7 != 0,
                 Flag::ExtendedHeader => flag_value & 0x01 << 6 != 0,
                 Flag::ExperimentalIndicator => flag_value & 0x01 << 5 != 0,
-                Flag::FooterPresent => flag_value & 0x01 << 4 != 0
+                Flag::FooterPresent => flag_value & 0x01 << 4 != 0,
+                _ => false
+            }
+        } else if version == 2 {
+            match flag {
+                Flag::Unsynchronisation => flag_value & 0x01 << 7 != 0,
+                Flag::Compression => flag_value & 0x01 << 6 != 0,
+                _ => false
             }
         } else {
             warn!("Header.has_flag=> Unknown version!");
@@ -344,18 +331,19 @@ pub mod frames {
     }
 
     impl V2 {
-        pub fn new(header: Vec<u8>, body: Vec<u8>) -> Self {
+        pub fn new(id: String, header: Vec<u8>, body: Vec<u8>) -> Self {
             V2 {
-                id: String::from_utf8_lossy(&header[0..4]).into_owned(),
+                id: id,
                 header: header,
                 body: body
             }
         }
 
-        // @see http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
+        // There is no flag for 2.2 frame.
+        // http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
         pub fn has_flag(&self, flag: FrameHeaderFlag, version: u8) -> bool {
-            let status_flag = self.header[8] & 0x01;
-            let encoding_flag = self.header[9] & 0x01;
+            let status_flag = self.header[4] & 0x01;
+            let encoding_flag = self.header[5] & 0x01;
             match version {
                 3 => match flag {
                     FrameHeaderFlag::TagAlter => status_flag << 7 != 0,
@@ -382,8 +370,72 @@ pub mod frames {
 
         pub fn read(&self) -> Result<FrameData> {
             let mut readable = ::readable::factory::from_byte(self.body.clone())?;
-            let id = self.id.as_ref();
-            let frame_data = match id {
+            let id = self.id.as_str();
+
+            let frame_data = match self.id.as_ref() {
+                id::BUF_STR => FrameData::BUF(frame::BUF::read(&mut readable, id)?),
+                id::CNT_STR => FrameData::PCNT(frame::PCNT::read(&mut readable, id)?),
+                id::COM_STR => FrameData::COMM(frame::COMM::read(&mut readable, id)?),
+                id::CRA_STR => FrameData::AENC(frame::AENC::read(&mut readable, id)?),
+                id::CRM_STR => FrameData::CRM(frame::CRM::read(&mut readable, id)?),
+                id::ETC_STR => FrameData::ETCO(frame::ETCO::read(&mut readable, id)?),
+                id::EQU_STR => FrameData::EQUA(frame::EQUA::read(&mut readable, id)?),
+                id::GEO_STR => FrameData::GEOB(frame::GEOB::read(&mut readable, id)?),
+                id::IPL_STR => FrameData::IPLS(frame::IPLS::read(&mut readable, id)?),
+                id::LNK_STR => FrameData::LINK(frame::LINK::read(&mut readable, id)?),
+                id::MCI_STR => FrameData::MCDI(frame::MCDI::read(&mut readable, id)?),
+                id::MLL_STR => FrameData::MLLT(frame::MLLT::read(&mut readable, id)?),
+                id::PIC_STR => FrameData::PIC(frame::PIC::read(&mut readable, id)?),
+                id::POP_STR => FrameData::POPM(frame::POPM::read(&mut readable, id)?),
+                id::REV_STR => FrameData::RVRB(frame::RVRB::read(&mut readable, id)?),
+                id::RVA_STR => FrameData::RVAD(frame::RVA2::read(&mut readable, id)?),
+                id::SLT_STR => FrameData::SYLT(frame::SYLT::read(&mut readable, id)?),
+                id::STC_STR => FrameData::SYTC(frame::SYTC::read(&mut readable, id)?),
+                id::TAL_STR => FrameData::TALB(frame::TEXT::read(&mut readable, id)?),
+                id::TBP_STR => FrameData::TBPM(frame::TEXT::read(&mut readable, id)?),
+                id::TCM_STR => FrameData::TCOM(frame::TEXT::read(&mut readable, id)?),
+                id::TCO_STR => FrameData::TCON(frame::TEXT::read(&mut readable, id)?),
+                id::TCR_STR => FrameData::TCOP(frame::TEXT::read(&mut readable, id)?),
+                id::TDA_STR => FrameData::TDAT(frame::TEXT::read(&mut readable, id)?),
+                id::TDY_STR => FrameData::TDLY(frame::TEXT::read(&mut readable, id)?),
+                id::TEN_STR => FrameData::TENC(frame::TEXT::read(&mut readable, id)?),
+                id::TFT_STR => FrameData::TFLT(frame::TEXT::read(&mut readable, id)?),
+                id::TIM_STR => FrameData::TIME(frame::TEXT::read(&mut readable, id)?),
+                id::TKE_STR => FrameData::TKEY(frame::TEXT::read(&mut readable, id)?),
+                id::TLA_STR => FrameData::TLAN(frame::TEXT::read(&mut readable, id)?),
+                id::TLE_STR => FrameData::TLEN(frame::TEXT::read(&mut readable, id)?),
+                id::TMT_STR => FrameData::TMED(frame::TEXT::read(&mut readable, id)?),
+                id::TOA_STR => FrameData::TMED(frame::TEXT::read(&mut readable, id)?),
+                id::TOF_STR => FrameData::TOFN(frame::TEXT::read(&mut readable, id)?),
+                id::TOL_STR => FrameData::TOLY(frame::TEXT::read(&mut readable, id)?),
+                id::TOR_STR => FrameData::TORY(frame::TEXT::read(&mut readable, id)?),
+                id::TOT_STR => FrameData::TOAL(frame::TEXT::read(&mut readable, id)?),
+                id::TP1_STR => FrameData::TPE1(frame::TEXT::read(&mut readable, id)?),
+                id::TP2_STR => FrameData::TPE2(frame::TEXT::read(&mut readable, id)?),
+                id::TP3_STR => FrameData::TPE3(frame::TEXT::read(&mut readable, id)?),
+                id::TP4_STR => FrameData::TPE4(frame::TEXT::read(&mut readable, id)?),
+                id::TPA_STR => FrameData::TPOS(frame::TEXT::read(&mut readable, id)?),
+                id::TPB_STR => FrameData::TPUB(frame::TEXT::read(&mut readable, id)?),
+                id::TRC_STR => FrameData::TSRC(frame::TEXT::read(&mut readable, id)?),
+                id::TRD_STR => FrameData::TRDA(frame::TEXT::read(&mut readable, id)?),
+                id::TRK_STR => FrameData::TRCK(frame::TEXT::read(&mut readable, id)?),
+                id::TSI_STR => FrameData::TSIZ(frame::TEXT::read(&mut readable, id)?),
+                id::TSS_STR => FrameData::TSSE(frame::TEXT::read(&mut readable, id)?),
+                id::TT1_STR => FrameData::TIT1(frame::TEXT::read(&mut readable, id)?),
+                id::TT2_STR => FrameData::TIT2(frame::TEXT::read(&mut readable, id)?),
+                id::TT3_STR => FrameData::TIT3(frame::TEXT::read(&mut readable, id)?),
+                id::TXT_STR => FrameData::TEXT(frame::TEXT::read(&mut readable, id)?),
+                id::TXX_STR => FrameData::TXXX(frame::TXXX::read(&mut readable, id)?),
+                id::TYE_STR => FrameData::TYER(frame::TEXT::read(&mut readable, id)?),
+                id::UFI_STR => FrameData::UFID(frame::UFID::read(&mut readable, id)?),
+                id::ULT_STR => FrameData::USLT(frame::USLT::read(&mut readable, id)?),
+                id::WAF_STR => FrameData::WOAF(frame::LINK::read(&mut readable, id)?),
+                id::WAR_STR => FrameData::WOAR(frame::LINK::read(&mut readable, id)?),
+                id::WAS_STR => FrameData::WOAS(frame::LINK::read(&mut readable, id)?),
+                id::WCM_STR => FrameData::WCOM(frame::LINK::read(&mut readable, id)?),
+                id::WCP_STR => FrameData::WCOP(frame::LINK::read(&mut readable, id)?),
+                id::WPB_STR => FrameData::WPUB(frame::LINK::read(&mut readable, id)?),
+                id::WXX_STR => FrameData::WXXX(frame::WXXX::read(&mut readable, id)?),
                 id::AENC_STR => FrameData::AENC(frame::AENC::read(&mut readable, id)?),
                 id::APIC_STR => FrameData::APIC(frame::APIC::read(&mut readable, id)?),
                 id::ASPI_STR => FrameData::ASPI(frame::ASPI::read(&mut readable, id)?),
@@ -476,7 +528,10 @@ pub mod frames {
                 id::WPAY_STR => FrameData::WPAY(frame::LINK::read(&mut readable, id)?),
                 id::WPUB_STR => FrameData::WPUB(frame::LINK::read(&mut readable, id)?),
                 id::WXXX_STR => FrameData::WXXX(frame::WXXX::read(&mut readable, id)?),
-                _ => FrameData::TEXT(frame::TEXT::read(&mut readable, id)?)
+                _ => {
+                    warn!("No frame id found!! '{}'", id);
+                    FrameData::TEXT(frame::TEXT::read(&mut readable, id)?)
+                }
             };
 
             Ok(frame_data)
@@ -491,9 +546,18 @@ impl Iterator for MetadataIterator {
         debug! ("next: {:?}", self.next);
 
         match self.next {
-            Status::Head => self.head(),
-            Status::ExtendedHeader => self.extended_head(),
-            Status::Frame => self.frame(),
+            Status::Head => match self.head() {
+                Ok(data) => Some(data),
+                _ => None
+            },
+            Status::ExtendedHeader => match self.extended_head() {
+                Ok(data) => Some(data),
+                _ => None
+            },
+            Status::Frame => match self.frame() {
+                Ok(data) => Some(data),
+                _ => None
+            },
             _ => None
         }
     }

@@ -31,7 +31,7 @@ fn empty() {
 
     for m in MetadataIterator::new("./test-resources/empty-meta.mp3").unwrap() {
         match m {
-            Unit::FrameV1(b) => assert!(false),
+            Unit::FrameV1(_) => assert!(false),
             Unit::FrameV2(_, _) => assert!(false),
             _ => ()
         }
@@ -48,10 +48,10 @@ fn v1() {
                 let v1 = frames::V1::new(bytes);
                 let frame = v1.read().unwrap();
                 debug!("v1: {:?}", frame);
-                assert_eq!("Artist", frame.get_artist());
-                assert_eq!("!@#$", frame.get_comment());
-                assert_eq!("1", frame.get_track());
-                assert_eq!("137", frame.get_genre());
+                assert_eq!("Artist", frame.artist);
+                assert_eq!("!@#$", frame.comment);
+                assert_eq!("1", frame.track);
+                assert_eq!("137", frame.genre);
             },
             _ => ()
         }
@@ -66,11 +66,11 @@ fn v1() {
     let mut readable = readable::factory::from_str(id3v1_tag).unwrap();
     let v1 = frames::V1::new(readable.all_bytes().unwrap());
     let frame = v1.read().unwrap();
-    assert_eq!(frame.get_title(), "TITLETITLETITLETITLETITLETITLE");
-    assert_eq!(frame.get_artist(), "ARTISTARTISTARTISTARTISTARTIST");
-    assert_eq!(frame.get_album(), "ALBUMALBUMALBUMALBUMALBUMALBUM");
-    assert_eq!(frame.get_comment(), "COMMENTCOMMENTCOMMENTCOMMENTCO");
-    assert_eq!(frame.get_year(), "2017");
+    assert_eq!(frame.title, "TITLETITLETITLETITLETITLETITLE");
+    assert_eq!(frame.artist, "ARTISTARTISTARTISTARTISTARTIST");
+    assert_eq!(frame.album, "ALBUMALBUMALBUMALBUMALBUMALBUM");
+    assert_eq!(frame.comment, "COMMENTCOMMENTCOMMENTCOMMENTCO");
+    assert_eq!(frame.year, "2017");
 
     let id3v1_tag = concat!("TAGTITLE                         ",
                 "ARTIST                        ",
@@ -81,11 +81,11 @@ fn v1() {
     let mut readable = readable::factory::from_str(id3v1_tag).unwrap();
     let v1 = frames::V1::new(readable.all_bytes().unwrap());
     let frame = v1.read().unwrap();
-    assert_eq!(frame.get_title(), "TITLE");
-    assert_eq!(frame.get_artist(), "ARTIST");
-    assert_eq!(frame.get_album(), "ALBUM");
-    assert_eq!(frame.get_comment(), "COMMENT");
-    assert_eq!(frame.get_year(), "2017");
+    assert_eq!(frame.title, "TITLE");
+    assert_eq!(frame.artist, "ARTIST");
+    assert_eq!(frame.album, "ALBUM");
+    assert_eq!(frame.comment, "COMMENT");
+    assert_eq!(frame.year, "2017");
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn v1_no_id() {
 
     for m in MetadataIterator::new("./test-resources/230-no-id3.mp3").unwrap() {
         match m {
-            Unit::FrameV1(bytes) => assert!(false),
+            Unit::FrameV1(_) => assert!(false),
             _ => ()
         }
     }
@@ -109,12 +109,12 @@ fn header() {
             Unit::Header(bytes) => {
                 let head = header::Head::new(bytes);
                 let header = head.read().unwrap();
-                assert_eq!(3, header.get_version());
-                assert_eq!(0, header.get_minor_version());
+                assert_eq!(3, header.version);
+                assert_eq!(0, header.minor_version);
                 assert_eq!(header.has_flag(header::Flag::Unsynchronisation), false);
                 assert_eq!(header.has_flag(header::Flag::ExtendedHeader), false);
                 assert_eq!(header.has_flag(header::Flag::ExperimentalIndicator), false);
-                assert_eq!(header.get_size(), 1171);
+                assert_eq!(header.size, 1171);
             },
             _ => ()
         }
@@ -125,12 +125,12 @@ fn header() {
             Unit::Header(bytes) => {
                 let head = header::Head::new(bytes);
                 let header = head.read().unwrap();
-                assert_eq!(4, header.get_version());
-                assert_eq!(0, header.get_minor_version());
+                assert_eq!(4, header.version);
+                assert_eq!(0, header.minor_version);
                 assert_eq!(header.has_flag(header::Flag::Unsynchronisation), false);
                 assert_eq!(header.has_flag(header::Flag::ExtendedHeader), false);
                 assert_eq!(header.has_flag(header::Flag::ExperimentalIndicator), false);
-                assert_eq!(header.get_size(), 165126);
+                assert_eq!(header.size, 165126);
             },
             _ => ()
         }
@@ -143,7 +143,7 @@ fn frame_id() {
 
     fn comp_id(frame: frames::V2, data: &mut Vec<&str>) {
         data.reverse();
-        assert_eq!(frame.get_id(), data.pop().unwrap());
+        assert_eq!(frame.id, data.pop().unwrap());
         data.reverse();
     }
 
@@ -177,9 +177,9 @@ fn frame_data() {
         data.reverse();
         match frame_data {
             FrameData::COMM(frame) => assert_eq!(data.pop().unwrap(), format!("{}:{}:{}",
-                                                                              frame.get_language(),
-                                                                              frame.get_short_description(),
-                                                                              frame.get_actual_text())),
+                                                                              frame.language,
+                                                                              frame.short_description,
+                                                                              frame.actual_text)),
             FrameData::TALB(frame) |
             FrameData::TBPM(frame) |
             FrameData::TCOM(frame) |
@@ -224,10 +224,10 @@ fn frame_data() {
             FrameData::TSOT(frame) |
             FrameData::TSRC(frame) |
             FrameData::TSSE(frame) |
-            FrameData::TSST(frame) => assert_eq!(data.pop().unwrap(), frame.get_text()),
+            FrameData::TSST(frame) => assert_eq!(data.pop().unwrap(), frame.text),
             FrameData::TXXX(frame) => assert_eq!(data.pop().unwrap(), format!("{}:{}",
-                                                                              frame.get_description(),
-                                                                              frame.get_value())),
+                                                                              frame.description,
+                                                                              frame.value)),
             _ => ()
         }
         data.reverse();
@@ -268,11 +268,9 @@ fn frame_etco() {
                 let frame = v2.read().unwrap();
                 match frame {
                     FrameData::ETCO(frame) => {
-                        let timestamp_format = frame.get_timestamp_format();
-                        assert_eq!(&TimestampFormat::Milliseconds, timestamp_format);
+                        assert_eq!(&TimestampFormat::Milliseconds, &frame.timestamp_format);
 
-                        let event_timing_codes = frame.get_event_timing_codes();
-                        match event_timing_codes[0] {
+                        match frame.event_timing_codes[0] {
                             EventTimingCode::MainPartStart(timestamp) => assert_eq!(timestamp, 152110),
                             _ => assert!(false)
                         }
@@ -295,7 +293,7 @@ fn frame_pcnt() {
                 let v2 = frames::V2::new(head, body);
                 let frame = v2.read().unwrap();
                 match frame {
-                    FrameData::PCNT(frame) => assert_eq!(256, frame.get_counter()),
+                    FrameData::PCNT(frame) => assert_eq!(256, frame.counter),
                     _ => ()
                 }
             },
@@ -315,10 +313,43 @@ fn frame_tbpm() {
                 let frame = v2.read().unwrap();
                 match frame {
                     FrameData::TBPM(frame) => {
-                        assert_eq!("0", frame.get_text());
+                        assert_eq!("0", frame.text);
                     },
                     _ => ()
                 }
+            },
+            _ => ()
+        }
+    }
+}
+
+#[test]
+fn v1_encoding() {
+    let _ = env_logger::init();
+
+    for m in MetadataIterator::new("./test-resources/v1-iso-8859-1.mp3").unwrap() {
+        match m {
+            Unit::FrameV1(bytes) => {
+                let v1 = frames::V1::new(bytes);
+                let frame = v1.read().unwrap();
+                assert_eq!("räksmörgås", frame.title);
+                assert_eq!("räksmörgås", frame.artist);
+                assert_eq!("räksmörgås", frame.album);
+                assert_eq!("räksmörgås", frame.comment);
+            },
+            _ => ()
+        }
+    }
+
+    for m in MetadataIterator::new("./test-resources/v1-utf8.mp3").unwrap() {
+        match m {
+            Unit::FrameV1(bytes) => {
+                let v1 = frames::V1::new(bytes);
+                let frame = v1.read().unwrap();
+                assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.title);
+                assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.artist);
+                assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.album);
+                assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.comment);
             },
             _ => ()
         }

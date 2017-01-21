@@ -23,22 +23,70 @@ use frame::constants::{
 
 type Readable = ::readable::Readable<Cursor<Vec<u8>>>;
 
-pub trait FrameDataBase<T> {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<T>;
+pub trait FrameDefault<T> {
+    fn read(readable: &mut Readable, id: &str) -> Result<T>;
 }
 
-//Audio encryption
+// TODO not yet tested!
+// Recommended buffer size
+#[derive(Debug)]
+pub struct BUF {
+    pub buffer_size: u32,
+    pub embedded_info_flag: u8,
+    pub offset_to_next_tag: u32
+}
+
+impl FrameDefault<BUF> for BUF {
+    fn read(readable: &mut Readable, id: &str) -> Result<BUF> {
+        let buffer_size = bytes::to_u32(&readable.as_bytes(3)?);
+        let embedded_info_flag = readable.as_bytes(1)?[0];
+        let offset_to_next_tag = bytes::to_u32(&readable.as_bytes(4)?);
+
+        Ok(BUF {
+            buffer_size: buffer_size,
+            embedded_info_flag: embedded_info_flag,
+            offset_to_next_tag: offset_to_next_tag
+        })
+    }
+}
+
+// TODO not yet tested!
+// Encrypted meta frame
+#[derive(Debug)]
+pub struct CRM {
+    pub owner_identifier: String,
+    pub content: String,
+    pub encrypted_datablock: Vec<u8>
+}
+
+impl FrameDefault<CRM> for CRM {
+    fn read(readable: &mut Readable, id: &str) -> Result<CRM> {
+        let (_, owner_identifier) = readable.non_utf16_string()?;
+        let (_, content) = readable.non_utf16_string()?;
+        let encrypted_datablock = readable.all_bytes()?;
+
+        Ok(CRM {
+            owner_identifier: owner_identifier,
+            content: content,
+            encrypted_datablock: encrypted_datablock
+        })
+    }
+}
+
+// TODO not yet tested!
+// Audio encryption
 #[derive(Debug)]
 pub struct AENC {
-    owner_identifier: String,
-    preview_start: u16,
-    preview_end: u16,
-    encryption_info: Vec<u8>
+    pub owner_identifier: String,
+    pub preview_start: u16,
+    pub preview_end: u16,
+    pub encryption_info: Vec<u8>
 }
 
-impl FrameDataBase<AENC> for AENC {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<AENC> {
+impl FrameDefault<AENC> for AENC {
+    fn read(readable: &mut Readable, id: &str) -> Result<AENC> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
+
         Ok(AENC {
             owner_identifier: owner_identifier,
             preview_start: bytes::to_u16(&readable.as_bytes(2)?),
@@ -48,23 +96,25 @@ impl FrameDataBase<AENC> for AENC {
     }
 }
 
-//Attached picture
+// TODO not yet tested!
+// Attached picture
 #[derive(Debug)]
 pub struct APIC {
-    text_encoding: TextEncoding,
-    mime_type: String,
-    picture_type: PictureType,
-    description: String,
-    picture_data: Vec<u8>
+    pub text_encoding: TextEncoding,
+    pub mime_type: String,
+    pub picture_type: PictureType,
+    pub description: String,
+    pub picture_data: Vec<u8>
 }
 
-impl FrameDataBase<APIC> for APIC {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<APIC> {
+impl FrameDefault<APIC> for APIC {
+    fn read(readable: &mut Readable, id: &str) -> Result<APIC> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, mine_type) = readable.non_utf16_string()?;
         let picture_type = util::to_picture_type(readable.as_bytes(1)?[0]);
         let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
         let picture_data = readable.all_bytes()?;
+
         Ok(APIC {
             text_encoding: text_encoding,
             mime_type: mine_type,
@@ -79,37 +129,15 @@ impl FrameDataBase<APIC> for APIC {
 // Audio seek point index
 #[derive(Debug)]
 pub struct ASPI {
-    indexed_data_start: u32,
-    indexed_data_length: u32,
-    number_of_index_points: u16,
-    bit_per_index_point: u8,
-    fraction_at_index: u8
+    pub indexed_data_start: u32,
+    pub indexed_data_length: u32,
+    pub number_of_index_points: u16,
+    pub bit_per_index_point: u8,
+    pub fraction_at_index: u8
 }
 
-impl ASPI {
-    pub fn get_indexed_data_start(&self) -> u32 {
-        self.indexed_data_start
-    }
-
-    pub fn get_indexed_data_length(&self) -> u32 {
-        self.indexed_data_length
-    }
-
-    pub fn get_number_of_index_points(&self) -> u16 {
-        self.number_of_index_points
-    }
-
-    pub fn get_bit_per_index_point(&self) -> u8 {
-        self.bit_per_index_point
-    }
-
-    pub fn get_fraction_at_index(&self) -> u8 {
-        self.fraction_at_index
-    }
-}
-
-impl FrameDataBase<ASPI> for ASPI {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<ASPI> {
+impl FrameDefault<ASPI> for ASPI {
+    fn read(readable: &mut Readable, id: &str) -> Result<ASPI> {
         let indexed_data_start = bytes::to_u32(&readable.as_bytes(4)?);
         let indexed_data_length = bytes::to_u32(&readable.as_bytes(4)?);
         let number_of_index_points = bytes::to_u16(&readable.as_bytes(2)?);
@@ -129,36 +157,19 @@ impl FrameDataBase<ASPI> for ASPI {
 // Comments
 #[derive(Debug)]
 pub struct COMM {
-    text_encoding: TextEncoding,
-    language: String,
-    short_description: String,
-    actual_text: String
+    pub text_encoding: TextEncoding,
+    pub language: String,
+    pub short_description: String,
+    pub actual_text: String
 }
 
-impl COMM {
-    pub fn get_text_encoding(&self) -> &TextEncoding {
-        &self.text_encoding
-    }
-
-    pub fn get_language(&self) -> &str {
-        self.language.as_str()
-    }
-
-    pub fn get_short_description(&self) -> &str {
-        self.short_description.as_str()
-    }
-
-    pub fn get_actual_text(&self) -> &str {
-        self.actual_text.as_str()
-    }
-}
-
-impl FrameDataBase<COMM> for COMM {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<COMM> {
+impl FrameDefault<COMM> for COMM {
+    fn read(readable: &mut Readable, id: &str) -> Result<COMM> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, short_description) = util::read_null_terminated(&text_encoding, readable)?;
         let actual_text = readable.all_string()?;
+
         Ok(COMM {
             text_encoding: text_encoding,
             language: language,
@@ -172,58 +183,20 @@ impl FrameDataBase<COMM> for COMM {
 // Commercial frame
 #[derive(Debug)]
 pub struct COMR {
-    text_encoding: TextEncoding,
-    price_string: String,
+    pub text_encoding: TextEncoding,
+    pub price_string: String,
     // 8 bit long
-    valid_util: String,
-    contact_url: String,
-    received_as: ReceivedAs,
-    name_of_seller: String,
-    description: String,
-    picture_mime_type: String,
-    seller_logo: Vec<u8>
+    pub valid_util: String,
+    pub contact_url: String,
+    pub received_as: ReceivedAs,
+    pub name_of_seller: String,
+    pub description: String,
+    pub picture_mime_type: String,
+    pub seller_logo: Vec<u8>
 }
 
-impl COMR {
-    pub fn get_text_encoding(&self) -> &TextEncoding {
-        &self.text_encoding
-    }
-
-    pub fn get_price_string(&self) -> &str {
-        self.price_string.as_str()
-    }
-
-    pub fn get_valid_util(&self) -> &str {
-        self.valid_util.as_str()
-    }
-
-    pub fn get_contact_url(&self) -> &str {
-        self.contact_url.as_str()
-    }
-
-    pub fn get_received_as(&self) -> &ReceivedAs {
-        &self.received_as
-    }
-
-    pub fn get_name_of_seller(&self) -> &str {
-        self.name_of_seller.as_str()
-    }
-
-    pub fn get_description(&self) -> &str {
-        self.description.as_str()
-    }
-
-    pub fn get_picture_mime_type(&self) -> &str {
-        self.picture_mime_type.as_str()
-    }
-
-    pub fn get_seller_logo(&self) -> &[u8] {
-        &self.seller_logo
-    }
-}
-
-impl FrameDataBase<COMR> for COMR {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<COMR> {
+impl FrameDefault<COMR> for COMR {
+    fn read(readable: &mut Readable, id: &str) -> Result<COMR> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, price_string) = readable.non_utf16_string()?;
         let valid_util = readable.as_string(8)?;
@@ -252,27 +225,13 @@ impl FrameDataBase<COMR> for COMR {
 // Encryption method registration
 #[derive(Debug)]
 pub struct ENCR {
-    owner_identifier: String,
-    method_symbol: u8,
-    encryption_data: Vec<u8>
+    pub owner_identifier: String,
+    pub method_symbol: u8,
+    pub encryption_data: Vec<u8>
 }
 
-impl ENCR {
-    pub fn get_owner_identifier(&self) -> &str {
-        self.owner_identifier.as_str()
-    }
-
-    pub fn get_method_symbol(&self) -> u8 {
-        self.method_symbol
-    }
-
-    pub fn get_encryption_data(&self) -> &[u8] {
-        &self.encryption_data
-    }
-}
-
-impl FrameDataBase<ENCR> for ENCR {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<ENCR> {
+impl FrameDefault<ENCR> for ENCR {
+    fn read(readable: &mut Readable, id: &str) -> Result<ENCR> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
         let method_symbol = readable.as_bytes(1)?[0];
         let encryption_data = readable.all_bytes()?;
@@ -289,17 +248,11 @@ impl FrameDataBase<ENCR> for ENCR {
 // Equalisation
 #[derive(Debug)]
 pub struct EQUA {
-    adjustment_bit: u8
+    pub adjustment_bit: u8
 }
 
-impl EQUA {
-    pub fn get_adjustment_bit(&self) -> u8 {
-        self.adjustment_bit
-    }
-}
-
-impl FrameDataBase<EQUA> for EQUA {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<EQUA> {
+impl FrameDefault<EQUA> for EQUA {
+    fn read(readable: &mut Readable, id: &str) -> Result<EQUA> {
         let adjustment_bit = readable.as_bytes(1)?[0];
 
         Ok(EQUA {
@@ -312,22 +265,12 @@ impl FrameDataBase<EQUA> for EQUA {
 // Equalisation (2)
 #[derive(Debug)]
 pub struct EQU2 {
-    interpolation_method: InterpolationMethod,
-    identification: String
+    pub interpolation_method: InterpolationMethod,
+    pub identification: String
 }
 
-impl EQU2 {
-    pub fn get_interpolation_method(&self) -> &InterpolationMethod {
-        &self.interpolation_method
-    }
-
-    pub fn get_identification(&self) -> &str {
-        self.identification.as_str()
-    }
-}
-
-impl FrameDataBase<EQU2> for EQU2 {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<EQU2> {
+impl FrameDefault<EQU2> for EQU2 {
+    fn read(readable: &mut Readable, id: &str) -> Result<EQU2> {
         let interpolation_method = util::to_interpolation_method(readable.as_bytes(1)?[0]);
         let (_, identification) = readable.non_utf16_string()?;
 
@@ -341,22 +284,12 @@ impl FrameDataBase<EQU2> for EQU2 {
 // Event timing codes
 #[derive(Debug)]
 pub struct ETCO {
-    timestamp_format: TimestampFormat,
-    event_timing_codes: Vec<EventTimingCode>
+    pub timestamp_format: TimestampFormat,
+    pub event_timing_codes: Vec<EventTimingCode>
 }
 
-impl ETCO {
-    pub fn get_timestamp_format(&self) -> &TimestampFormat {
-        &self.timestamp_format
-    }
-
-    pub fn get_event_timing_codes(&self) -> &[EventTimingCode] {
-        &self.event_timing_codes
-    }
-}
-
-impl FrameDataBase<ETCO> for ETCO {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<ETCO> {
+impl FrameDefault<ETCO> for ETCO {
+    fn read(readable: &mut Readable, id: &str) -> Result<ETCO> {
         let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
         let mut event_timing_codes: Vec<EventTimingCode> = Vec::new();
         loop {
@@ -385,37 +318,15 @@ impl FrameDataBase<ETCO> for ETCO {
 // General encapsulated object
 #[derive(Debug)]
 pub struct GEOB {
-    text_encoding: TextEncoding,
-    mine_type: String,
-    filename: String,
-    content_description: String,
-    encapsulation_object: Vec<u8>
+    pub text_encoding: TextEncoding,
+    pub mine_type: String,
+    pub filename: String,
+    pub content_description: String,
+    pub encapsulation_object: Vec<u8>
 }
 
-impl GEOB {
-    pub fn get_text_encoding(&self) -> &TextEncoding {
-        &self.text_encoding
-    }
-
-    pub fn get_mine_type(&self) -> &str {
-        self.mine_type.as_str()
-    }
-
-    pub fn get_filename(&self) -> &str {
-        self.filename.as_str()
-    }
-
-    pub fn get_content_description(&self) -> &str {
-        self.content_description.as_str()
-    }
-
-    pub fn get_encapsulation_object(&self) -> &[u8] {
-        &self.encapsulation_object
-    }
-}
-
-impl FrameDataBase<GEOB> for GEOB {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<GEOB> {
+impl FrameDefault<GEOB> for GEOB {
+    fn read(readable: &mut Readable, id: &str) -> Result<GEOB> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, mine_type) = readable.non_utf16_string()?;
         let (_, filename) = readable.utf16_string()?;
@@ -436,27 +347,13 @@ impl FrameDataBase<GEOB> for GEOB {
 // Group identification registration
 #[derive(Debug)]
 pub struct GRID {
-    owner_identifier: String,
-    group_symbol: u8,
-    group_dependent_data: Vec<u8>
+    pub owner_identifier: String,
+    pub group_symbol: u8,
+    pub group_dependent_data: Vec<u8>
 }
 
-impl GRID {
-    pub fn get_owner_identifier(&self) -> &str {
-        self.owner_identifier.as_str()
-    }
-
-    pub fn get_group_symbol(&self) -> u8 {
-        self.group_symbol
-    }
-
-    pub fn get_group_dependent_data(&self) -> &[u8] {
-        &self.group_dependent_data
-    }
-}
-
-impl FrameDataBase<GRID> for GRID {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<GRID> {
+impl FrameDefault<GRID> for GRID {
+    fn read(readable: &mut Readable, id: &str) -> Result<GRID> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
         let group_symbol = readable.as_bytes(1)?[0];
         let group_dependent_data = readable.all_bytes()?;
@@ -472,22 +369,12 @@ impl FrameDataBase<GRID> for GRID {
 #[derive(Debug)]
 // Involved people list
 pub struct IPLS {
-    text_encoding: TextEncoding,
-    people_list_strings: String
+    pub text_encoding: TextEncoding,
+    pub people_list_strings: String
 }
 
-impl IPLS {
-    pub fn get_text_encoding(&self) -> &TextEncoding {
-        &self.text_encoding
-    }
-
-    pub fn get_people_list_strings(&self) -> &str {
-        self.people_list_strings.as_str()
-    }
-}
-
-impl FrameDataBase<IPLS> for IPLS {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<IPLS> {
+impl FrameDefault<IPLS> for IPLS {
+    fn read(readable: &mut Readable, id: &str) -> Result<IPLS> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, people_list_strings) = util::read_null_terminated(&text_encoding, readable)?;
 
@@ -502,27 +389,13 @@ impl FrameDataBase<IPLS> for IPLS {
 // Linked information
 #[derive(Debug)]
 pub struct LINK {
-    frame_identifier: u32,
-    url: String,
-    additional_data: String
+    pub frame_identifier: u32,
+    pub url: String,
+    pub additional_data: String
 }
 
-impl LINK {
-    pub fn get_frame_identifier(&self) -> u32 {
-        self.frame_identifier
-    }
-
-    pub fn get_url(&self) -> &str {
-        self.url.as_str()
-    }
-
-    pub fn get_additional_data(&self) -> &str {
-        self.additional_data.as_str()
-    }
-}
-
-impl FrameDataBase<LINK> for LINK {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<LINK> {
+impl FrameDefault<LINK> for LINK {
+    fn read(readable: &mut Readable, id: &str) -> Result<LINK> {
         let frame_id = bytes::to_u32(&readable.as_bytes(4)?);
         let (_, url) = readable.non_utf16_string()?;
         let additional_data = readable.all_string()?;
@@ -538,17 +411,11 @@ impl FrameDataBase<LINK> for LINK {
 // Music CD identifier
 #[derive(Debug)]
 pub struct MCDI {
-    cd_toc: Vec<u8>
+    pub cd_toc: Vec<u8>
 }
 
-impl MCDI {
-    pub fn get_cd_toc(&self) -> &[u8] {
-        &self.cd_toc
-    }
-}
-
-impl FrameDataBase<MCDI> for MCDI {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<MCDI> {
+impl FrameDefault<MCDI> for MCDI {
+    fn read(readable: &mut Readable, id: &str) -> Result<MCDI> {
         let cd_toc = readable.all_bytes()?;
 
         Ok(MCDI {
@@ -562,17 +429,11 @@ impl FrameDataBase<MCDI> for MCDI {
 // MPEG location lookup table
 #[derive(Debug)]
 pub struct MLLT {
-    data: Vec<u8>
+    pub data: Vec<u8>
 }
 
-impl MLLT {
-    pub fn get_data(&self) -> &[u8] {
-        &self.data
-    }
-}
-
-impl FrameDataBase<MLLT> for MLLT {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<MLLT> {
+impl FrameDefault<MLLT> for MLLT {
+    fn read(readable: &mut Readable, id: &str) -> Result<MLLT> {
         let data = readable.all_bytes()?;
 
         Ok(MLLT {
@@ -585,33 +446,15 @@ impl FrameDataBase<MLLT> for MLLT {
 // Ownership frame
 #[derive(Debug)]
 pub struct OWNE {
-    text_encoding: TextEncoding,
-    price_paid: String,
+    pub text_encoding: TextEncoding,
+    pub price_paid: String,
     // 8 bit long
-    date_of_purch: String,
-    seller: String
+    pub date_of_purch: String,
+    pub seller: String
 }
 
-impl OWNE {
-    pub fn get_text_encoding(&self) -> &TextEncoding {
-        &self.text_encoding
-    }
-
-    pub fn get_price_paid(&self) -> &str {
-        self.price_paid.as_str()
-    }
-
-    pub fn get_date_of_purch(&self) -> &str {
-        self.date_of_purch.as_str()
-    }
-
-    pub fn get_seller(&self) -> &str {
-        self.seller.as_str()
-    }
-}
-
-impl FrameDataBase<OWNE> for OWNE {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<OWNE> {
+impl FrameDefault<OWNE> for OWNE {
+    fn read(readable: &mut Readable, id: &str) -> Result<OWNE> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, price_paid) = readable.non_utf16_string()?;
         let date_of_purch = readable.as_string(4)?;
@@ -630,22 +473,12 @@ impl FrameDataBase<OWNE> for OWNE {
 // Private frame
 #[derive(Debug)]
 pub struct PRIV {
-    owner_identifier: String,
-    private_data: Vec<u8>
+    pub owner_identifier: String,
+    pub private_data: Vec<u8>
 }
 
-impl PRIV {
-    pub fn get_owner_identifier(&self) -> &str {
-        self.owner_identifier.as_str()
-    }
-
-    pub fn get_private_data(&self) -> &[u8] {
-        &self.private_data
-    }
-}
-
-impl FrameDataBase<PRIV> for PRIV {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<PRIV> {
+impl FrameDefault<PRIV> for PRIV {
+    fn read(readable: &mut Readable, id: &str) -> Result<PRIV> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
         let private_data = readable.all_bytes()?;
 
@@ -660,19 +493,14 @@ impl FrameDataBase<PRIV> for PRIV {
 // Play counter
 #[derive(Debug)]
 pub struct PCNT {
-    counter: u32
+    pub counter: u32
 }
 
-impl PCNT {
-    pub fn get_counter(&self) -> u32 {
-        self.counter
-    }
-}
-
-impl FrameDataBase<PCNT> for PCNT {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<PCNT> {
+impl FrameDefault<PCNT> for PCNT {
+    fn read(readable: &mut Readable, id: &str) -> Result<PCNT> {
         let mut all_bytes = readable.all_bytes()?;
         let counter = util::trim_to_u32(&mut all_bytes);
+
         Ok(PCNT {
             counter: counter
         })
@@ -683,28 +511,14 @@ impl FrameDataBase<PCNT> for PCNT {
 // Popularimeter
 #[derive(Debug)]
 pub struct POPM {
-    email_to_user: String,
-    rating: u8,
+    pub email_to_user: String,
+    pub rating: u8,
     // NOTE it support that only the 32-bit unsigned integer type.
-    counter: u32
+    pub counter: u32
 }
 
-impl POPM {
-    pub fn get_email_to_user(&self) -> &str {
-        self.email_to_user.as_str()
-    }
-
-    pub fn get_rating(&self) -> u8 {
-        self.rating
-    }
-
-    pub fn get_counter(&self) -> u32 {
-        self.counter
-    }
-}
-
-impl FrameDataBase<POPM> for POPM {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<POPM> {
+impl FrameDefault<POPM> for POPM {
+    fn read(readable: &mut Readable, id: &str) -> Result<POPM> {
         let (_, email_to_user) = readable.non_utf16_string()?;
         let rating = readable.as_bytes(1)?[0];
         let counter = {
@@ -724,23 +538,13 @@ impl FrameDataBase<POPM> for POPM {
 // Position synchronisation frame
 #[derive(Debug)]
 pub struct POSS {
-    timestamp_format: TimestampFormat,
+    pub timestamp_format: TimestampFormat,
     // TODO not yet implemented!
-    position: Vec<u8>
+    pub position: Vec<u8>
 }
 
-impl POSS {
-    pub fn get_timestamp_format(&self) -> &TimestampFormat {
-        &self.timestamp_format
-    }
-
-    pub fn get_position(&self) -> &[u8] {
-        &self.position
-    }
-}
-
-impl FrameDataBase<POSS> for POSS {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<POSS> {
+impl FrameDefault<POSS> for POSS {
+    fn read(readable: &mut Readable, id: &str) -> Result<POSS> {
         let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
         let position = readable.all_bytes()?;
 
@@ -755,27 +559,13 @@ impl FrameDataBase<POSS> for POSS {
 // Recommended buffer size
 #[derive(Debug)]
 pub struct RBUF {
-    buffer_size: u32,
-    embedded_info_flag: u8,
-    offset_to_next_tag: u32
+    pub buffer_size: u32,
+    pub embedded_info_flag: u8,
+    pub offset_to_next_tag: u32
 }
 
-impl RBUF {
-    pub fn get_buffer_size(&self) -> u32 {
-        self.buffer_size
-    }
-
-    pub fn get_embedded_info_flag(&self) -> u8 {
-        self.embedded_info_flag
-    }
-
-    pub fn get_offset_to_next_tag(&self) -> u32 {
-        self.offset_to_next_tag
-    }
-}
-
-impl FrameDataBase<RBUF> for RBUF {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<RBUF> {
+impl FrameDefault<RBUF> for RBUF {
+    fn read(readable: &mut Readable, id: &str) -> Result<RBUF> {
         let buffer_size = bytes::to_u32(&readable.as_bytes(3)?);
         let embedded_info_flag = readable.as_bytes(1)?[0] & 0x01;
         let offset_to_next_tag = bytes::to_u32(&readable.as_bytes(4)?);
@@ -793,17 +583,11 @@ impl FrameDataBase<RBUF> for RBUF {
 // Relative volume adjustment (2)
 #[derive(Debug)]
 pub struct RVA2 {
-    data: Vec<u8>
+    pub data: Vec<u8>
 }
 
-impl RVA2 {
-    pub fn get_data(&self) -> &[u8] {
-        &self.data
-    }
-}
-
-impl FrameDataBase<RVA2> for RVA2 {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<RVA2> {
+impl FrameDefault<RVA2> for RVA2 {
+    fn read(readable: &mut Readable, id: &str) -> Result<RVA2> {
         let data = readable.all_bytes()?;
 
         Ok(RVA2 {
@@ -816,53 +600,20 @@ impl FrameDataBase<RVA2> for RVA2 {
 // Reverb
 #[derive(Debug)]
 pub struct RVRB {
-    reverb_left: u16,
-    reverb_right: u16,
-    reverb_bounce_left: u8,
-    reverb_bounce_right: u8,
-    reverb_feedback_left_to_left: u8,
-    reverb_feedback_left_to_right: u8,
-    reverb_feedback_right_to_right: u8,
-    reverb_feedback_right_to_left: u8,
-    premix_left_to_right: u8,
-    premix_right_to_left: u8
+    pub reverb_left: u16,
+    pub reverb_right: u16,
+    pub reverb_bounce_left: u8,
+    pub reverb_bounce_right: u8,
+    pub reverb_feedback_left_to_left: u8,
+    pub reverb_feedback_left_to_right: u8,
+    pub reverb_feedback_right_to_right: u8,
+    pub reverb_feedback_right_to_left: u8,
+    pub premix_left_to_right: u8,
+    pub premix_right_to_left: u8
 }
 
-impl RVRB {
-    pub fn get_reverb_left(&self) -> u16 {
-        self.reverb_left
-    }
-    pub fn get_reverb_right(&self) -> u16 {
-        self.reverb_right
-    }
-    pub fn get_reverb_bounce_left(&self) -> u8 {
-        self.reverb_bounce_left
-    }
-    pub fn get_reverb_bounce_right(&self) -> u8 {
-        self.reverb_bounce_right
-    }
-    pub fn get_reverb_feedback_left_to_left(&self) -> u8 {
-        self.reverb_feedback_left_to_left
-    }
-    pub fn get_reverb_feedback_left_to_right(&self) -> u8 {
-        self.reverb_feedback_left_to_right
-    }
-    pub fn get_reverb_feedback_right_to_right(&self) -> u8 {
-        self.reverb_feedback_right_to_right
-    }
-    pub fn get_reverb_feedback_right_to_left(&self) -> u8 {
-        self.reverb_feedback_right_to_left
-    }
-    pub fn get_premix_left_to_right(&self) -> u8 {
-        self.premix_left_to_right
-    }
-    pub fn get_premix_right_to_left(&self) -> u8 {
-        self.premix_right_to_left
-    }
-}
-
-impl FrameDataBase<RVRB> for RVRB {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<RVRB> {
+impl FrameDefault<RVRB> for RVRB {
+    fn read(readable: &mut Readable, id: &str) -> Result<RVRB> {
         let reverb_left = bytes::to_u16(&readable.as_bytes(2)?);
         let reverb_right = bytes::to_u16(&readable.as_bytes(2)?);
         let reverb_bounce_left = readable.as_bytes(1)?[0];
@@ -893,17 +644,11 @@ impl FrameDataBase<RVRB> for RVRB {
 // Seek frame
 #[derive(Debug)]
 pub struct SEEK {
-    next_tag: String
+    pub next_tag: String
 }
 
-impl SEEK {
-    pub fn get_next_tag(&self) -> &str {
-        self.next_tag.as_str()
-    }
-}
-
-impl FrameDataBase<SEEK> for SEEK {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<SEEK> {
+impl FrameDefault<SEEK> for SEEK {
+    fn read(readable: &mut Readable, id: &str) -> Result<SEEK> {
         let next_tag = readable.all_string()?;
 
         Ok(SEEK {
@@ -916,22 +661,12 @@ impl FrameDataBase<SEEK> for SEEK {
 // Signature frame
 #[derive(Debug)]
 pub struct SIGN {
-    group_symbol: u8,
-    signature: Vec<u8>
+    pub group_symbol: u8,
+    pub signature: Vec<u8>
 }
 
-impl SIGN {
-    pub fn get_group_symbol(&self) -> u8 {
-        self.group_symbol
-    }
-
-    pub fn get_signature(&self) -> &[u8] {
-        &self.signature
-    }
-}
-
-impl FrameDataBase<SIGN> for SIGN {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<SIGN> {
+impl FrameDefault<SIGN> for SIGN {
+    fn read(readable: &mut Readable, id: &str) -> Result<SIGN> {
         let group_symbol = readable.as_bytes(1)?[0];
         let signature = readable.all_bytes()?;
 
@@ -946,37 +681,15 @@ impl FrameDataBase<SIGN> for SIGN {
 // Synchronised lyric/text
 #[derive(Debug)]
 pub struct SYLT {
-    text_encoding: TextEncoding,
-    language: String,
-    timestamp_format: TimestampFormat,
-    content_type: ContentType,
-    content_descriptor: String
+    pub text_encoding: TextEncoding,
+    pub language: String,
+    pub timestamp_format: TimestampFormat,
+    pub content_type: ContentType,
+    pub content_descriptor: String
 }
 
-impl SYLT {
-    pub fn get_text_encoding(&self) -> &TextEncoding {
-        &self.text_encoding
-    }
-
-    pub fn get_language(&self) -> &str {
-        self.language.as_str()
-    }
-
-    pub fn get_timestamp_format(&self) -> &TimestampFormat {
-        &self.timestamp_format
-    }
-
-    pub fn get_content_type(&self) -> &ContentType {
-        &self.content_type
-    }
-
-    pub fn get_content_descriptor(&self) -> &str {
-        self.content_descriptor.as_str()
-    }
-}
-
-impl FrameDataBase<SYLT> for SYLT {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<SYLT> {
+impl FrameDefault<SYLT> for SYLT {
+    fn read(readable: &mut Readable, id: &str) -> Result<SYLT> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
@@ -997,22 +710,12 @@ impl FrameDataBase<SYLT> for SYLT {
 // Synchronised tempo codes
 #[derive(Debug)]
 pub struct SYTC {
-    timestamp_format: TimestampFormat,
-    tempo_data: Vec<u8>
+    pub timestamp_format: TimestampFormat,
+    pub tempo_data: Vec<u8>
 }
 
-impl SYTC {
-    pub fn get_timestamp_format(&self) -> &TimestampFormat {
-        &self.timestamp_format
-    }
-
-    pub fn get_temp_data(&self) -> &[u8] {
-        &self.tempo_data
-    }
-}
-
-impl FrameDataBase<SYTC> for SYTC {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<SYTC> {
+impl FrameDefault<SYTC> for SYTC {
+    fn read(readable: &mut Readable, id: &str) -> Result<SYTC> {
         let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
         let tempo_data = readable.all_bytes()?;
 
@@ -1027,22 +730,12 @@ impl FrameDataBase<SYTC> for SYTC {
 // Unique file identifier
 #[derive(Debug)]
 pub struct UFID {
-    owner_identifier: String,
-    identifier: Vec<u8>
+    pub owner_identifier: String,
+    pub identifier: Vec<u8>
 }
 
-impl UFID {
-    pub fn get_owner_identifier(&self) -> &str {
-        self.owner_identifier.as_str()
-    }
-
-    pub fn get_identifier(&self) -> &[u8] {
-        &self.identifier
-    }
-}
-
-impl FrameDataBase<UFID> for UFID {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<UFID> {
+impl FrameDefault<UFID> for UFID {
+    fn read(readable: &mut Readable, id: &str) -> Result<UFID> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
         let identifier = readable.all_bytes()?;
 
@@ -1057,27 +750,13 @@ impl FrameDataBase<UFID> for UFID {
 // Terms of use
 #[derive(Debug)]
 pub struct USER {
-    text_encoding: TextEncoding,
-    language: String,
-    actual_text: String
+    pub text_encoding: TextEncoding,
+    pub language: String,
+    pub actual_text: String
 }
 
-impl USER {
-    pub fn get_text_encoding(&self) -> &TextEncoding {
-        &self.text_encoding
-    }
-
-    pub fn get_language(&self) -> &str {
-        self.language.as_str()
-    }
-
-    pub fn get_actual_text(&self) -> &str {
-        self.actual_text.as_str()
-    }
-}
-
-impl FrameDataBase<USER> for USER {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<USER> {
+impl FrameDefault<USER> for USER {
+    fn read(readable: &mut Readable, id: &str) -> Result<USER> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, actual_text) = util::read_null_terminated(&text_encoding, readable)?;
@@ -1094,32 +773,14 @@ impl FrameDataBase<USER> for USER {
 // Unsynchronised lyric/text transcription
 #[derive(Debug)]
 pub struct USLT {
-    text_encoding: TextEncoding,
-    language: String,
-    content_descriptor: String,
-    lyrics: String
+    pub text_encoding: TextEncoding,
+    pub language: String,
+    pub content_descriptor: String,
+    pub lyrics: String
 }
 
-impl USLT {
-    pub fn get_text_encoding(&self) -> &TextEncoding {
-        &self.text_encoding
-    }
-
-    pub fn get_language(&self) -> &str {
-        self.language.as_str()
-    }
-
-    pub fn get_content_descriptor(&self) -> &str {
-        self.content_descriptor.as_str()
-    }
-
-    pub fn get_lyrics(&self) -> &str {
-        self.lyrics.as_str()
-    }
-}
-
-impl FrameDataBase<USLT> for USLT {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<USLT> {
+impl FrameDefault<USLT> for USLT {
+    fn read(readable: &mut Readable, id: &str) -> Result<USLT> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, content_descriptor) = util::read_null_terminated(&text_encoding, readable)?;
@@ -1136,22 +797,12 @@ impl FrameDataBase<USLT> for USLT {
 
 #[derive(Debug)]
 pub struct TEXT {
-    text_encoding: TextEncoding,
-    text: String
+    pub text_encoding: TextEncoding,
+    pub text: String
 }
 
-impl TEXT {
-    pub fn get_text_encoding(&self) -> &TextEncoding {
-        &self.text_encoding
-    }
-
-    pub fn get_text(&self) -> &str {
-        self.text.as_str()
-    }
-}
-
-impl FrameDataBase<TEXT> for TEXT {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<TEXT> {
+impl FrameDefault<TEXT> for TEXT {
+    fn read(readable: &mut Readable, id: &str) -> Result<TEXT> {
         fn _default(id: &str, decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>) -> String {
             match decode {
                 Ok(text) => text,
@@ -1188,27 +839,13 @@ impl FrameDataBase<TEXT> for TEXT {
 
 #[derive(Debug)]
 pub struct TXXX {
-    text_encoding: TextEncoding,
-    description: String,
-    value: String
+    pub text_encoding: TextEncoding,
+    pub description: String,
+    pub value: String
 }
 
-impl TXXX {
-    pub fn get_text_encoding(&self) -> &TextEncoding {
-        &self.text_encoding
-    }
-
-    pub fn get_description(&self) -> &str {
-        self.description.as_str()
-    }
-
-    pub fn get_value(&self) -> &str {
-        self.value.as_str()
-    }
-}
-
-impl FrameDataBase<TXXX> for TXXX {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<TXXX> {
+impl FrameDefault<TXXX> for TXXX {
+    fn read(readable: &mut Readable, id: &str) -> Result<TXXX> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
         let value = readable.all_string()?;
@@ -1224,13 +861,13 @@ impl FrameDataBase<TXXX> for TXXX {
 // User defined URL link frame
 #[derive(Debug)]
 pub struct WXXX {
-    text_encoding: TextEncoding,
-    description: String,
-    url: String
+    pub text_encoding: TextEncoding,
+    pub description: String,
+    pub url: String
 }
 
-impl FrameDataBase<WXXX> for WXXX {
-    fn to_framedata(readable: &mut Readable, id: &str) -> Result<WXXX> {
+impl FrameDefault<WXXX> for WXXX {
+    fn read(readable: &mut Readable, id: &str) -> Result<WXXX> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
         let url = readable.all_string()?;

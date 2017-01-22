@@ -836,6 +836,10 @@ pub struct TEXT {
     pub text: String
 }
 
+extern crate flate2;
+use self::flate2::read::ZlibDecoder;
+use ::std::io::Read;
+
 impl FrameDefault<TEXT> for TEXT {
     fn read(readable: &mut Readable, id: &str) -> Result<TEXT> {
         fn _default(id: &str, decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>) -> String {

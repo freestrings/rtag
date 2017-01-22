@@ -42,7 +42,7 @@ impl MetadataIterator {
         }
         self.version = version;
 
-        Ok(Unit::Header(bytes))
+        Ok(Unit::Header(header::Head::new(bytes)))
     }
 
     fn extended_head(&mut self) -> Result<Unit> {
@@ -79,7 +79,7 @@ impl MetadataIterator {
                 let head_bytes = self.readable.as_bytes(3)?;
                 let size = bytes::to_u32(&head_bytes[0..3]);
                 let body_bytes = self.readable.as_bytes(size as usize)?;
-                Ok(Unit::FrameV2(id, head_bytes, body_bytes))
+                Ok(Unit::FrameV2(frames::V2::new(id, head_bytes, body_bytes, self.version)))
             } else {
                 let id = self.readable.as_string(4)?;
                 let head_bytes = self.readable.as_bytes(6)?;
@@ -91,7 +91,7 @@ impl MetadataIterator {
                 };
                 let body_bytes = self.readable.as_bytes(size as usize)?;
 
-                Ok(Unit::FrameV2(id, head_bytes, body_bytes))
+                Ok(Unit::FrameV2(frames::V2::new(id, head_bytes, body_bytes, self.version)))
             }
         } else {
             // frame v1
@@ -109,7 +109,7 @@ impl MetadataIterator {
             let bytes = self.readable.all_bytes()?;
             self.next = Status::None;
 
-            Ok(Unit::FrameV1(bytes))
+            Ok(Unit::FrameV1(frames::V1::new(bytes)))
         }
     }
 }
@@ -124,10 +124,11 @@ enum Status {
 
 #[derive(Debug)]
 pub enum Unit {
-    Header(Vec<u8>),
+    Header(header::Head),
+    // TODO not yet implemented
     ExtendedHeader(Vec<u8>),
-    FrameV2(String, Vec<u8>, Vec<u8>),
-    FrameV1(Vec<u8>)
+    FrameV2(frames::V2),
+    FrameV1(frames::V1)
 }
 
 pub mod header {
@@ -157,6 +158,7 @@ pub mod header {
         }
     }
 
+    #[derive(Debug)]
     pub struct Head {
         bytes: Vec<u8>
     }
@@ -197,23 +199,23 @@ pub mod header {
     pub fn has_flag(flag: Flag, flag_value: u8, version: u8) -> bool {
         if version == 3 {
             match flag {
-                Flag::Unsynchronisation => flag_value & 0x01 << 7 != 0,
-                Flag::ExtendedHeader => flag_value & 0x01 << 6 != 0,
-                Flag::ExperimentalIndicator => flag_value & 0x01 << 5 != 0,
+                Flag::Unsynchronisation => flag_value & bytes::BIT7 != 0,
+                Flag::ExtendedHeader => flag_value & bytes::BIT6 != 0,
+                Flag::ExperimentalIndicator => flag_value & bytes::BIT5 != 0,
                 _ => false
             }
         } else if version == 4 {
             match flag {
-                Flag::Unsynchronisation => flag_value & 0x01 << 7 != 0,
-                Flag::ExtendedHeader => flag_value & 0x01 << 6 != 0,
-                Flag::ExperimentalIndicator => flag_value & 0x01 << 5 != 0,
-                Flag::FooterPresent => flag_value & 0x01 << 4 != 0,
+                Flag::Unsynchronisation => flag_value & bytes::BIT7 != 0,
+                Flag::ExtendedHeader => flag_value & bytes::BIT6 != 0,
+                Flag::ExperimentalIndicator => flag_value & bytes::BIT5 != 0,
+                Flag::FooterPresent => flag_value & bytes::BIT4 != 0,
                 _ => false
             }
         } else if version == 2 {
             match flag {
-                Flag::Unsynchronisation => flag_value & 0x01 << 7 != 0,
-                Flag::Compression => flag_value & 0x01 << 6 != 0,
+                Flag::Unsynchronisation => flag_value & bytes::BIT7 != 0,
+                Flag::Compression => flag_value & bytes::BIT6 != 0,
                 _ => false
             }
         } else {
@@ -225,11 +227,15 @@ pub mod header {
 
 pub mod frames {
     extern crate encoding;
+    extern crate flate2;
+
+    use self::flate2::read::ZlibDecoder;
 
     use self::encoding::{Encoding, DecoderTrap};
 
     use std::vec::Vec;
-    use std::io::Result;
+    use std::io::{Read, Result};
+    use bytes;
     use ::frame;
     use ::frame::constants::{id, FrameHeaderFlag, FrameData};
     use ::frame::FrameDefault;
@@ -245,6 +251,7 @@ pub mod frames {
         pub genre: String
     }
 
+    #[derive(Debug)]
     pub struct V1 {
         bytes: Vec<u8>
     }
@@ -324,52 +331,70 @@ pub mod frames {
         }
     }
 
+    #[derive(Debug)]
     pub struct V2 {
         pub id: String,
         header: Vec<u8>,
-        body: Vec<u8>
+        body: Vec<u8>,
+        version: u8
     }
 
     impl V2 {
-        pub fn new(id: String, header: Vec<u8>, body: Vec<u8>) -> Self {
+        pub fn new(id: String, header: Vec<u8>, body: Vec<u8>, version: u8) -> Self {
             V2 {
                 id: id,
                 header: header,
-                body: body
+                body: body,
+                version: version
             }
         }
 
         // There is no flag for 2.2 frame.
         // http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
-        pub fn has_flag(&self, flag: FrameHeaderFlag, version: u8) -> bool {
-            let status_flag = self.header[4] & 0x01;
-            let encoding_flag = self.header[5] & 0x01;
-            match version {
+        pub fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
+            if self.version < 3 {
+                return false;
+            }
+
+            let status_flag = self.header[4];
+            let encoding_flag = self.header[5];
+            match self.version {
                 3 => match flag {
-                    FrameHeaderFlag::TagAlter => status_flag << 7 != 0,
-                    FrameHeaderFlag::FileAlter => status_flag << 6 != 0,
-                    FrameHeaderFlag::ReadOnly => status_flag << 5 != 0,
-                    FrameHeaderFlag::Compression => encoding_flag << 7 != 0,
-                    FrameHeaderFlag::Encryption => encoding_flag << 6 != 0,
-                    FrameHeaderFlag::GroupIdentity => encoding_flag << 5 != 0,
+                    FrameHeaderFlag::TagAlter => status_flag & bytes::BIT7 != 0,
+                    FrameHeaderFlag::FileAlter => status_flag & bytes::BIT6 != 0,
+                    FrameHeaderFlag::ReadOnly => status_flag & bytes::BIT5 != 0,
+                    FrameHeaderFlag::Compression => encoding_flag & bytes::BIT7 != 0,
+                    FrameHeaderFlag::Encryption => encoding_flag & bytes::BIT6 != 0,
+                    FrameHeaderFlag::GroupIdentity => encoding_flag & bytes::BIT5 != 0,
                     _ => false
                 },
                 4 => match flag {
-                    FrameHeaderFlag::TagAlter => status_flag << 6 != 0,
-                    FrameHeaderFlag::FileAlter => status_flag << 5 != 0,
-                    FrameHeaderFlag::ReadOnly => status_flag << 4 != 0,
-                    FrameHeaderFlag::GroupIdentity => encoding_flag << 6 != 0,
-                    FrameHeaderFlag::Compression => encoding_flag << 3 != 0,
-                    FrameHeaderFlag::Encryption => encoding_flag << 2 != 0,
-                    FrameHeaderFlag::Unsynchronisation => encoding_flag << 1 != 0,
-                    FrameHeaderFlag::DataLength => encoding_flag != 0
+                    FrameHeaderFlag::TagAlter => status_flag & bytes::BIT6 != 0,
+                    FrameHeaderFlag::FileAlter => status_flag & bytes::BIT5 != 0,
+                    FrameHeaderFlag::ReadOnly => status_flag & bytes::BIT4 != 0,
+                    FrameHeaderFlag::GroupIdentity => encoding_flag & bytes::BIT6 != 0,
+                    FrameHeaderFlag::Compression => encoding_flag & bytes::BIT3 != 0,
+                    FrameHeaderFlag::Encryption => encoding_flag & bytes::BIT2 != 0,
+                    FrameHeaderFlag::Unsynchronisation => encoding_flag & bytes::BIT1 != 0,
+                    FrameHeaderFlag::DataLength => encoding_flag & bytes::BIT0 != 0
                 },
                 _ => false
             }
         }
 
         pub fn read(&self) -> Result<FrameData> {
-            let mut readable = ::readable::factory::from_byte(self.body.clone())?;
+            let mut readable = if self.has_flag(FrameHeaderFlag::Compression) {
+                debug!("{} is compressed", self.id);
+                // skip 4 bytes that is decompressed size.
+                let real_frame = self.body.clone().split_off(4);
+                let mut decoder = ZlibDecoder::new(&real_frame[..]);
+                let mut out = vec![];
+                decoder.read_to_end(&mut out)?;
+                ::readable::factory::from_byte(out)?
+            } else {
+                ::readable::factory::from_byte(self.body[..].to_vec())?
+            };
+
             let id = self.id.as_str();
 
             let frame_data = match self.id.as_ref() {

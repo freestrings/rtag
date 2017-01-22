@@ -11,6 +11,7 @@ keywords = ["library", "id3", "music"]
 log = "0.3"
 regex = "0.2"
 encoding = "0.2"
+flate2 = { version = "0.2", features = ["zlib"], default-features = false }
 
 [dev-dependencies]
 env_logger = "0.3"

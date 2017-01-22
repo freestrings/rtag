@@ -1,3 +1,12 @@
+pub const BIT7: u8 = 0x80;
+pub const BIT6: u8 = 0x40;
+pub const BIT5: u8 = 0x20;
+pub const BIT4: u8 = 0x10;
+pub const BIT3: u8 = 0x08;
+pub const BIT2: u8 = 0x04;
+pub const BIT1: u8 = 0x02;
+pub const BIT0: u8 = 0x01;
+
 pub fn to_encoding(encoding: u8) -> ::frame::constants::TextEncoding {
     match encoding {
         0 => ::frame::constants::TextEncoding::ISO8859_1,

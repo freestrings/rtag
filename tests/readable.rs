@@ -4,7 +4,7 @@ use std::vec;
 use id3::readable::factory;
 
 #[test]
-fn bytes1() {
+fn readable_bytes() {
     let valid = "0123456789";
     if let Ok(mut readable) = factory::from_str(valid) {
         assert!(readable.as_bytes(10).is_ok());
@@ -12,10 +12,7 @@ fn bytes1() {
     } else {
         assert!(false);
     }
-}
 
-#[test]
-fn byte2() {
     let str = "AB가나01".to_string();
     if let Ok(mut readable) = factory::from_byte(str.into_bytes()) {
         assert!(readable.skip(1).is_ok());
@@ -30,12 +27,12 @@ fn byte2() {
 }
 
 #[test]
-fn file1() {
+fn readable_file() {
     if let Ok(mut readable) = factory::from_path("./test-resources/file1.txt") {
         assert!(readable.as_bytes(10).is_ok());
         assert!(readable.as_bytes(10).is_ok());
         assert!(readable.skip(-5).is_ok());
-        assert_eq!(readable.as_string(10).unwrap(), "fghij");
+        assert_eq!(readable.as_string(5).unwrap(), "fghij");
         assert!(readable.as_bytes(10).is_err());
     } else {
         assert!(false);
@@ -43,21 +40,7 @@ fn file1() {
 }
 
 #[test]
-fn file2() {
-    if let Ok(mut readable) = factory::from_path("./test-resources/file1.txt") {
-        assert!(readable.skip(10).is_ok());
-        assert!(readable.as_bytes(10).is_ok());
-        assert!(readable.skip(-5).is_ok());
-        assert_eq!(readable.as_string(10).unwrap(), "fghij");
-        assert!(readable.as_bytes(10).is_err());
-    } else {
-        assert!(false);
-    }
-}
-
-
-#[test]
-fn utf16_string() {
+fn readable_utf16_string() {
     let str = "AB가나01".to_string();
     let mut bytes: vec::Vec<u8> = str.into_bytes();
     bytes.push(0x00);

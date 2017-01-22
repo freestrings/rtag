@@ -11,7 +11,7 @@
 // LNK - LINK
 // MCI - MCDI
 // MLL - MLLT
-// PIC - APIC
+// PIC
 // POP - POPM
 // REV - RVRB
 // RVA - RVAD

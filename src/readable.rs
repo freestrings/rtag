@@ -1,19 +1,21 @@
-use std::{io, vec};
-use std::io::Result;
-use std::io::{Read, Seek, SeekFrom};
+use std::vec::Vec;
+use std::io::{Error, ErrorKind, Read, Seek, SeekFrom, Result};
 
-pub struct Readable<I> where I: io::Read + io::Seek {
+const DEFAULT_BUF_SIZE: usize = 1024;
+
+#[derive(Debug)]
+pub struct Readable<I> where I: Read + Seek {
     input: I
 }
 
-impl<I> Readable<I> where I: io::Read + io::Seek {
+impl<I> Readable<I> where I: Read + Seek {
     pub fn new(input: I) -> Self {
         Readable {
             input: input
         }
     }
 
-    pub fn all_bytes(&mut self) -> Result<vec::Vec<u8>> {
+    pub fn all_bytes(&mut self) -> Result<Vec<u8>> {
         let mut buf = vec![];
         self.input.read_to_end(&mut buf)?;
         Ok(buf)
@@ -23,23 +25,34 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
         Ok(String::from_utf8_lossy(&self.all_bytes()?).into_owned())
     }
 
-    pub fn as_bytes(&mut self, amount: usize) -> Result<vec::Vec<u8>> {
-        let mut buf = vec![0u8; amount];
-        let read = self.input.read(buf.as_mut_slice())?;
-        if read == 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, "read by 0"));
+    pub fn as_bytes(&mut self, amount: usize) -> Result<Vec<u8>> {
+        let mut ret = vec![];
+        let mut buf_size = if amount < DEFAULT_BUF_SIZE { amount } else { DEFAULT_BUF_SIZE };
+        let mut buf = vec![0u8; buf_size];
+        let mut total_read = 0;
+        loop {
+            let read = self.input.read(buf.as_mut_slice())?;
+            if read <= 0 {
+                return Err(Error::new(ErrorKind::Other, format!("read zero!! require: {}", amount)));
+            }
+            ret.append(&mut buf);
+            total_read = total_read + read;
+            trace!("amount:{}, total_read:{}, read:{}", amount, total_read, read);
+            if total_read >= amount {
+                break;
+            }
+            let remain = amount - total_read;
+            buf.resize(if buf_size > remain { remain } else { buf_size }, 0);
         }
-        if read < amount {
-            buf.split_off(read);
-        }
-        Ok(buf)
+
+        Ok(ret)
     }
 
     pub fn as_string(&mut self, amount: usize) -> Result<String> {
         Ok(String::from_utf8_lossy(&self.as_bytes(amount)?).into_owned())
     }
 
-    pub fn utf16_bytes(&mut self) -> Result<vec::Vec<u8>> {
+    pub fn utf16_bytes(&mut self) -> Result<Vec<u8>> {
         let mut ret = vec![];
         let mut read_all = 0;
         let mut buf = vec![0u8; 1];
@@ -70,7 +83,7 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
     }
 
     // <text>0x00
-    pub fn non_utf16_bytes(&mut self) -> Result<vec::Vec<u8>> {
+    pub fn non_utf16_bytes(&mut self) -> Result<Vec<u8>> {
         let mut ret = vec![];
         let mut read_all = 0;
         let mut buf = vec![0u8; 1];
@@ -104,22 +117,23 @@ impl<I> Readable<I> where I: io::Read + io::Seek {
 }
 
 pub mod factory {
-    use std::{fs, io, vec};
-    use std::io::Result;
+    use std::fs::File;
+    use std::vec::Vec;
+    use std::io::{Cursor, Result};
 
-    pub fn from_file(file: fs::File) -> Result<super::Readable<fs::File>> {
+    pub fn from_file(file: File) -> Result<super::Readable<File>> {
         Ok(super::Readable::new(file))
     }
 
-    pub fn from_path(str: &str) -> Result<super::Readable<fs::File>> {
-        Ok(super::Readable::new(fs::File::open(str)?))
+    pub fn from_path(str: &str) -> Result<super::Readable<File>> {
+        Ok(super::Readable::new(File::open(str)?))
     }
 
-    pub fn from_str(str: &str) -> Result<super::Readable<io::Cursor<String>>> {
-        Ok(super::Readable::new(io::Cursor::new(str.to_string())))
+    pub fn from_str(str: &str) -> Result<super::Readable<Cursor<String>>> {
+        Ok(super::Readable::new(Cursor::new(str.to_string())))
     }
 
-    pub fn from_byte(bytes: vec::Vec<u8>) -> Result<super::Readable<io::Cursor<vec::Vec<u8>>>> {
-        Ok(super::Readable::new(io::Cursor::new(bytes)))
+    pub fn from_byte(bytes: Vec<u8>) -> Result<super::Readable<Cursor<Vec<u8>>>> {
+        Ok(super::Readable::new(Cursor::new(bytes)))
     }
 }

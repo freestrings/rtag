@@ -80,7 +80,7 @@ fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
 }
 
 #[test]
-fn regex() {
+fn metadata_regex() {
     let frame_id = regex::Regex::new(r"^[A-Z][A-Z0-9]{2,}$").unwrap();
     assert!(frame_id.is_match("AAA0"));
     assert!(frame_id.is_match("AAA"));
@@ -90,7 +90,7 @@ fn regex() {
 }
 
 #[test]
-fn iterator() {
+fn metadata_iterator() {
     let _ = env_logger::init();
 
     match MetadataIterator::new("./test-resources/v1-v2.mp3") {
@@ -107,7 +107,7 @@ fn iterator() {
 }
 
 #[test]
-fn empty() {
+fn metadata_empty() {
     let _ = env_logger::init();
 
     for m in MetadataIterator::new("./test-resources/empty-meta.mp3").unwrap() {
@@ -120,7 +120,7 @@ fn empty() {
 }
 
 #[test]
-fn v1() {
+fn metadata_v1() {
     let _ = env_logger::init();
 
     for m in MetadataIterator::new("./test-resources/v1-v2.mp3").unwrap() {
@@ -170,7 +170,7 @@ fn v1() {
 }
 
 #[test]
-fn v1_no_id() {
+fn metadata_v1_no_id() {
     let _ = env_logger::init();
 
     for m in MetadataIterator::new("./test-resources/230-no-id3.mp3").unwrap() {
@@ -182,7 +182,7 @@ fn v1_no_id() {
 }
 
 #[test]
-fn header() {
+fn metadata_header() {
     let _ = env_logger::init();
 
     for m in MetadataIterator::new("./test-resources/230.mp3").unwrap() {
@@ -219,7 +219,7 @@ fn header() {
 }
 
 #[test]
-fn frame_id() {
+fn metadata_frame_id() {
     let _ = env_logger::init();
 
     fn comp_id(frame: frames::V2, data: &mut Vec<&str>) {
@@ -251,7 +251,7 @@ fn frame_id() {
 }
 
 #[test]
-fn frame_data() {
+fn metadata_frame_data() {
     let _ = env_logger::init();
 
     fn test(path: &str, mut data: Vec<&str>) {
@@ -282,7 +282,7 @@ fn frame_data() {
 }
 
 #[test]
-fn frame_etco() {
+fn metadata_frame_etco() {
     let _ = env_logger::init();
 
     for m in MetadataIterator::new("./test-resources/230-etco.mp3").unwrap() {
@@ -308,7 +308,7 @@ fn frame_etco() {
 }
 
 #[test]
-fn frame_pcnt() {
+fn metadata_frame_pcnt() {
     let _ = env_logger::init();
 
     for m in MetadataIterator::new("./test-resources/240-pcnt.mp3").unwrap() {
@@ -327,7 +327,7 @@ fn frame_pcnt() {
 }
 
 #[test]
-fn frame_tbpm() {
+fn metadata_frame_tbpm() {
     let _ = env_logger::init();
 
     for m in MetadataIterator::new("./test-resources/230-tbpm.mp3").unwrap() {
@@ -348,7 +348,7 @@ fn frame_tbpm() {
 }
 
 #[test]
-fn v1_encoding() {
+fn metadata_v1_encoding() {
     let _ = env_logger::init();
 
     for m in MetadataIterator::new("./test-resources/v1-iso-8859-1.mp3").unwrap() {
@@ -381,7 +381,7 @@ fn v1_encoding() {
 }
 
 #[test]
-fn v220() {
+fn metadata_v220() {
     let _ = env_logger::init();
 
     for m in MetadataIterator::new("./test-resources/v2.2-pic.mp3").unwrap() {

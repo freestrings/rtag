@@ -18,6 +18,7 @@ impl<I> Readable<I> where I: Read + Seek {
     pub fn all_bytes(&mut self) -> Result<Vec<u8>> {
         let mut buf = vec![];
         self.input.read_to_end(&mut buf)?;
+
         Ok(buf)
     }
 
@@ -73,6 +74,7 @@ impl<I> Readable<I> where I: Read + Seek {
                 ret.push(buf[0]);
             }
         }
+
         Ok(ret)
     }
 
@@ -99,6 +101,7 @@ impl<I> Readable<I> where I: Read + Seek {
                 ret.push(buf[0]);
             }
         }
+
         Ok(ret)
     }
 

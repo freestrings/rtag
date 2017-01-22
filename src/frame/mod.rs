@@ -434,6 +434,7 @@ impl FrameDefault<LINK> for LINK {
         let frame_id = bytes::to_u32(&readable.as_bytes(4)?);
         let (_, url) = readable.non_utf16_string()?;
         let additional_data = readable.all_string()?;
+
         Ok(LINK {
             frame_identifier: frame_id,
             url: url,
@@ -883,6 +884,7 @@ impl FrameDefault<TXXX> for TXXX {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
         let value = readable.all_string()?;
+
         Ok(TXXX {
             text_encoding: text_encoding,
             description: description,
@@ -905,6 +907,7 @@ impl FrameDefault<WXXX> for WXXX {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
         let url = readable.all_string()?;
+
         Ok(WXXX {
             text_encoding: text_encoding,
             description: description,

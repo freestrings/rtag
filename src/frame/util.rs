@@ -120,6 +120,7 @@ pub fn trim_to_u32(bytes: &mut vec::Vec<u8>) -> u32 {
     if len > 4 {
         bytes.split_off(len - 4);
     }
+
     bytes::to_u32(&bytes)
 }
 

@@ -79,6 +79,7 @@ impl MetadataIterator {
                 let head_bytes = self.readable.as_bytes(3)?;
                 let size = bytes::to_u32(&head_bytes[0..3]);
                 let body_bytes = self.readable.as_bytes(size as usize)?;
+
                 Ok(Unit::FrameV2(frames::V2::new(id, head_bytes, body_bytes, self.version)))
             } else {
                 let id = self.readable.as_string(4)?;
@@ -390,6 +391,7 @@ pub mod frames {
                 let mut decoder = ZlibDecoder::new(&real_frame[..]);
                 let mut out = vec![];
                 decoder.read_to_end(&mut out)?;
+
                 ::readable::factory::from_byte(out)?
             } else {
                 ::readable::factory::from_byte(self.body[..].to_vec())?

@@ -30,8 +30,16 @@ fn trim(text: String) -> String {
     re.replace_all(text, "").into_owned()
 }
 
-pub trait FrameDefault<T> {
+pub trait FrameReaderDefault<T> {
+    fn read(readable: &mut Readable) -> Result<T>;
+}
+
+pub trait FrameReaderIdAware<T> {
     fn read(readable: &mut Readable, id: &str) -> Result<T>;
+}
+
+pub trait FrameReaderVesionAware<T> {
+    fn read(readable: &mut Readable, vesion: u8) -> Result<T>;
 }
 
 // TODO not yet tested!
@@ -43,8 +51,8 @@ pub struct BUF {
     pub offset_to_next_tag: u32
 }
 
-impl FrameDefault<BUF> for BUF {
-    fn read(readable: &mut Readable, id: &str) -> Result<BUF> {
+impl FrameReaderDefault<BUF> for BUF {
+    fn read(readable: &mut Readable) -> Result<BUF> {
         let buffer_size = bytes::to_u32(&readable.as_bytes(3)?);
         let embedded_info_flag = readable.as_bytes(1)?[0];
         let offset_to_next_tag = bytes::to_u32(&readable.as_bytes(4)?);
@@ -66,8 +74,8 @@ pub struct CRM {
     pub encrypted_datablock: Vec<u8>
 }
 
-impl FrameDefault<CRM> for CRM {
-    fn read(readable: &mut Readable, id: &str) -> Result<CRM> {
+impl FrameReaderDefault<CRM> for CRM {
+    fn read(readable: &mut Readable) -> Result<CRM> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
         let (_, content) = readable.non_utf16_string()?;
         let encrypted_datablock = readable.all_bytes()?;
@@ -90,8 +98,8 @@ pub struct PIC {
     pub picture_data: Vec<u8>
 }
 
-impl FrameDefault<PIC> for PIC {
-    fn read(readable: &mut Readable, id: &str) -> Result<PIC> {
+impl FrameReaderDefault<PIC> for PIC {
+    fn read(readable: &mut Readable) -> Result<PIC> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let image_format = readable.as_string(3)?;
         let picture_type = util::to_picture_type(readable.as_bytes(1)?[0]);
@@ -117,8 +125,8 @@ pub struct AENC {
     pub encryption_info: Vec<u8>
 }
 
-impl FrameDefault<AENC> for AENC {
-    fn read(readable: &mut Readable, id: &str) -> Result<AENC> {
+impl FrameReaderDefault<AENC> for AENC {
+    fn read(readable: &mut Readable) -> Result<AENC> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
 
         Ok(AENC {
@@ -141,8 +149,8 @@ pub struct APIC {
     pub picture_data: Vec<u8>
 }
 
-impl FrameDefault<APIC> for APIC {
-    fn read(readable: &mut Readable, id: &str) -> Result<APIC> {
+impl FrameReaderDefault<APIC> for APIC {
+    fn read(readable: &mut Readable) -> Result<APIC> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, mine_type) = readable.non_utf16_string()?;
         let picture_type = util::to_picture_type(readable.as_bytes(1)?[0]);
@@ -170,8 +178,8 @@ pub struct ASPI {
     pub fraction_at_index: u8
 }
 
-impl FrameDefault<ASPI> for ASPI {
-    fn read(readable: &mut Readable, id: &str) -> Result<ASPI> {
+impl FrameReaderDefault<ASPI> for ASPI {
+    fn read(readable: &mut Readable) -> Result<ASPI> {
         let indexed_data_start = bytes::to_u32(&readable.as_bytes(4)?);
         let indexed_data_length = bytes::to_u32(&readable.as_bytes(4)?);
         let number_of_index_points = bytes::to_u16(&readable.as_bytes(2)?);
@@ -197,8 +205,8 @@ pub struct COMM {
     pub actual_text: String
 }
 
-impl FrameDefault<COMM> for COMM {
-    fn read(readable: &mut Readable, id: &str) -> Result<COMM> {
+impl FrameReaderDefault<COMM> for COMM {
+    fn read(readable: &mut Readable) -> Result<COMM> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, short_description) = util::read_null_terminated(&text_encoding, readable)?;
@@ -229,8 +237,8 @@ pub struct COMR {
     pub seller_logo: Vec<u8>
 }
 
-impl FrameDefault<COMR> for COMR {
-    fn read(readable: &mut Readable, id: &str) -> Result<COMR> {
+impl FrameReaderDefault<COMR> for COMR {
+    fn read(readable: &mut Readable) -> Result<COMR> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, price_string) = readable.non_utf16_string()?;
         let valid_util = readable.as_string(8)?;
@@ -264,8 +272,8 @@ pub struct ENCR {
     pub encryption_data: Vec<u8>
 }
 
-impl FrameDefault<ENCR> for ENCR {
-    fn read(readable: &mut Readable, id: &str) -> Result<ENCR> {
+impl FrameReaderDefault<ENCR> for ENCR {
+    fn read(readable: &mut Readable) -> Result<ENCR> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
         let method_symbol = readable.as_bytes(1)?[0];
         let encryption_data = readable.all_bytes()?;
@@ -285,8 +293,8 @@ pub struct EQUA {
     pub adjustment_bit: u8
 }
 
-impl FrameDefault<EQUA> for EQUA {
-    fn read(readable: &mut Readable, id: &str) -> Result<EQUA> {
+impl FrameReaderDefault<EQUA> for EQUA {
+    fn read(readable: &mut Readable) -> Result<EQUA> {
         let adjustment_bit = readable.as_bytes(1)?[0];
 
         Ok(EQUA {
@@ -303,8 +311,8 @@ pub struct EQU2 {
     pub identification: String
 }
 
-impl FrameDefault<EQU2> for EQU2 {
-    fn read(readable: &mut Readable, id: &str) -> Result<EQU2> {
+impl FrameReaderDefault<EQU2> for EQU2 {
+    fn read(readable: &mut Readable) -> Result<EQU2> {
         let interpolation_method = util::to_interpolation_method(readable.as_bytes(1)?[0]);
         let (_, identification) = readable.non_utf16_string()?;
 
@@ -322,8 +330,8 @@ pub struct ETCO {
     pub event_timing_codes: Vec<EventTimingCode>
 }
 
-impl FrameDefault<ETCO> for ETCO {
-    fn read(readable: &mut Readable, id: &str) -> Result<ETCO> {
+impl FrameReaderDefault<ETCO> for ETCO {
+    fn read(readable: &mut Readable) -> Result<ETCO> {
         let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
         let mut event_timing_codes: Vec<EventTimingCode> = Vec::new();
         loop {
@@ -359,8 +367,8 @@ pub struct GEOB {
     pub encapsulation_object: Vec<u8>
 }
 
-impl FrameDefault<GEOB> for GEOB {
-    fn read(readable: &mut Readable, id: &str) -> Result<GEOB> {
+impl FrameReaderDefault<GEOB> for GEOB {
+    fn read(readable: &mut Readable) -> Result<GEOB> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, mine_type) = readable.non_utf16_string()?;
         let (_, filename) = readable.utf16_string()?;
@@ -386,8 +394,8 @@ pub struct GRID {
     pub group_dependent_data: Vec<u8>
 }
 
-impl FrameDefault<GRID> for GRID {
-    fn read(readable: &mut Readable, id: &str) -> Result<GRID> {
+impl FrameReaderDefault<GRID> for GRID {
+    fn read(readable: &mut Readable) -> Result<GRID> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
         let group_symbol = readable.as_bytes(1)?[0];
         let group_dependent_data = readable.all_bytes()?;
@@ -407,8 +415,8 @@ pub struct IPLS {
     pub people_list_strings: String
 }
 
-impl FrameDefault<IPLS> for IPLS {
-    fn read(readable: &mut Readable, id: &str) -> Result<IPLS> {
+impl FrameReaderDefault<IPLS> for IPLS {
+    fn read(readable: &mut Readable) -> Result<IPLS> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, people_list_strings) = util::read_null_terminated(&text_encoding, readable)?;
 
@@ -419,18 +427,20 @@ impl FrameDefault<IPLS> for IPLS {
     }
 }
 
-// TODO not yet tested!
 // Linked information
 #[derive(Debug, PartialEq)]
 pub struct LINK {
-    pub frame_identifier: u32,
+    pub frame_identifier: String,
     pub url: String,
     pub additional_data: String
 }
 
-impl FrameDefault<LINK> for LINK {
-    fn read(readable: &mut Readable, id: &str) -> Result<LINK> {
-        let frame_id = bytes::to_u32(&readable.as_bytes(4)?);
+impl FrameReaderVesionAware<LINK> for LINK {
+    fn read(readable: &mut Readable, version: u8) -> Result<LINK> {
+        let frame_id = match version {
+            2 | 3 => readable.as_string(3)?,
+            _ => readable.as_string(4)?
+        };
         let (_, url) = readable.non_utf16_string()?;
         let additional_data = readable.all_string()?;
 
@@ -442,15 +452,14 @@ impl FrameDefault<LINK> for LINK {
     }
 }
 
-// TODO not yet tested!
 // Music CD identifier
 #[derive(Debug, PartialEq)]
 pub struct MCDI {
     pub cd_toc: Vec<u8>
 }
 
-impl FrameDefault<MCDI> for MCDI {
-    fn read(readable: &mut Readable, id: &str) -> Result<MCDI> {
+impl FrameReaderDefault<MCDI> for MCDI {
+    fn read(readable: &mut Readable) -> Result<MCDI> {
         let cd_toc = readable.all_bytes()?;
 
         Ok(MCDI {
@@ -467,8 +476,8 @@ pub struct MLLT {
     pub data: Vec<u8>
 }
 
-impl FrameDefault<MLLT> for MLLT {
-    fn read(readable: &mut Readable, id: &str) -> Result<MLLT> {
+impl FrameReaderDefault<MLLT> for MLLT {
+    fn read(readable: &mut Readable) -> Result<MLLT> {
         let data = readable.all_bytes()?;
 
         Ok(MLLT {
@@ -488,8 +497,8 @@ pub struct OWNE {
     pub seller: String
 }
 
-impl FrameDefault<OWNE> for OWNE {
-    fn read(readable: &mut Readable, id: &str) -> Result<OWNE> {
+impl FrameReaderDefault<OWNE> for OWNE {
+    fn read(readable: &mut Readable) -> Result<OWNE> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, price_paid) = readable.non_utf16_string()?;
         let date_of_purch = readable.as_string(4)?;
@@ -512,8 +521,8 @@ pub struct PRIV {
     pub private_data: Vec<u8>
 }
 
-impl FrameDefault<PRIV> for PRIV {
-    fn read(readable: &mut Readable, id: &str) -> Result<PRIV> {
+impl FrameReaderDefault<PRIV> for PRIV {
+    fn read(readable: &mut Readable) -> Result<PRIV> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
         let private_data = readable.all_bytes()?;
 
@@ -531,8 +540,8 @@ pub struct PCNT {
     pub counter: u32
 }
 
-impl FrameDefault<PCNT> for PCNT {
-    fn read(readable: &mut Readable, id: &str) -> Result<PCNT> {
+impl FrameReaderDefault<PCNT> for PCNT {
+    fn read(readable: &mut Readable) -> Result<PCNT> {
         let mut all_bytes = readable.all_bytes()?;
         let counter = util::trim_to_u32(&mut all_bytes);
 
@@ -552,8 +561,8 @@ pub struct POPM {
     pub counter: u32
 }
 
-impl FrameDefault<POPM> for POPM {
-    fn read(readable: &mut Readable, id: &str) -> Result<POPM> {
+impl FrameReaderDefault<POPM> for POPM {
+    fn read(readable: &mut Readable) -> Result<POPM> {
         let (_, email_to_user) = readable.non_utf16_string()?;
         let rating = readable.as_bytes(1)?[0];
         let counter = {
@@ -578,8 +587,8 @@ pub struct POSS {
     pub position: Vec<u8>
 }
 
-impl FrameDefault<POSS> for POSS {
-    fn read(readable: &mut Readable, id: &str) -> Result<POSS> {
+impl FrameReaderDefault<POSS> for POSS {
+    fn read(readable: &mut Readable) -> Result<POSS> {
         let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
         let position = readable.all_bytes()?;
 
@@ -599,8 +608,8 @@ pub struct RBUF {
     pub offset_to_next_tag: u32
 }
 
-impl FrameDefault<RBUF> for RBUF {
-    fn read(readable: &mut Readable, id: &str) -> Result<RBUF> {
+impl FrameReaderDefault<RBUF> for RBUF {
+    fn read(readable: &mut Readable) -> Result<RBUF> {
         let buffer_size = bytes::to_u32(&readable.as_bytes(3)?);
         let embedded_info_flag = readable.as_bytes(1)?[0] & 0x01;
         let offset_to_next_tag = bytes::to_u32(&readable.as_bytes(4)?);
@@ -621,8 +630,8 @@ pub struct RVA2 {
     pub data: Vec<u8>
 }
 
-impl FrameDefault<RVA2> for RVA2 {
-    fn read(readable: &mut Readable, id: &str) -> Result<RVA2> {
+impl FrameReaderDefault<RVA2> for RVA2 {
+    fn read(readable: &mut Readable) -> Result<RVA2> {
         let data = readable.all_bytes()?;
 
         Ok(RVA2 {
@@ -647,8 +656,8 @@ pub struct RVRB {
     pub premix_right_to_left: u8
 }
 
-impl FrameDefault<RVRB> for RVRB {
-    fn read(readable: &mut Readable, id: &str) -> Result<RVRB> {
+impl FrameReaderDefault<RVRB> for RVRB {
+    fn read(readable: &mut Readable) -> Result<RVRB> {
         let reverb_left = bytes::to_u16(&readable.as_bytes(2)?);
         let reverb_right = bytes::to_u16(&readable.as_bytes(2)?);
         let reverb_bounce_left = readable.as_bytes(1)?[0];
@@ -682,8 +691,8 @@ pub struct SEEK {
     pub next_tag: String
 }
 
-impl FrameDefault<SEEK> for SEEK {
-    fn read(readable: &mut Readable, id: &str) -> Result<SEEK> {
+impl FrameReaderDefault<SEEK> for SEEK {
+    fn read(readable: &mut Readable) -> Result<SEEK> {
         let next_tag = readable.all_string()?;
 
         Ok(SEEK {
@@ -700,8 +709,8 @@ pub struct SIGN {
     pub signature: Vec<u8>
 }
 
-impl FrameDefault<SIGN> for SIGN {
-    fn read(readable: &mut Readable, id: &str) -> Result<SIGN> {
+impl FrameReaderDefault<SIGN> for SIGN {
+    fn read(readable: &mut Readable) -> Result<SIGN> {
         let group_symbol = readable.as_bytes(1)?[0];
         let signature = readable.all_bytes()?;
 
@@ -723,8 +732,8 @@ pub struct SYLT {
     pub content_descriptor: String
 }
 
-impl FrameDefault<SYLT> for SYLT {
-    fn read(readable: &mut Readable, id: &str) -> Result<SYLT> {
+impl FrameReaderDefault<SYLT> for SYLT {
+    fn read(readable: &mut Readable) -> Result<SYLT> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
@@ -749,8 +758,8 @@ pub struct SYTC {
     pub tempo_data: Vec<u8>
 }
 
-impl FrameDefault<SYTC> for SYTC {
-    fn read(readable: &mut Readable, id: &str) -> Result<SYTC> {
+impl FrameReaderDefault<SYTC> for SYTC {
+    fn read(readable: &mut Readable) -> Result<SYTC> {
         let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
         let tempo_data = readable.all_bytes()?;
 
@@ -769,8 +778,8 @@ pub struct UFID {
     pub identifier: Vec<u8>
 }
 
-impl FrameDefault<UFID> for UFID {
-    fn read(readable: &mut Readable, id: &str) -> Result<UFID> {
+impl FrameReaderDefault<UFID> for UFID {
+    fn read(readable: &mut Readable) -> Result<UFID> {
         let (_, owner_identifier) = readable.non_utf16_string()?;
         let identifier = readable.all_bytes()?;
 
@@ -790,8 +799,8 @@ pub struct USER {
     pub actual_text: String
 }
 
-impl FrameDefault<USER> for USER {
-    fn read(readable: &mut Readable, id: &str) -> Result<USER> {
+impl FrameReaderDefault<USER> for USER {
+    fn read(readable: &mut Readable) -> Result<USER> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, actual_text) = util::read_null_terminated(&text_encoding, readable)?;
@@ -814,8 +823,8 @@ pub struct USLT {
     pub lyrics: String
 }
 
-impl FrameDefault<USLT> for USLT {
-    fn read(readable: &mut Readable, id: &str) -> Result<USLT> {
+impl FrameReaderDefault<USLT> for USLT {
+    fn read(readable: &mut Readable) -> Result<USLT> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let language = readable.as_string(3)?;
         let (_, content_descriptor) = util::read_null_terminated(&text_encoding, readable)?;
@@ -836,12 +845,12 @@ pub struct TEXT {
     pub text: String
 }
 
-impl FrameDefault<TEXT> for TEXT {
+impl FrameReaderIdAware<TEXT> for TEXT {
     fn read(readable: &mut Readable, id: &str) -> Result<TEXT> {
         fn _default(id: &str, decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>) -> String {
             match decode {
                 Ok(text) => text,
-                Err(e) => {
+                Err(_) => {
                     if id == id::TBPM_STR || id == id::TBP_STR {
                         "0".to_string()
                     } else {
@@ -854,7 +863,7 @@ impl FrameDefault<TEXT> for TEXT {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let data = readable.all_bytes()?;
         let text = match text_encoding {
-            TextEncoding::ISO8859_1 => _default(id, encoding::all::ISO_8859_1.decode(&data, encoding::DecoderTrap::Strict)),
+            TextEncoding::Iso8859_1 => _default(id, encoding::all::ISO_8859_1.decode(&data, encoding::DecoderTrap::Strict)),
             TextEncoding::UTF16LE => _default(id, encoding::all::UTF_16LE.decode(&data, encoding::DecoderTrap::Strict)),
             TextEncoding::UTF16BE => _default(id, encoding::all::UTF_16BE.decode(&data, encoding::DecoderTrap::Strict)),
             TextEncoding::UTF8 => _default(id, encoding::all::UTF_8.decode(&data, encoding::DecoderTrap::Strict))
@@ -874,8 +883,8 @@ pub struct TXXX {
     pub value: String
 }
 
-impl FrameDefault<TXXX> for TXXX {
-    fn read(readable: &mut Readable, id: &str) -> Result<TXXX> {
+impl FrameReaderDefault<TXXX> for TXXX {
+    fn read(readable: &mut Readable) -> Result<TXXX> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
         let value = readable.all_string()?;
@@ -897,8 +906,8 @@ pub struct WXXX {
     pub url: String
 }
 
-impl FrameDefault<WXXX> for WXXX {
-    fn read(readable: &mut Readable, id: &str) -> Result<WXXX> {
+impl FrameReaderDefault<WXXX> for WXXX {
+    fn read(readable: &mut Readable) -> Result<WXXX> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
         let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
         let url = readable.all_string()?;

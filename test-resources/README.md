@@ -13,3 +13,5 @@
 - v2.3-ext-header.mp3
 - v2.3-invalid-aenc.mp3
 - v2.3-iso-8859-1.mp3
+- v2.3-link-frame.mp3
+- v2.3-mcdi.mp3

@@ -9,11 +9,11 @@ pub const BIT0: u8 = 0x01;
 
 pub fn to_encoding(encoding: u8) -> ::frame::constants::TextEncoding {
     match encoding {
-        0 => ::frame::constants::TextEncoding::ISO8859_1,
+        0 => ::frame::constants::TextEncoding::Iso8859_1,
         1 => ::frame::constants::TextEncoding::UTF16LE,
         2 => ::frame::constants::TextEncoding::UTF16BE,
         3 => ::frame::constants::TextEncoding::UTF8,
-        _ => ::frame::constants::TextEncoding::ISO8859_1
+        _ => ::frame::constants::TextEncoding::Iso8859_1
     }
 }
 

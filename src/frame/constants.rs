@@ -236,7 +236,7 @@ pub mod id {
 
 #[derive(Debug, PartialEq)]
 pub enum TextEncoding {
-    ISO8859_1,
+    Iso8859_1,
     UTF16LE,
     UTF16BE,
     UTF8

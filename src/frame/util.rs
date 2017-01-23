@@ -110,7 +110,7 @@ pub fn to_event_timing_code(t: u8, timestamp: u32) -> EventTimingCode {
 
 pub fn read_null_terminated(text_encoding: &TextEncoding, readable: &mut Readable) -> Result<(usize, String)> {
     Ok(match text_encoding {
-        &TextEncoding::ISO8859_1 | &TextEncoding::UTF8 => readable.non_utf16_string()?,
+        &TextEncoding::Iso8859_1 | &TextEncoding::UTF8 => readable.non_utf16_string()?,
         _ => readable.utf16_string()?
     })
 }

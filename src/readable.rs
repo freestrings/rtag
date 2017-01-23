@@ -28,7 +28,7 @@ impl<I> Readable<I> where I: Read + Seek {
 
     pub fn as_bytes(&mut self, amount: usize) -> Result<Vec<u8>> {
         let mut ret = vec![];
-        let mut buf_size = if amount < DEFAULT_BUF_SIZE { amount } else { DEFAULT_BUF_SIZE };
+        let buf_size = if amount < DEFAULT_BUF_SIZE { amount } else { DEFAULT_BUF_SIZE };
         let mut buf = vec![0u8; buf_size];
         let mut total_read = 0;
         loop {

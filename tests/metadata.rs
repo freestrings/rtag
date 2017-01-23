@@ -427,3 +427,34 @@ fn metadata_v230_invalid_aenc() {
 
     assert!(i.count() == 0);
 }
+
+#[test]
+fn metadata_v230_link() {
+    let _ = env_logger::init();
+
+    let re = regex::Regex::new(r"^http://www\.emusic\.com").unwrap();
+
+    for m in MetadataIterator::new("./test-resources/v2.3-link-frame.mp3").unwrap() {
+        match m {
+            Unit::FrameV2(_, FrameData::LINK(frame)) => {
+                assert_eq!("WCO", frame.frame_identifier);
+                assert!(re.is_match(frame.url.as_str()));
+            },
+            _ => ()
+        }
+    }
+}
+
+#[test]
+fn metadata_v230_mcdi() {
+    let _ = env_logger::init();
+
+    for m in MetadataIterator::new("./test-resources/v2.3-mcdi.mp3").unwrap() {
+        match m {
+            Unit::FrameV2(_, FrameData::MCDI(frame)) => {
+                assert_eq!(804, frame.cd_toc.len());
+            },
+            _ => ()
+        }
+    }
+}

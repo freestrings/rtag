@@ -36,7 +36,7 @@ pub trait FrameDefault<T> {
 
 // TODO not yet tested!
 // Recommended buffer size
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct BUF {
     pub buffer_size: u32,
     pub embedded_info_flag: u8,
@@ -59,7 +59,7 @@ impl FrameDefault<BUF> for BUF {
 
 // TODO not yet tested!
 // Encrypted meta frame
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct CRM {
     pub owner_identifier: String,
     pub content: String,
@@ -81,7 +81,7 @@ impl FrameDefault<CRM> for CRM {
 }
 
 // Attached picture
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct PIC {
     pub text_encoding: TextEncoding,
     pub image_format: String,
@@ -110,7 +110,7 @@ impl FrameDefault<PIC> for PIC {
 
 // TODO not yet tested!
 // Audio encryption
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct AENC {
     pub owner_identifier: String,
     pub preview_start: u16,
@@ -133,7 +133,7 @@ impl FrameDefault<AENC> for AENC {
 
 // TODO not yet tested!
 // Attached picture
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct APIC {
     pub text_encoding: TextEncoding,
     pub mime_type: String,
@@ -162,7 +162,7 @@ impl FrameDefault<APIC> for APIC {
 
 // TODO not yet tested!
 // Audio seek point index
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ASPI {
     pub indexed_data_start: u32,
     pub indexed_data_length: u32,
@@ -190,7 +190,7 @@ impl FrameDefault<ASPI> for ASPI {
 }
 
 // Comments
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct COMM {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -216,7 +216,7 @@ impl FrameDefault<COMM> for COMM {
 
 // TODO not yet tested!
 // Commercial frame
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct COMR {
     pub text_encoding: TextEncoding,
     pub price_string: String,
@@ -258,7 +258,7 @@ impl FrameDefault<COMR> for COMR {
 
 // TODO not yet tested!
 // Encryption method registration
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ENCR {
     pub owner_identifier: String,
     pub method_symbol: u8,
@@ -281,7 +281,7 @@ impl FrameDefault<ENCR> for ENCR {
 
 // TODO not yet tested!
 // Equalisation
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct EQUA {
     pub adjustment_bit: u8
 }
@@ -298,7 +298,7 @@ impl FrameDefault<EQUA> for EQUA {
 
 // TODO not yet tested!
 // Equalisation (2)
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct EQU2 {
     pub interpolation_method: InterpolationMethod,
     pub identification: String
@@ -317,7 +317,7 @@ impl FrameDefault<EQU2> for EQU2 {
 }
 
 // Event timing codes
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ETCO {
     pub timestamp_format: TimestampFormat,
     pub event_timing_codes: Vec<EventTimingCode>
@@ -351,7 +351,7 @@ impl FrameDefault<ETCO> for ETCO {
 
 // TODO not yet tested!
 // General encapsulated object
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct GEOB {
     pub text_encoding: TextEncoding,
     pub mine_type: String,
@@ -380,7 +380,7 @@ impl FrameDefault<GEOB> for GEOB {
 
 // TODO not yet tested!
 // Group identification registration
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct GRID {
     pub owner_identifier: String,
     pub group_symbol: u8,
@@ -401,7 +401,7 @@ impl FrameDefault<GRID> for GRID {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 // Involved people list
 pub struct IPLS {
     pub text_encoding: TextEncoding,
@@ -422,7 +422,7 @@ impl FrameDefault<IPLS> for IPLS {
 
 // TODO not yet tested!
 // Linked information
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct LINK {
     pub frame_identifier: u32,
     pub url: String,
@@ -445,7 +445,7 @@ impl FrameDefault<LINK> for LINK {
 
 // TODO not yet tested!
 // Music CD identifier
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct MCDI {
     pub cd_toc: Vec<u8>
 }
@@ -463,7 +463,7 @@ impl FrameDefault<MCDI> for MCDI {
 // TODO not yet tested!
 // TODO not yet implemented!
 // MPEG location lookup table
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct MLLT {
     pub data: Vec<u8>
 }
@@ -480,7 +480,7 @@ impl FrameDefault<MLLT> for MLLT {
 
 // TODO not yet tested!
 // Ownership frame
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct OWNE {
     pub text_encoding: TextEncoding,
     pub price_paid: String,
@@ -507,7 +507,7 @@ impl FrameDefault<OWNE> for OWNE {
 
 // TODO not yet tested!
 // Private frame
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct PRIV {
     pub owner_identifier: String,
     pub private_data: Vec<u8>
@@ -527,7 +527,7 @@ impl FrameDefault<PRIV> for PRIV {
 
 // NOTE it support that only the 32-bit unsigned integer type.
 // Play counter
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct PCNT {
     pub counter: u32
 }
@@ -545,7 +545,7 @@ impl FrameDefault<PCNT> for PCNT {
 
 // TODO not yet tested!
 // Popularimeter
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct POPM {
     pub email_to_user: String,
     pub rating: u8,
@@ -572,7 +572,7 @@ impl FrameDefault<POPM> for POPM {
 
 // TODO not yet tested!
 // Position synchronisation frame
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct POSS {
     pub timestamp_format: TimestampFormat,
     // TODO not yet implemented!
@@ -593,7 +593,7 @@ impl FrameDefault<POSS> for POSS {
 
 // TODO not yet tested!
 // Recommended buffer size
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct RBUF {
     pub buffer_size: u32,
     pub embedded_info_flag: u8,
@@ -617,7 +617,7 @@ impl FrameDefault<RBUF> for RBUF {
 // TODO not yet tested!
 // TODO not yet implemented!
 // Relative volume adjustment (2)
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct RVA2 {
     pub data: Vec<u8>
 }
@@ -634,7 +634,7 @@ impl FrameDefault<RVA2> for RVA2 {
 
 // TODO not yet tested!
 // Reverb
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct RVRB {
     pub reverb_left: u16,
     pub reverb_right: u16,
@@ -678,7 +678,7 @@ impl FrameDefault<RVRB> for RVRB {
 
 // TODO not yet tested!
 // Seek frame
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SEEK {
     pub next_tag: String
 }
@@ -695,7 +695,7 @@ impl FrameDefault<SEEK> for SEEK {
 
 // TODO not yet tested!
 // Signature frame
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SIGN {
     pub group_symbol: u8,
     pub signature: Vec<u8>
@@ -715,7 +715,7 @@ impl FrameDefault<SIGN> for SIGN {
 
 // TODO not yet tested!
 // Synchronised lyric/text
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SYLT {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -744,7 +744,7 @@ impl FrameDefault<SYLT> for SYLT {
 
 // TODO not yet tested!
 // Synchronised tempo codes
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SYTC {
     pub timestamp_format: TimestampFormat,
     pub tempo_data: Vec<u8>
@@ -764,7 +764,7 @@ impl FrameDefault<SYTC> for SYTC {
 
 // TODO not yet tested!
 // Unique file identifier
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct UFID {
     pub owner_identifier: String,
     pub identifier: Vec<u8>
@@ -784,7 +784,7 @@ impl FrameDefault<UFID> for UFID {
 
 // TODO not yet tested!
 // Terms of use
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct USER {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -807,7 +807,7 @@ impl FrameDefault<USER> for USER {
 
 // TODO not yet tested!
 // Unsynchronised lyric/text transcription
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct USLT {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -831,15 +831,11 @@ impl FrameDefault<USLT> for USLT {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct TEXT {
     pub text_encoding: TextEncoding,
     pub text: String
 }
-
-extern crate flate2;
-use self::flate2::read::ZlibDecoder;
-use ::std::io::Read;
 
 impl FrameDefault<TEXT> for TEXT {
     fn read(readable: &mut Readable, id: &str) -> Result<TEXT> {
@@ -847,7 +843,7 @@ impl FrameDefault<TEXT> for TEXT {
             match decode {
                 Ok(text) => text,
                 Err(e) => {
-                    if id == id::TBPM_STR {
+                    if id == id::TBPM_STR || id == id::TBP_STR {
                         "0".to_string()
                     } else {
                         "".to_string()
@@ -872,7 +868,7 @@ impl FrameDefault<TEXT> for TEXT {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct TXXX {
     pub text_encoding: TextEncoding,
     pub description: String,
@@ -895,7 +891,7 @@ impl FrameDefault<TXXX> for TXXX {
 
 // TODO not yet tested!
 // User defined URL link frame
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct WXXX {
     pub text_encoding: TextEncoding,
     pub description: String,

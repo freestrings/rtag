@@ -234,7 +234,7 @@ pub mod id {
     pub const WXXX_STR: &'static str = "WXXX";
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TextEncoding {
     ISO8859_1,
     UTF16LE,
@@ -244,7 +244,7 @@ pub enum TextEncoding {
 
 use ::frame::*;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum FrameData {
     //2.2 only
     BUF(BUF),
@@ -353,7 +353,8 @@ pub enum FrameData {
     WPAY(LINK),
     WPUB(LINK),
     WXXX(WXXX),
-    INVALID(String)
+    SKIP(String),
+    INVALID(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -394,7 +395,7 @@ pub enum ReceivedAs {
     NonMusicalMerchandise
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InterpolationMethod {
     Band,
     Linear
@@ -419,7 +420,7 @@ pub enum TimestampFormat {
     Milliseconds
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum EventTimingCode {
     Padding(u32),
     EndOfInitialSilence(u32),

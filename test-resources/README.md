@@ -7,3 +7,7 @@
 - v1-utf-8.mp3
 - v2.2.mp3
 - v2.2-pic.mp3
+- v2.3-compressed-frame.mp3
+- v2.3-encrypted-frame.mp3
+- v2.3-ext-header-invalid.mp3
+- v2.3-ext-header.mp3

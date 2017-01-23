@@ -9,6 +9,9 @@ use std::io::Result;
 use std::vec::Vec;
 use std::iter::Iterator;
 
+use frame::constants::{FrameData, FrameHeaderFlag};
+use self::frames::FrameHeader;
+
 pub struct MetadataIterator {
     readable: Readable<File>,
     pub file_len: u64,
@@ -33,16 +36,15 @@ impl MetadataIterator {
 
     fn head(&mut self) -> Result<Unit> {
         let bytes = self.readable.as_bytes(10)?;
-        let flag = header::flag(&bytes);
-        let version = header::version(&bytes);
-        if header::has_flag(header::Flag::ExtendedHeader, flag, version) {
+        let header = header::Head::new(bytes);
+        if header.has_flag(header::Flag::ExtendedHeader) {
             self.next = Status::ExtendedHeader;
         } else {
             self.next = Status::Frame;
         }
-        self.version = version;
+        self.version = header.version;
 
-        Ok(Unit::Header(header::Head::new(bytes)))
+        Ok(Unit::Header(header.read()?))
     }
 
     fn extended_head(&mut self) -> Result<Unit> {
@@ -80,7 +82,11 @@ impl MetadataIterator {
                 let size = bytes::to_u32(&head_bytes[0..3]);
                 let body_bytes = self.readable.as_bytes(size as usize)?;
 
-                Ok(Unit::FrameV2(frames::V2::new(id, head_bytes, body_bytes, self.version)))
+                let (frame_header, frame_body) = frames::V2::new(id,
+                                                                 head_bytes,
+                                                                 body_bytes,
+                                                                 self.version).read()?;
+                Ok(Unit::FrameV2(frame_header, frame_body))
             } else {
                 let id = self.readable.as_string(4)?;
                 let head_bytes = self.readable.as_bytes(6)?;
@@ -91,26 +97,34 @@ impl MetadataIterator {
                     _ => bytes::to_synchsafe(&head_bytes[0..4])
                 };
                 let body_bytes = self.readable.as_bytes(size as usize)?;
+                let (frame_header, frame_body) = frames::V2::new(id,
+                                                                 head_bytes,
+                                                                 body_bytes,
+                                                                 self.version).read()?;
 
-                Ok(Unit::FrameV2(frames::V2::new(id, head_bytes, body_bytes, self.version)))
+                Ok(Unit::FrameV2(frame_header, frame_body))
             }
         } else {
             // frame v1
 
             if self.file_len < 128 as u64 {
-                return Err(::std::io::Error::new(::std::io::ErrorKind::Other, "Bad v2 tag length"));
+                return Err(::std::io::Error::new(::std::io::ErrorKind::Other,
+                                                 "Bad v2 tag length"));
             }
 
             self.readable.position(0)?;
             self.readable.skip((self.file_len - 128 as u64) as i64)?;
             if self.readable.as_string(3)? != "TAG" {
-                return Err(::std::io::Error::new(::std::io::ErrorKind::Other, "Ignored v1! '{}'"));
+                return Err(::std::io::Error::new(::std::io::ErrorKind::Other,
+                                                 "Ignored v1! '{}'"));
             }
             self.readable.skip(-3)?;
             let bytes = self.readable.all_bytes()?;
             self.next = Status::None;
 
-            Ok(Unit::FrameV1(frames::V1::new(bytes)))
+            Ok(
+                Unit::FrameV1(frames::V1::new(bytes).read()?)
+            )
         }
     }
 }
@@ -125,16 +139,22 @@ enum Status {
 
 #[derive(Debug)]
 pub enum Unit {
-    Header(header::Head),
+    Header(header::HeadFrame),
     // TODO not yet implemented
     ExtendedHeader(Vec<u8>),
-    FrameV2(frames::V2),
-    FrameV1(frames::V1)
+    FrameV2(FrameHeader, FrameData),
+    FrameV1(frames::V1Frame)
+}
+
+pub trait MetaFrame<T> {
+    fn read(&self) -> Result<T>;
 }
 
 pub mod header {
     use std::io::Result;
+
     use bytes;
+    use super::MetaFrame;
 
     #[derive(Debug, PartialEq)]
     pub enum Flag {
@@ -153,51 +173,8 @@ pub mod header {
         pub size: u32
     }
 
-    impl HeadFrame {
-        pub fn has_flag(&self, flag: Flag) -> bool {
-            self::has_flag(flag, self.flag, self.version)
-        }
-    }
-
-    #[derive(Debug)]
-    pub struct Head {
-        bytes: Vec<u8>
-    }
-
-    // http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header
-    impl Head {
-        pub fn new(bytes: Vec<u8>) -> Self {
-            Head {
-                bytes: bytes
-            }
-        }
-
-        pub fn read(&self) -> Result<HeadFrame> {
-            let tag_id = String::from_utf8_lossy(&self.bytes[0..3]);
-            if tag_id != "ID3" {
-                return Err(::std::io::Error::new(::std::io::ErrorKind::Other,
-                                                 format!("Bad v2 tag id: {}", tag_id)));
-            }
-
-            Ok(HeadFrame {
-                version: self::version(&self.bytes),
-                minor_version: self.bytes[4],
-                flag: self::flag(&self.bytes),
-                size: bytes::to_synchsafe(&self.bytes[6..10])
-            })
-        }
-    }
-
-    pub fn version(bytes: &Vec<u8>) -> u8 {
-        bytes[3]
-    }
-
-    pub fn flag(bytes: &Vec<u8>) -> u8 {
-        bytes[5]
-    }
-
-    // ./references/id3v2.md#id3v2 Header
-    pub fn has_flag(flag: Flag, flag_value: u8, version: u8) -> bool {
+    // ./id3v2_summary.md/id3v2.md#id3v2 Header
+    fn has_flag(flag: Flag, flag_value: u8, version: u8) -> bool {
         if version == 3 {
             match flag {
                 Flag::Unsynchronisation => flag_value & bytes::BIT7 != 0,
@@ -224,6 +201,53 @@ pub mod header {
             false
         }
     }
+
+    impl HeadFrame {
+        pub fn has_flag(&self, flag: Flag) -> bool {
+            self::has_flag(flag, self.flag, self.version)
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Head {
+        bytes: Vec<u8>,
+        pub flag: u8,
+        pub version: u8
+    }
+
+    // http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header
+    impl Head {
+        pub fn new(bytes: Vec<u8>) -> Self {
+            let flag = bytes[5];
+            let version = bytes[3];
+            Head {
+                bytes: bytes,
+                flag: flag,
+                version: version
+            }
+        }
+
+        pub fn has_flag(&self, flag: Flag) -> bool {
+            self::has_flag(flag, self.flag, self.version)
+        }
+    }
+
+    impl MetaFrame<HeadFrame> for Head {
+        fn read(&self) -> Result<HeadFrame> {
+            let tag_id = String::from_utf8_lossy(&self.bytes[0..3]);
+            if tag_id != "ID3" {
+                return Err(::std::io::Error::new(::std::io::ErrorKind::Other,
+                                                 format!("Bad v2 tag id: {}", tag_id)));
+            }
+
+            Ok(HeadFrame {
+                version: self.version,
+                minor_version: self.bytes[4],
+                flag: self.flag,
+                size: bytes::to_synchsafe(&self.bytes[6..10])
+            })
+        }
+    }
 }
 
 pub mod frames {
@@ -240,6 +264,7 @@ pub mod frames {
     use ::frame;
     use ::frame::constants::{id, FrameHeaderFlag, FrameData};
     use ::frame::FrameDefault;
+    use super::MetaFrame;
 
     #[derive(Debug)]
     pub struct V1Frame {
@@ -264,7 +289,28 @@ pub mod frames {
             }
         }
 
-        pub fn read(&self) -> Result<V1Frame> {
+        fn rtrim(bytes: &Vec<u8>) -> Vec<u8> {
+            let mut idx = 0;
+            for v in bytes.iter().rev() {
+                if v > &32 { break; }
+                idx = idx + 1;
+            }
+            let mut clone = bytes.clone();
+            clone.split_off(bytes.len() - idx);
+            clone
+        }
+
+        fn to_string_with_rtrim(bytes: &Vec<u8>) -> String {
+            let cloned = Self::rtrim(bytes);
+            match encoding::all::ISO_8859_1.decode(&cloned, encoding::DecoderTrap::Strict) {
+                Ok(value) => value.to_string(),
+                _ => "".to_string()
+            }
+        }
+    }
+
+    impl MetaFrame<V1Frame> for V1 {
+        fn read(&self) -> Result<V1Frame> {
             let mut readable = ::readable::factory::from_byte(self.bytes.clone())?;
 
             // skip id
@@ -311,45 +357,21 @@ pub mod frames {
                 genre: genre
             })
         }
-
-        fn rtrim(bytes: &Vec<u8>) -> Vec<u8> {
-            let mut idx = 0;
-            for v in bytes.iter().rev() {
-                if v > &32 { break; }
-                idx = idx + 1;
-            }
-            let mut clone = bytes.clone();
-            clone.split_off(bytes.len() - idx);
-            clone
-        }
-
-        fn to_string_with_rtrim(bytes: &Vec<u8>) -> String {
-            let cloned = Self::rtrim(bytes);
-            match encoding::all::ISO_8859_1.decode(&cloned, encoding::DecoderTrap::Strict) {
-                Ok(value) => value.to_string(),
-                _ => "".to_string()
-            }
-        }
     }
 
     #[derive(Debug)]
-    pub struct V2 {
-        pub id: String,
+    pub struct FrameHeader {
         header: Vec<u8>,
-        body: Vec<u8>,
         version: u8
     }
 
-    impl V2 {
-        pub fn new(id: String, header: Vec<u8>, body: Vec<u8>, version: u8) -> Self {
-            V2 {
-                id: id,
+    impl FrameHeader {
+        pub fn new(header: Vec<u8>, version: u8) -> Self {
+            FrameHeader {
                 header: header,
-                body: body,
                 version: version
             }
         }
-
         // There is no flag for 2.2 frame.
         // http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
         pub fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
@@ -382,9 +404,32 @@ pub mod frames {
                 _ => false
             }
         }
+    }
 
-        pub fn read(&self) -> Result<FrameData> {
-            let mut readable = if self.has_flag(FrameHeaderFlag::Compression) {
+    #[derive(Debug)]
+    pub struct V2 {
+        pub id: String,
+        header: Vec<u8>,
+        body: Vec<u8>,
+        version: u8
+    }
+
+    impl V2 {
+        pub fn new(id: String, header: Vec<u8>, body: Vec<u8>, version: u8) -> Self {
+            V2 {
+                id: id,
+                header: header,
+                body: body,
+                version: version
+            }
+        }
+    }
+
+    impl MetaFrame<(FrameHeader, FrameData)> for V2 {
+        fn read(&self) -> Result<(FrameHeader, FrameData)> {
+            let frame_header = FrameHeader::new(self.header[..].to_vec(), self.version);
+
+            let mut readable = if frame_header.has_flag(FrameHeaderFlag::Compression) {
                 debug!("{} is compressed", self.id);
                 // skip 4 bytes that is decompressed size.
                 let real_frame = self.body.clone().split_off(4);
@@ -393,6 +438,8 @@ pub mod frames {
                 decoder.read_to_end(&mut out)?;
 
                 ::readable::factory::from_byte(out)?
+            } else if frame_header.has_flag(FrameHeaderFlag::Encryption) {
+                return Ok((frame_header, FrameData::SKIP("Encrypted frame".to_string())));
             } else {
                 ::readable::factory::from_byte(self.body[..].to_vec())?
             };
@@ -561,7 +608,7 @@ pub mod frames {
                 }
             };
 
-            Ok(frame_data)
+            Ok((frame_header, frame_data))
         }
     }
 }
@@ -570,7 +617,7 @@ impl Iterator for MetadataIterator {
     type Item = Unit;
 
     fn next(&mut self) -> Option<(Self::Item)> {
-        debug! ("next: {:?}", self.next);
+        debug!("next: {:?}", self.next);
 
         match self.next {
             Status::Head => match self.head() {

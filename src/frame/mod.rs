@@ -108,7 +108,6 @@ impl FrameDefault<PIC> for PIC {
     }
 }
 
-// TODO not yet tested!
 // Audio encryption
 #[derive(Debug, PartialEq)]
 pub struct AENC {

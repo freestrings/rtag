@@ -622,15 +622,24 @@ impl Iterator for MetadataIterator {
         match self.next {
             Status::Head => match self.head() {
                 Ok(data) => Some(data),
-                _ => None
+                Err(msg) => {
+                    trace!("Head ignored: {}", msg);
+                    None
+                }
             },
             Status::ExtendedHeader => match self.extended_head() {
                 Ok(data) => Some(data),
-                _ => None
+                Err(msg) => {
+                    trace!("Extended head ignored: {}", msg);
+                    None
+                }
             },
             Status::Frame => match self.frame() {
                 Ok(data) => Some(data),
-                _ => None
+                Err(msg) => {
+                    trace!("Frame ignored: {}", msg);
+                    None
+                }
             },
             _ => None
         }

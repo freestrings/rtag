@@ -269,7 +269,7 @@ fn metadata_frame_tbpm() {
 }
 
 #[test]
-fn metadata_v1_encoding() {
+fn metadata_encoding() {
     let _ = env_logger::init();
 
     for m in MetadataIterator::new("./test-resources/v1-iso-8859-1.mp3").unwrap() {
@@ -292,6 +292,18 @@ fn metadata_v1_encoding() {
                 assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.album);
                 assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.comment);
             },
+            _ => ()
+        }
+    }
+
+    for m in MetadataIterator::new("./test-resources/v2.3-iso-8859-1.mp3").unwrap() {
+        match m {
+            Unit::FrameV2(_, FrameData::TPE1(frame)) =>
+                assert_eq!("Ester Koèièková a Lubomír Nohavica", frame.text),
+            Unit::FrameV2(_, FrameData::TALB(frame)) =>
+                assert_eq!("Ester Koèièková a Lubomír Nohavica s klavírem", frame.text),
+            Unit::FrameV2(_, FrameData::TIT2(frame)) =>
+                assert_eq!("Tøem sestrám", frame.text),
             _ => ()
         }
     }
@@ -398,4 +410,20 @@ fn metadata_v230_ext_header() {
             }
         };
     }
+}
+
+// invalid frame is ingnored.
+#[test]
+fn metadata_v230_invalid_aenc() {
+    let _ = env_logger::init();
+
+    let iter = MetadataIterator::new("./test-resources/v2.3-invalid-aenc.mp3").unwrap();
+    let i = iter.filter(|m| {
+        match m {
+            &Unit::FrameV2(_, FrameData::AENC(_)) => true,
+            _ => false
+        }
+    });
+
+    assert!(i.count() == 0);
 }

@@ -324,7 +324,7 @@ fn metadata_v220() {
 }
 
 #[test]
-fn metadata_v230_compressed() {
+fn metadata_compressed() {
     let _ = env_logger::init();
 
     let iter = MetadataIterator::new("./test-resources/v2.3-compressed-frame.mp3").unwrap();
@@ -342,13 +342,45 @@ fn metadata_v230_compressed() {
     }
 
     assert!(i.next().is_none());
+
+    let iter = MetadataIterator::new("./test-resources/v2.4-compressed-frame.mp3").unwrap();
+    let mut i = iter.filter(|m| {
+        match m {
+            &Unit::FrameV2(ref header, _) => header.has_flag(FrameHeaderFlag::Compression),
+            _ => false
+        }
+    });
+
+    if let Unit::FrameV2(_, FrameData::TIT2(ref frame)) = i.next().unwrap() {
+        assert_eq!("Compressed TIT2 Frame", frame.text)
+    } else {
+        assert!(false);
+    }
+
+    assert!(i.next().is_none());
 }
 
 #[test]
-fn metadata_v230_encrypted() {
+fn metadata_encrypted() {
     let _ = env_logger::init();
 
     let iter = MetadataIterator::new("./test-resources/v2.3-encrypted-frame.mp3").unwrap();
+    let mut i = iter.filter(|m| {
+        match m {
+            &Unit::FrameV2(ref head, _) => head.has_flag(FrameHeaderFlag::Encryption),
+            _ => false
+        }
+    });
+
+    if let Unit::FrameV2(_, FrameData::SKIP(_)) = i.next().unwrap() {
+        assert!(true);
+    } else {
+        assert!(false);
+    }
+
+    assert!(i.next().is_none());
+
+    let iter = MetadataIterator::new("./test-resources/v2.4-encrypted-frame.mp3").unwrap();
     let mut i = iter.filter(|m| {
         match m {
             &Unit::FrameV2(ref head, _) => head.has_flag(FrameHeaderFlag::Encryption),
@@ -456,5 +488,32 @@ fn metadata_v230_mcdi() {
             },
             _ => ()
         }
+    }
+}
+
+#[test]
+fn metadata_v240_geob() {
+    let _ = env_logger::init();
+
+    let iter = MetadataIterator::new("./test-resources/v2.4-geob-multiple.mp3").unwrap();
+    let mut i = iter.filter(|m| {
+        match m {
+            &Unit::FrameV2(_, FrameData::GEOB(_)) => true,
+            _ => false
+        }
+    });
+
+    if let Unit::FrameV2(_, FrameData::GEOB(frame)) = i.next().unwrap() {
+        assert_eq!("text/plain", frame.mime_type);
+        assert_eq!("eyeD3.txt", frame.filename);
+        assert_eq!("eyeD3 --help output", frame.content_description);
+        assert_eq!(6207, frame.encapsulation_object.len());
+    }
+
+    if let Unit::FrameV2(_, FrameData::GEOB(frame)) = i.next().unwrap() {
+        assert_eq!("text/plain", frame.mime_type);
+        assert_eq!("genres.txt", frame.filename);
+        assert_eq!("eyeD3 --list-genres output", frame.content_description);
+        assert_eq!(4087, frame.encapsulation_object.len());
     }
 }

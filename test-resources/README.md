@@ -15,3 +15,6 @@
 - v2.3-iso-8859-1.mp3
 - v2.3-link-frame.mp3
 - v2.3-mcdi.mp3
+- v2.4-compressed-frame.mp3
+- v2.4-encrypted-frame.mp3
+- v2.4-geob-multiple.mp3

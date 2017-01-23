@@ -356,12 +356,11 @@ impl FrameReaderDefault<ETCO> for ETCO {
     }
 }
 
-// TODO not yet tested!
 // General encapsulated object
 #[derive(Debug, PartialEq)]
 pub struct GEOB {
     pub text_encoding: TextEncoding,
-    pub mine_type: String,
+    pub mime_type: String,
     pub filename: String,
     pub content_description: String,
     pub encapsulation_object: Vec<u8>
@@ -370,14 +369,14 @@ pub struct GEOB {
 impl FrameReaderDefault<GEOB> for GEOB {
     fn read(readable: &mut Readable) -> Result<GEOB> {
         let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let (_, mine_type) = readable.non_utf16_string()?;
-        let (_, filename) = readable.utf16_string()?;
-        let (_, content_description) = readable.utf16_string()?;
+        let (_, mime_type) = readable.non_utf16_string()?;
+        let (_, filename) = util::read_null_terminated(&text_encoding, readable)?;
+        let (_, content_description) = util::read_null_terminated(&text_encoding, readable)?;
         let encapsulation_object = readable.all_bytes()?;
 
         Ok(GEOB {
             text_encoding: text_encoding,
-            mine_type: mine_type,
+            mime_type: mime_type,
             filename: filename,
             content_description: content_description,
             encapsulation_object: encapsulation_object

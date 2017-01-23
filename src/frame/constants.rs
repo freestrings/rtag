@@ -1,30 +1,71 @@
-//MIT License
-//
-//Copyright (c) [2017] [Mark Han]
-//
-//Permission is hereby granted, free of charge, to any person obtaining a copy
-//of this software and associated documentation files (the "Software"), to deal
-//in the Software without restriction, including without limitation the rights
-//to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-//copies of the Software, and to permit persons to whom the Software is
-//furnished to do so, subject to the following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all
-//copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-//AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-//OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-//SOFTWARE.
-
-use id3v2::frame::*;
-
+// 2.2 mapping
+// BUF
+// CNT - PCNT
+// COM - COMM
+// CRA - AENC
+// CRM -
+// ETC - ETCO
+// EQU - EQUA
+// GEO - GEOB
+// IPL - IPLS
+// LNK - LINK
+// MCI - MCDI
+// MLL - MLLT
+// PIC
+// POP - POPM
+// REV - RVRB
+// RVA - RVAD
+// SLT - SYLT
+// STC - SYTC
+// TAL - TALB
+// TBP - TBPM
+// TCM - TCOM
+// TCO - TCON
+// TCR - TCOP
+// TDA - TDAT
+// TDY - TDLY
+// TEN - TENC
+// TFT - TFLT
+// TIM - TIME
+// TKE - TKEY
+// TLA - TLAN
+// TLE - TLEN
+// TMT - TMED
+// TOA - TOPE
+// TOF - TOFN
+// TOL - TOLY
+// TOR - TORY
+// TOT - TOAL
+// TP1 - TPE1
+// TP2 - TPE2
+// TP3 - TPE3
+// TP4 - TPE4
+// TPA - TPOS
+// TPB - TPUB
+// TRC - TSRC
+// TRD - TRDA
+// TRK - TRCK
+// TSI - TSIZ
+// TSS - TSSE
+// TT1 - TIT1
+// TT2 - TIT2
+// TT3 - TIT1
+// TXT - TEXT
+// TXX - TXXX
+// TYE - TYER
+// UFI - UFID
+// ULT - USLT
+// WAF - WOAF
+// WAR - WOAR
+// WAS - WOAS
+// WCM - WCOM
+// WCP - WCOP
+// WPB - WPUB
+// WXX - WXXX
 pub mod id {
-
+    //
     // 2.2
+    //
     pub const BUF_STR: &'static str = "BUF";
     pub const CNT_STR: &'static str = "CNT";
     pub const COM_STR: &'static str = "COM";
@@ -89,7 +130,9 @@ pub mod id {
     pub const WPB_STR: &'static str = "WPB";
     pub const WXX_STR: &'static str = "WXX";
 
-    // 2.4
+    //
+    // 2.3 & 2.4
+    //
     pub const AENC_STR: &'static str = "AENC";
     pub const APIC_STR: &'static str = "APIC";
     pub const ASPI_STR: &'static str = "ASPI";
@@ -192,10 +235,22 @@ pub mod id {
 }
 
 #[derive(Debug)]
+pub enum TextEncoding {
+    ISO8859_1,
+    UTF16LE,
+    UTF16BE,
+    UTF8
+}
+
+use ::frame::*;
+
+#[derive(Debug)]
 pub enum FrameData {
-    // 2.2 only
+    //2.2 only
+    BUF(BUF),
+    //2.2 only
     CRM(CRM),
-    // 2.2 only
+    //2.2 only
     PIC(PIC),
 
     AENC(AENC),
@@ -297,16 +352,8 @@ pub enum FrameData {
     WORS(LINK),
     WPAY(LINK),
     WPUB(LINK),
-    WXXX(WXXX)
-}
-
-
-#[derive(Debug)]
-pub enum TextEncoding {
-    ISO8859_1,
-    UTF16LE,
-    UTF16BE,
-    UTF8
+    WXXX(WXXX),
+    INVALID(String)
 }
 
 #[derive(Debug, PartialEq)]

@@ -1,5 +1,5 @@
 [package]
-name = "rust-id3"
+name = "rust_id3"
 version = "0.1.0"
 authors = ["Mark Han <freestrings@gmail.com>"]
 description = "A rust id3 read/write library"
@@ -11,6 +11,7 @@ keywords = ["library", "id3", "music"]
 log = "0.3"
 regex = "0.2"
 encoding = "0.2"
+flate2 = { version = "0.2", features = ["zlib"], default-features = false }
 
 [dev-dependencies]
 env_logger = "0.3"

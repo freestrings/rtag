@@ -14,7 +14,7 @@ fn readable_bytes() {
     }
 
     let str = "AB가나01".to_string();
-    if let Ok(mut readable) = factory::from_byte(str.into_bytes()) {
+    if let Ok(mut readable) = factory::from_bytes(str.into_bytes()) {
         assert!(readable.skip(1).is_ok());
         assert_eq!(readable.as_string(1).unwrap(), "B");
         // utf8, 3bytes
@@ -49,7 +49,7 @@ fn readable_utf16_string() {
     bytes.push(0x00);
     bytes.push(0x02);
     assert_eq!(bytes.len(), 15);
-    let mut readable = factory::from_byte(bytes).unwrap();
+    let mut readable = factory::from_bytes(bytes).unwrap();
     let (size, read) = readable.utf16_string().unwrap();
     assert_eq!(size, 14);
     assert_eq!("AB\u{ac00}\u{b098}01\u{0}\u{1}", read);

@@ -51,3 +51,17 @@ pub fn to_synchsafe(bytes: &[u8]) -> u32 {
 
     v
 }
+
+pub fn to_synchronize(bytes: &mut Vec<u8>) {
+    let mut copy = true;
+    let mut to = 0;
+    for i in 0..bytes.len() {
+        let b = bytes[i];
+        if copy || b != 0 {
+            bytes[to] = b;
+            to = to + 1
+        }
+        copy = (b & 0xff) != 0xff;
+    }
+
+}

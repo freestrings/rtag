@@ -136,7 +136,7 @@ pub mod factory {
         Ok(super::Readable::new(Cursor::new(str.to_string())))
     }
 
-    pub fn from_byte(bytes: Vec<u8>) -> Result<super::Readable<Cursor<Vec<u8>>>> {
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<super::Readable<Cursor<Vec<u8>>>> {
         Ok(super::Readable::new(Cursor::new(bytes)))
     }
 }

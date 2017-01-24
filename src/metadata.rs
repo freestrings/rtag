@@ -4,67 +4,137 @@ use bytes;
 use readable;
 use readable::Readable;
 
+use std::cell::RefCell;
 use std::fs::File;
-use std::io::Result;
-use std::vec::Vec;
+use std::io::{Cursor, Error, ErrorKind, Result};
 use std::iter::Iterator;
+use std::vec::Vec;
+use std::rc::Rc;
 
 use frame::constants::{FrameData, FrameHeaderFlag};
 use self::frames::FrameHeader;
 
-pub struct MetadataIterator {
-    readable: Readable<File>,
-    pub file_len: u64,
-    next: Status,
-    pub version: u8
+type FrameReadable = Rc<RefCell<Readable<Cursor<Vec<u8>>>>>;
+
+#[derive(Debug)]
+enum Status {
+    Head,
+    ExtendedHeader(u32),
+    Frame(FrameReadable),
+    None
 }
 
-impl MetadataIterator {
+
+#[derive(Debug)]
+pub enum Unit {
+    Header(header::HeadFrame),
+    // TODO not yet implemented
+    ExtendedHeader(Vec<u8>),
+    FrameV2(FrameHeader, FrameData),
+    FrameV1(frames::FrameV1)
+}
+
+pub struct Metadata {
+    pub version: u8,
+    next: Status,
+    readable: Readable<File>,
+    frame_v1: Option<Vec<u8>>,
+    file_len: u64
+}
+
+impl Metadata {
     pub fn new(path: &str) -> Result<Self> {
         let file = File::open(path)?;
         let metadata = file.metadata()?;
         let file_len = metadata.len();
-        let readable = readable::factory::from_file(file)?;
+        let mut readable = readable::factory::from_file(file)?;
 
-        Ok(MetadataIterator {
-            readable: readable,
-            file_len: file_len,
+        Ok(Metadata {
+            version: 0,
             next: Status::Head,
-            version: 0
+            readable: readable,
+            frame_v1: None,
+            file_len: file_len
         })
     }
 
-    fn head(&mut self) -> Result<Unit> {
-        let bytes = self.readable.as_bytes(10)?;
-        let header = header::Head::new(bytes);
-        if header.has_flag(header::Flag::ExtendedHeader) {
-            self.next = Status::ExtendedHeader;
-        } else {
-            self.next = Status::Frame;
-        }
-        self.version = header.version;
-
-        Ok(Unit::Header(header.read()?))
+    fn create_rc_readable(bytes: Vec<u8>) -> Result<FrameReadable> {
+        Ok(Rc::new(RefCell::new(readable::factory::from_bytes(bytes)?)))
     }
 
-    fn extended_head(&mut self) -> Result<Unit> {
-        self.next = Status::Frame;
+    fn read_v1(&mut self) -> Result<Vec<u8>> {
+        if self.file_len < 128 {
+            return Err(Error::new(ErrorKind::InvalidInput, format!("Invalid file length: {}", self.file_len)));
+        }
 
+        self.readable.skip((self.file_len - 128) as i64)?;
+        let tag_id = self.readable.as_string(3)?;
+        if tag_id != "TAG" {
+            return Err(Error::new(ErrorKind::InvalidInput, format!("Invalid v1 TAG: {}", tag_id)));
+        }
+
+        Ok(self.readable.all_bytes()?)
+    }
+
+    fn head(&mut self) -> Result<Unit> {
+        // keep all the v1 info.
+        self.frame_v1 = match self.read_v1() {
+            Ok(bytes) => Some(bytes),
+            Err(e) => {
+                trace!("{:?}", e);
+                None
+            }
+        };
+        self.readable.position(0)?;
+
+        let head = header::Head::new(self.readable.as_bytes(10)?);
+        let header = head.read()?;
+        let next = if head.has_flag(header::Flag::ExtendedHeader) {
+            Status::ExtendedHeader(header.size)
+        } else if head.has_flag(header::Flag::Unsynchronisation) {
+            match self.readable.as_bytes(header.size as usize) {
+                Ok(mut frame_bytes) => {
+                    bytes::to_synchronize(&mut frame_bytes);
+                    Status::Frame(Self::create_rc_readable(frame_bytes)?)
+                },
+                _ => Status::Frame(Self::create_rc_readable(Vec::new())?)
+            }
+        } else {
+            match self.readable.as_bytes(header.size as usize) {
+                Ok(frame_bytes) => Status::Frame(Self::create_rc_readable(frame_bytes)?),
+                _ => Status::Frame(Self::create_rc_readable(Vec::new())?)
+            }
+        };
+
+        self.next = next;
+        self.version = head.version;
+
+        Ok(Unit::Header(header))
+    }
+
+    fn extended_head(&mut self, frame_size: u32) -> Result<Unit> {
         let bytes = self.readable.as_bytes(4)?;
         let size = match self.version {
             // Did not explained for whether big-endian or synchsafe in "http://id3.org/id3v2.3.0".
             3 => bytes::to_u32(&bytes),
             // `Extended header size` stored as a 32 bit synchsafe integer in "2.4.0".
-            _ => bytes::to_synchsafe(&bytes),
+            _ => bytes::to_synchsafe(&bytes)
+        };
+
+        self.next = match self.readable.as_bytes(frame_size as usize) {
+            Ok(frame_bytes) => Status::Frame(Self::create_rc_readable(frame_bytes)?),
+            _ => Status::Frame(Self::create_rc_readable(Vec::new())?)
         };
 
         Ok(Unit::ExtendedHeader(self.readable.as_bytes(size as usize)?))
     }
 
-    fn frame(&mut self) -> Result<Unit> {
-        let is_valid_id = match self.readable.as_string(4) {
+    fn frame(&mut self, mut _readable: FrameReadable) -> Result<Unit> {
+        let mut readable = _readable.borrow_mut();
+
+        let has_frame_v2 = match readable.as_string(4) {
             Ok(id) => {
-                self.readable.skip(-4);
+                readable.skip(-4);
                 // TODO const
                 // http://id3.org/id3v2.4.0-structure > 4. ID3v2 frame overview
                 let matched = regex::Regex::new(r"^[A-Z][A-Z0-9]{2,}").unwrap().is_match(&id);
@@ -74,80 +144,94 @@ impl MetadataIterator {
             _ => false
         };
 
-        if is_valid_id {
+        if has_frame_v2 {
             // frame v2
-            if self.version == 2 {
-                let id = self.readable.as_string(3)?;
-                let head_bytes = self.readable.as_bytes(3)?;
-                let size = bytes::to_u32(&head_bytes[0..3]);
-                let body_bytes = self.readable.as_bytes(size as usize)?;
 
-                let (frame_header, frame_body) = frames::V2::new(id,
-                                                                 head_bytes,
-                                                                 body_bytes,
-                                                                 self.version).read()?;
-                Ok(Unit::FrameV2(frame_header, frame_body))
-            } else {
-                let id = self.readable.as_string(4)?;
-                let head_bytes = self.readable.as_bytes(6)?;
-                let size = match self.version {
-                    // v2.3 read as a regular big endian number.
-                    3 => bytes::to_u32(&head_bytes[0..4]),
-                    // v2.4 uses sync-safe frame sizes
-                    _ => bytes::to_synchsafe(&head_bytes[0..4])
-                };
-                let body_bytes = self.readable.as_bytes(size as usize)?;
-                let (frame_header, frame_body) = frames::V2::new(id,
-                                                                 head_bytes,
-                                                                 body_bytes,
-                                                                 self.version).read()?;
+            let id = match self.version {
+                2 => readable.as_string(3)?,
+                _ => readable.as_string(4)?
+            };
 
-                Ok(Unit::FrameV2(frame_header, frame_body))
-            }
+            let head_bytes = match self.version {
+                2 => readable.as_bytes(3)?,
+                _ => readable.as_bytes(6)?
+            };
+
+            let size = match self.version {
+                2 => bytes::to_u32(&head_bytes[0..3]),
+                // v2.3 read as a regular big endian number.
+                3 => bytes::to_u32(&head_bytes[0..4]),
+                // v2.4 uses sync-safe frame sizes
+                _ => bytes::to_synchsafe(&head_bytes[0..4])
+            };
+
+            let body_bytes = readable.as_bytes(size as usize)?;
+
+            let (frame_header, frame_body) = frames::V2::new(id,
+                                                             head_bytes,
+                                                             body_bytes,
+                                                             self.version).read()?;
+
+            Ok(Unit::FrameV2(frame_header, frame_body))
         } else {
-            // frame v1
-
-            if self.file_len < 128 as u64 {
-                return Err(::std::io::Error::new(::std::io::ErrorKind::Other,
-                                                 "Bad v2 tag length"));
-            }
-
-            self.readable.position(0)?;
-            self.readable.skip((self.file_len - 128 as u64) as i64)?;
-            if self.readable.as_string(3)? != "TAG" {
-                return Err(::std::io::Error::new(::std::io::ErrorKind::Other,
-                                                 "Ignored v1! '{}'"));
-            }
-            self.readable.skip(-3)?;
-            let bytes = self.readable.all_bytes()?;
             self.next = Status::None;
 
-            Ok(
-                Unit::FrameV1(frames::V1::new(bytes).read()?)
-            )
+            match self.frame_v1 {
+                Some(ref bytes) => Ok(Unit::FrameV1(frames::V1::new(bytes[..].to_vec()).read()?)),
+                None => Err(Error::new(ErrorKind::Other, "Frame v1"))
+            }
         }
     }
 }
 
-#[derive(Debug)]
-enum Status {
-    Head,
-    ExtendedHeader,
-    Frame,
-    None
-}
-
-#[derive(Debug)]
-pub enum Unit {
-    Header(header::HeadFrame),
-    // TODO not yet implemented
-    ExtendedHeader(Vec<u8>),
-    FrameV2(FrameHeader, FrameData),
-    FrameV1(frames::V1Frame)
-}
-
 pub trait MetaFrame<T> {
     fn read(&self) -> Result<T>;
+}
+
+impl Iterator for Metadata {
+    type Item = Unit;
+
+    fn next(&mut self) -> Option<(Self::Item)> {
+        match self.next {
+            Status::Head => debug!("next: Head"),
+            Status::ExtendedHeader(_) => debug!("next: ExtendedHeader"),
+            Status::Frame(_) => debug!("next: Frame"),
+            Status::None => debug!("next: None"),
+        };
+
+        let mut frame_readable = if let Status::Frame(ref rc) = self.next {
+            Some(rc.clone())
+        } else {
+            None
+        };
+
+        match self.next {
+            Status::Head => match self.head() {
+                Ok(data) => Some(data),
+                Err(msg) => {
+                    trace!("Head ignored: {}", msg);
+                    None
+                }
+            },
+            Status::ExtendedHeader(frame_size) => match self.extended_head(frame_size) {
+                Ok(data) => Some(data),
+                Err(msg) => {
+                    trace!("Extended head ignored: {}", msg);
+                    None
+                }
+            },
+            Status::Frame(_) => {
+                match self.frame(frame_readable.unwrap()) {
+                    Ok(data) => Some(data),
+                    Err(msg) => {
+                        trace!("Frame ignored: {}", msg);
+                        None
+                    }
+                }
+            },
+            _ => None
+        }
+    }
 }
 
 pub mod header {
@@ -267,7 +351,7 @@ pub mod frames {
     use ::frame::{FrameReaderDefault, FrameReaderIdAware, FrameReaderVesionAware};
 
     #[derive(Debug)]
-    pub struct V1Frame {
+    pub struct FrameV1 {
         pub title: String,
         pub artist: String,
         pub album: String,
@@ -309,9 +393,9 @@ pub mod frames {
         }
     }
 
-    impl MetaFrame<V1Frame> for V1 {
-        fn read(&self) -> Result<V1Frame> {
-            let mut readable = ::readable::factory::from_byte(self.bytes.clone())?;
+    impl MetaFrame<FrameV1> for V1 {
+        fn read(&self) -> Result<FrameV1> {
+            let mut readable = ::readable::factory::from_bytes(self.bytes.clone())?;
 
             // skip id
             readable.skip(3)?;
@@ -347,7 +431,7 @@ pub mod frames {
                 )
             };
 
-            Ok(V1Frame {
+            Ok(FrameV1 {
                 title: title,
                 artist: artist,
                 album: album,
@@ -437,11 +521,11 @@ pub mod frames {
                 let mut out = vec![];
                 decoder.read_to_end(&mut out)?;
 
-                ::readable::factory::from_byte(out)?
+                ::readable::factory::from_bytes(out)?
             } else if frame_header.has_flag(FrameHeaderFlag::Encryption) {
                 return Ok((frame_header, FrameData::SKIP("Encrypted frame".to_string())));
             } else {
-                ::readable::factory::from_byte(self.body[..].to_vec())?
+                ::readable::factory::from_bytes(self.body[..].to_vec())?
             };
 
             let id = self.id.as_str();
@@ -609,39 +693,6 @@ pub mod frames {
             };
 
             Ok((frame_header, frame_data))
-        }
-    }
-}
-
-impl Iterator for MetadataIterator {
-    type Item = Unit;
-
-    fn next(&mut self) -> Option<(Self::Item)> {
-        debug!("next: {:?}", self.next);
-
-        match self.next {
-            Status::Head => match self.head() {
-                Ok(data) => Some(data),
-                Err(msg) => {
-                    trace!("Head ignored: {}", msg);
-                    None
-                }
-            },
-            Status::ExtendedHeader => match self.extended_head() {
-                Ok(data) => Some(data),
-                Err(msg) => {
-                    trace!("Extended head ignored: {}", msg);
-                    None
-                }
-            },
-            Status::Frame => match self.frame() {
-                Ok(data) => Some(data),
-                Err(msg) => {
-                    trace!("Frame ignored: {}", msg);
-                    None
-                }
-            },
-            _ => None
         }
     }
 }

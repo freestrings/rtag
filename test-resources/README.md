@@ -18,3 +18,5 @@
 - v2.4-compressed-frame.mp3
 - v2.4-encrypted-frame.mp3
 - v2.4-geob-multiple.mp3
+- v2.3-unsync.mp3
+- v2.4-unsync.mp3

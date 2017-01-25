@@ -849,7 +849,8 @@ impl FrameReaderIdAware<TEXT> for TEXT {
         fn _default(id: &str, decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>) -> String {
             match decode {
                 Ok(text) => text,
-                Err(_) => {
+                Err(e) => {
+                    println!("TEXT Error {}, {:?}", id, e);
                     if id == id::TBPM_STR || id == id::TBP_STR {
                         "0".to_string()
                     } else {

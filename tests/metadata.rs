@@ -1,12 +1,13 @@
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 
 pub extern crate regex;
 extern crate env_logger;
 extern crate rust_id3 as id3;
 
 use std::vec::Vec;
-use id3::frame::constants::{EventTimingCode, FrameData, FrameHeaderFlag, TimestampFormat};
-use id3::metadata::{header, frames, MetaFrame, Metadata, Unit};
+use id3::frame::constants::{EventTimingCode, HeadFlag, FrameData, FrameHeaderFlag, TimestampFormat};
+use id3::metadata::{frames, MetaFrame, Metadata, Unit};
 use id3::readable;
 
 fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
@@ -171,9 +172,9 @@ fn metadata_header() {
             Unit::Header(header) => {
                 assert_eq!(3, header.version);
                 assert_eq!(0, header.minor_version);
-                assert_eq!(header.has_flag(header::Flag::Unsynchronisation), false);
-                assert_eq!(header.has_flag(header::Flag::ExtendedHeader), false);
-                assert_eq!(header.has_flag(header::Flag::ExperimentalIndicator), false);
+                assert_eq!(header.has_flag(HeadFlag::Unsynchronisation), false);
+                assert_eq!(header.has_flag(HeadFlag::ExtendedHeader), false);
+                assert_eq!(header.has_flag(HeadFlag::ExperimentalIndicator), false);
                 assert_eq!(header.size, 1171);
             },
             _ => ()
@@ -185,9 +186,9 @@ fn metadata_header() {
             Unit::Header(header) => {
                 assert_eq!(4, header.version);
                 assert_eq!(0, header.minor_version);
-                assert_eq!(header.has_flag(header::Flag::Unsynchronisation), false);
-                assert_eq!(header.has_flag(header::Flag::ExtendedHeader), false);
-                assert_eq!(header.has_flag(header::Flag::ExperimentalIndicator), false);
+                assert_eq!(header.has_flag(HeadFlag::Unsynchronisation), false);
+                assert_eq!(header.has_flag(HeadFlag::ExtendedHeader), false);
+                assert_eq!(header.has_flag(HeadFlag::ExperimentalIndicator), false);
                 assert_eq!(header.size, 165126);
             },
             _ => ()
@@ -405,7 +406,7 @@ fn metadata_v230_ext_header() {
         let iter = Metadata::new("./test-resources/v2.3-ext-header-invalid.mp3").unwrap();
         let i = iter.filter(|m| {
             match m {
-                &Unit::Header(ref header) => header.has_flag(header::Flag::ExtendedHeader),
+                &Unit::Header(ref header) => header.has_flag(HeadFlag::ExtendedHeader),
                 _ => false
             }
         });
@@ -536,7 +537,24 @@ fn metadata_unsync() {
     for m in Metadata::new("./test-resources/v2.3-unsync.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, frame) => {
-                debug!("v2: {:?}", frame);
+                comp_frame(frame, &mut data);
+            },
+            _ => ()
+        }
+    }
+
+    let mut data = vec![
+    "2009",
+    "Album",
+    "Artist",
+    "Title",
+    "replaygain_track_gain:+0.00 dB\u{0}",
+    "replaygain_track_peak:0.000715\u{0}"
+    ];
+
+    for m in Metadata::new("./test-resources/v2.4-unsync.mp3").unwrap() {
+        match m {
+            Unit::FrameV2(_, frame) => {
                 comp_frame(frame, &mut data);
             },
             _ => ()

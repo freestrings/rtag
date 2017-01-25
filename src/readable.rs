@@ -1,23 +1,29 @@
 use std::vec::Vec;
 use std::io::{Error, ErrorKind, Read, Seek, SeekFrom, Result};
+use std::time::SystemTime;
 
 const DEFAULT_BUF_SIZE: usize = 1024;
 
 #[derive(Debug)]
 pub struct Readable<I> where I: Read + Seek {
-    input: I
+    input: I,
+    total_read: i64,
+    time: SystemTime
+
 }
 
 impl<I> Readable<I> where I: Read + Seek {
     pub fn new(input: I) -> Self {
         Readable {
-            input: input
+            input: input, total_read: 0, time:  SystemTime::now()
         }
     }
 
     pub fn all_bytes(&mut self) -> Result<Vec<u8>> {
         let mut buf = vec![];
-        self.input.read_to_end(&mut buf)?;
+        let read = self.input.read_to_end(&mut buf)?;
+        self.total_read = self.total_read + read as i64;
+        trace!("#{:?}-total_read: {}", self.time, self.total_read);
 
         Ok(buf)
     }
@@ -33,18 +39,22 @@ impl<I> Readable<I> where I: Read + Seek {
         let mut total_read = 0;
         loop {
             let read = self.input.read(buf.as_mut_slice())?;
+
+            self.total_read = self.total_read + read as i64;
+
             if read <= 0 {
                 return Err(Error::new(ErrorKind::Other, format!("read zero!! require: {}", amount)));
             }
             ret.append(&mut buf);
             total_read = total_read + read;
-            trace!("amount:{}, total_read:{}, read:{}", amount, total_read, read);
+            trace!("---- amount:{}, total_read:{}, read:{}", amount, total_read, read);
             if total_read >= amount {
                 break;
             }
             let remain = amount - total_read;
             buf.resize(if buf_size > remain { remain } else { buf_size }, 0);
         }
+        trace!("#{:?}-total_read: {}", self.time, self.total_read);
 
         Ok(ret)
     }
@@ -75,6 +85,10 @@ impl<I> Readable<I> where I: Read + Seek {
             }
         }
 
+        let len = ret.len();
+        self.total_read = self.total_read + len as i64;
+        trace!("#{:?}-total_read: {}", self.time, self.total_read);
+
         Ok(ret)
     }
 
@@ -102,6 +116,10 @@ impl<I> Readable<I> where I: Read + Seek {
             }
         }
 
+        let len = ret.len();
+        self.total_read = self.total_read + len as i64;
+        trace!("#{:?}-total_read: {}", self.time, self.total_read);
+
         Ok(ret)
     }
 
@@ -111,11 +129,21 @@ impl<I> Readable<I> where I: Read + Seek {
     }
 
     pub fn skip(&mut self, amount: i64) -> Result<u64> {
+        self.total_read = self.total_read + amount;
+        trace!("#{:?}-total_read: {}", self.time, self.total_read);
+
         Ok(self.input.seek(SeekFrom::Current(amount))?)
     }
 
     pub fn position(&mut self, offset: u64) -> Result<u64> {
+        self.total_read = offset as i64;
+        trace!("#{:?}-total_read: {}", self.time, self.total_read);
+
         Ok(self.input.seek(SeekFrom::Start(offset))?)
+    }
+
+    pub fn total_read(&mut self) -> i64 {
+        self.total_read
     }
 }
 

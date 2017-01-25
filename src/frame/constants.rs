@@ -465,3 +465,12 @@ pub enum FrameHeaderFlag {
     //2.4 only
     DataLength
 }
+
+#[derive(Debug, PartialEq)]
+pub enum HeadFlag {
+    Unsynchronisation,
+    Compression,
+    ExtendedHeader,
+    ExperimentalIndicator,
+    FooterPresent
+}

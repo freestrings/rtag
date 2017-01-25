@@ -1,4 +1,7 @@
 pub extern crate regex;
+extern crate flate2;
+
+use self::flate2::read::ZlibDecoder;
 
 use bytes;
 use readable;
@@ -6,12 +9,12 @@ use readable::Readable;
 
 use std::cell::RefCell;
 use std::fs::File;
-use std::io::{Cursor, Error, ErrorKind, Result};
+use std::io::{Cursor, Error, ErrorKind, Read, Result};
 use std::iter::Iterator;
 use std::vec::Vec;
 use std::rc::Rc;
 
-use frame::constants::{FrameData, FrameHeaderFlag};
+use frame::constants::{HeadFlag, FrameData, FrameHeaderFlag};
 use self::frames::FrameHeader;
 
 type FrameReadable = Rc<RefCell<Readable<Cursor<Vec<u8>>>>>;
@@ -62,22 +65,38 @@ impl Metadata {
         Ok(Rc::new(RefCell::new(readable::factory::from_bytes(bytes)?)))
     }
 
+    fn has_frame_id(readable: &mut Readable<Cursor<Vec<u8>>>) -> bool {
+        match readable.as_string(4) {
+            Ok(id) => {
+                readable.skip(-4);
+                // TODO const
+                // http://id3.org/id3v2.4.0-structure > 4. ID3v2 frame overview
+                let matched = regex::Regex::new(r"^[A-Z][A-Z0-9]{2,}").unwrap().is_match(&id);
+                debug!("Frame Id:'{}', reg matched: {}", id, matched);
+                matched
+            },
+            _ => false
+        }
+    }
+
     fn read_v1(&mut self) -> Result<Vec<u8>> {
         if self.file_len < 128 {
-            return Err(Error::new(ErrorKind::InvalidInput, format!("Invalid file length: {}", self.file_len)));
+            return Err(Error::new(ErrorKind::InvalidInput,
+                                  format!("Invalid file length: {}", self.file_len)));
         }
 
         self.readable.skip((self.file_len - 128) as i64)?;
         let tag_id = self.readable.as_string(3)?;
         if tag_id != "TAG" {
-            return Err(Error::new(ErrorKind::InvalidInput, format!("Invalid v1 TAG: {}", tag_id)));
+            return Err(Error::new(ErrorKind::InvalidInput,
+                                  format!("Invalid v1 TAG: {}", tag_id)));
         }
 
         Ok(self.readable.all_bytes()?)
     }
 
     fn head(&mut self) -> Result<Unit> {
-        // keep all the v1 info.
+        // keep v1 tag bytes.
         self.frame_v1 = match self.read_v1() {
             Ok(bytes) => Some(bytes),
             Err(e) => {
@@ -85,13 +104,20 @@ impl Metadata {
                 None
             }
         };
+
+        // rewind to first
         self.readable.position(0)?;
 
+        // read bytes
         let head = header::Head::new(self.readable.as_bytes(10)?);
+        // convert from byte to head info
         let header = head.read()?;
-        let next = if head.has_flag(header::Flag::ExtendedHeader) {
+
+        // decide to next unit
+        let next = if head.has_flag(HeadFlag::ExtendedHeader) {
             Status::ExtendedHeader(header.size)
-        } else if head.has_flag(header::Flag::Unsynchronisation) {
+        } else if head.has_flag(HeadFlag::Unsynchronisation) {
+            // compute synchronisation bytes
             match self.readable.as_bytes(header.size as usize) {
                 Ok(mut frame_bytes) => {
                     bytes::to_synchronize(&mut frame_bytes);
@@ -100,6 +126,7 @@ impl Metadata {
                 _ => Status::Frame(Self::create_rc_readable(Vec::new())?)
             }
         } else {
+            // normal bytes
             match self.readable.as_bytes(header.size as usize) {
                 Ok(frame_bytes) => Status::Frame(Self::create_rc_readable(frame_bytes)?),
                 _ => Status::Frame(Self::create_rc_readable(Vec::new())?)
@@ -112,6 +139,7 @@ impl Metadata {
         Ok(Unit::Header(header))
     }
 
+    // optional unit
     fn extended_head(&mut self, frame_size: u32) -> Result<Unit> {
         let bytes = self.readable.as_bytes(4)?;
         let size = match self.version {
@@ -129,57 +157,135 @@ impl Metadata {
         Ok(Unit::ExtendedHeader(self.readable.as_bytes(size as usize)?))
     }
 
+    // version 2.2
+    fn frame2(&mut self, readable: &mut Readable<Cursor<Vec<u8>>>) -> Result<Unit> {
+        let id = readable.as_string(3)?;
+        let head_bytes = readable.as_bytes(3)?;
+        let size = bytes::to_u32(&head_bytes[0..3]);
+        let frame_header = FrameHeader::new(id.to_string(),
+                                            head_bytes,
+                                            self.version);
+        let body_bytes = readable.as_bytes(size as usize)?;
+
+        let (frame_header, frame_body) = frames::V2::new(id,
+                                                         frame_header,
+                                                         body_bytes,
+                                                         self.version).read()?;
+
+        Ok(Unit::FrameV2(frame_header, frame_body))
+    }
+
+    // v2.3
+    fn frame3(&mut self, readable: &mut Readable<Cursor<Vec<u8>>>) -> Result<Unit> {
+        let id = readable.as_string(4)?;
+        let head_bytes = readable.as_bytes(6)?;
+        let size = bytes::to_u32(&head_bytes[0..4]);
+        let mut frame_header = FrameHeader::new(id.to_string(),
+                                                head_bytes,
+                                                self.version);
+
+        let mut extra_size: u32 = 0;
+        if let Some(size) = frame_header.check_group_id(readable) {
+            extra_size = extra_size + size as u32;
+        }
+
+        if let Some(size) = frame_header.check_encryption_method(readable) {
+            extra_size = extra_size + size as u32;
+        }
+
+        let mut decompression_size = 0;
+        let mut need_compression = false;
+        if let Some(bytes) = frame_header.check_compression(readable) {
+            decompression_size = bytes::to_u32(&bytes);
+            extra_size = extra_size + bytes.len() as u32;
+            need_compression = true;
+        }
+
+        let mut actual_size = size - extra_size as u32;
+        let mut body_bytes = readable.as_bytes(actual_size as usize)?;
+
+        if need_compression {
+            let real_frame = body_bytes.clone();
+            let mut out = vec![];
+            let mut decoder = ZlibDecoder::new(&real_frame[..]);
+            decoder.read_to_end(&mut out);
+            body_bytes = out;
+        };
+
+        let (frame_header, frame_body) = frames::V2::new(id,
+                                                         frame_header,
+                                                         body_bytes,
+                                                         self.version).read()?;
+
+        Ok(Unit::FrameV2(frame_header, frame_body))
+    }
+
+    // v2.4
+    fn frame4(&mut self, readable: &mut Readable<Cursor<Vec<u8>>>) -> Result<Unit> {
+        let id = readable.as_string(4)?;
+        let head_bytes = readable.as_bytes(6)?;
+        let size = bytes::to_synchsafe(&head_bytes[0..4]);
+        let mut frame_header = FrameHeader::new(id.to_string(),
+                                                head_bytes,
+                                                self.version);
+
+        let mut extra_size: u32 = 0;
+        if let Some(size) = frame_header.check_group_id(readable) {
+            extra_size = extra_size + size as u32;
+        }
+
+        if let Some(size) = frame_header.check_encryption_method(readable) {
+            extra_size = extra_size + size as u32;
+        }
+
+        if let Some(bytes) = frame_header.check_data_length(readable) {
+            //            let data_length = bytes::to_synchsafe(&bytes);
+            extra_size = extra_size + bytes.len() as u32;
+        }
+
+        let mut actual_size = size - extra_size as u32;
+        let mut body_bytes = readable.as_bytes(actual_size as usize)?;
+
+        if let Some((sync_size, mut bytes)) = frame_header.check_unsynchronisation(&body_bytes) {
+            //cut to synchrosized size
+            bytes.split_off(sync_size);
+            body_bytes = bytes;
+        }
+
+        if let Some(bytes) = frame_header.check_compression(readable) {
+            let real_frame = body_bytes.clone();
+            let mut out = vec![];
+            let mut decoder = ZlibDecoder::new(&real_frame[..]);
+            decoder.read_to_end(&mut out);
+            body_bytes = out;
+        }
+
+        let (frame_header, frame_body) = frames::V2::new(id,
+                                                         frame_header,
+                                                         body_bytes,
+                                                         self.version).read()?;
+
+        Ok(Unit::FrameV2(frame_header, frame_body))
+    }
+
     fn frame(&mut self, mut _readable: FrameReadable) -> Result<Unit> {
         let mut readable = _readable.borrow_mut();
 
-        let has_frame_v2 = match readable.as_string(4) {
-            Ok(id) => {
-                readable.skip(-4);
-                // TODO const
-                // http://id3.org/id3v2.4.0-structure > 4. ID3v2 frame overview
-                let matched = regex::Regex::new(r"^[A-Z][A-Z0-9]{2,}").unwrap().is_match(&id);
-                debug!("Frame Id:{}, matched: {}", id, matched);
-                matched
-            },
-            _ => false
-        };
-
-        if has_frame_v2 {
-            // frame v2
-
-            let id = match self.version {
-                2 => readable.as_string(3)?,
-                _ => readable.as_string(4)?
-            };
-
-            let head_bytes = match self.version {
-                2 => readable.as_bytes(3)?,
-                _ => readable.as_bytes(6)?
-            };
-
-            let size = match self.version {
-                2 => bytes::to_u32(&head_bytes[0..3]),
-                // v2.3 read as a regular big endian number.
-                3 => bytes::to_u32(&head_bytes[0..4]),
-                // v2.4 uses sync-safe frame sizes
-                _ => bytes::to_synchsafe(&head_bytes[0..4])
-            };
-
-            let body_bytes = readable.as_bytes(size as usize)?;
-
-            let (frame_header, frame_body) = frames::V2::new(id,
-                                                             head_bytes,
-                                                             body_bytes,
-                                                             self.version).read()?;
-
-            Ok(Unit::FrameV2(frame_header, frame_body))
-        } else {
+        // frame v1
+        if !Self::has_frame_id(&mut readable) {
             self.next = Status::None;
 
-            match self.frame_v1 {
+            return match self.frame_v1 {
                 Some(ref bytes) => Ok(Unit::FrameV1(frames::V1::new(bytes[..].to_vec()).read()?)),
                 None => Err(Error::new(ErrorKind::Other, "Frame v1"))
-            }
+            };
+        }
+
+        match self.version {
+            2 => self.frame2(&mut readable),
+            3 => self.frame3(&mut readable),
+            4 => self.frame4(&mut readable),
+            _ => self.frame4(&mut readable)
         }
     }
 }
@@ -236,18 +342,10 @@ impl Iterator for Metadata {
 
 pub mod header {
     use std::io::Result;
+    use frame::constants::HeadFlag;
 
     use bytes;
     use super::MetaFrame;
-
-    #[derive(Debug, PartialEq)]
-    pub enum Flag {
-        Unsynchronisation,
-        Compression,
-        ExtendedHeader,
-        ExperimentalIndicator,
-        FooterPresent
-    }
 
     #[derive(Debug)]
     pub struct HeadFrame {
@@ -258,43 +356,43 @@ pub mod header {
     }
 
     // ./id3v2_summary.md/id3v2.md#id3v2 Header
-    fn has_flag(flag: Flag, flag_value: u8, version: u8) -> bool {
-        if version == 3 {
-            match flag {
-                Flag::Unsynchronisation => flag_value & bytes::BIT7 != 0,
-                Flag::ExtendedHeader => flag_value & bytes::BIT6 != 0,
-                Flag::ExperimentalIndicator => flag_value & bytes::BIT5 != 0,
+    fn has_flag(flag: HeadFlag, flag_value: u8, version: u8) -> bool {
+        match version {
+            2 => match flag {
+                HeadFlag::Unsynchronisation => flag_value & bytes::BIT7 != 0,
+                HeadFlag::Compression => flag_value & bytes::BIT6 != 0,
                 _ => false
-            }
-        } else if version == 4 {
-            match flag {
-                Flag::Unsynchronisation => flag_value & bytes::BIT7 != 0,
-                Flag::ExtendedHeader => flag_value & bytes::BIT6 != 0,
-                Flag::ExperimentalIndicator => flag_value & bytes::BIT5 != 0,
-                Flag::FooterPresent => flag_value & bytes::BIT4 != 0,
+            },
+            3 => match flag {
+                HeadFlag::Unsynchronisation => flag_value & bytes::BIT7 != 0,
+                HeadFlag::ExtendedHeader => flag_value & bytes::BIT6 != 0,
+                HeadFlag::ExperimentalIndicator => flag_value & bytes::BIT5 != 0,
                 _ => false
-            }
-        } else if version == 2 {
-            match flag {
-                Flag::Unsynchronisation => flag_value & bytes::BIT7 != 0,
-                Flag::Compression => flag_value & bytes::BIT6 != 0,
+            },
+            4 => match flag {
+                // head level 'Unsynchronisation' does not work. => "./test-resources/v2.4-unsync.mp3".
+                //                HeadFlag::Unsynchronisation => flag_value & bytes::BIT7 != 0,
+                HeadFlag::ExtendedHeader => flag_value & bytes::BIT6 != 0,
+                HeadFlag::ExperimentalIndicator => flag_value & bytes::BIT5 != 0,
+                HeadFlag::FooterPresent => flag_value & bytes::BIT4 != 0,
                 _ => false
+            },
+            _ => {
+                warn!("Header.has_flag=> Unknown version!");
+                false
             }
-        } else {
-            warn!("Header.has_flag=> Unknown version!");
-            false
         }
     }
 
     impl HeadFrame {
-        pub fn has_flag(&self, flag: Flag) -> bool {
+        pub fn has_flag(&self, flag: HeadFlag) -> bool {
             self::has_flag(flag, self.flag, self.version)
         }
     }
 
     #[derive(Debug)]
     pub struct Head {
-        bytes: Vec<u8>,
+        pub bytes: Vec<u8>,
         pub flag: u8,
         pub version: u8
     }
@@ -311,7 +409,7 @@ pub mod header {
             }
         }
 
-        pub fn has_flag(&self, flag: Flag) -> bool {
+        pub fn has_flag(&self, flag: HeadFlag) -> bool {
             self::has_flag(flag, self.flag, self.version)
         }
     }
@@ -336,19 +434,17 @@ pub mod header {
 
 pub mod frames {
     extern crate encoding;
-    extern crate flate2;
-
-    use self::flate2::read::ZlibDecoder;
 
     use self::encoding::{Encoding, DecoderTrap};
 
     use std::vec::Vec;
-    use std::io::{Read, Result};
+    use std::io::{Cursor, Read, Result};
     use bytes;
     use ::frame;
     use ::frame::constants::{id, FrameHeaderFlag, FrameData};
-    use super::MetaFrame;
     use ::frame::{FrameReaderDefault, FrameReaderIdAware, FrameReaderVesionAware};
+    use super::MetaFrame;
+    use readable::Readable;
 
     #[derive(Debug)]
     pub struct FrameV1 {
@@ -445,17 +541,24 @@ pub mod frames {
 
     #[derive(Debug)]
     pub struct FrameHeader {
-        header: Vec<u8>,
-        version: u8
+        pub id: String,
+        pub header: Vec<u8>,
+        pub version: u8,
+        pub group_id: u8,
+        pub encryption_method: u8
     }
 
     impl FrameHeader {
-        pub fn new(header: Vec<u8>, version: u8) -> Self {
+        pub fn new(id: String, header: Vec<u8>, version: u8) -> Self {
             FrameHeader {
+                id: id,
                 header: header,
-                version: version
+                version: version,
+                group_id: 0,
+                encryption_method: 0
             }
         }
+
         // There is no flag for 2.2 frame.
         // http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
         pub fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
@@ -465,6 +568,7 @@ pub mod frames {
 
             let status_flag = self.header[4];
             let encoding_flag = self.header[5];
+
             match self.version {
                 3 => match flag {
                     FrameHeaderFlag::TagAlter => status_flag & bytes::BIT7 != 0,
@@ -488,21 +592,90 @@ pub mod frames {
                 _ => false
             }
         }
+
+        pub fn check_group_id(&mut self, readable: &mut Readable<Cursor<Vec<u8>>>)
+                              -> Option<u8> {
+            if self.has_flag(FrameHeaderFlag::GroupIdentity) {
+                if let Ok(bytes) = readable.as_bytes(1) {
+                    self.group_id = bytes[0];
+
+                    return Some(1)
+                }
+            }
+            None
+        }
+
+        pub fn check_encryption_method(&mut self, readable: &mut Readable<Cursor<Vec<u8>>>)
+                                       -> Option<u8> {
+            if self.has_flag(FrameHeaderFlag::Encryption) {
+                if let Ok(bytes) = readable.as_bytes(1) {
+                    self.encryption_method = bytes[0];
+
+                    return Some(1)
+                }
+            }
+            None
+        }
+
+        pub fn check_data_length(&mut self, readable: &mut Readable<Cursor<Vec<u8>>>)
+                                 -> Option<Vec<u8>> {
+            if self.has_flag(FrameHeaderFlag::DataLength) {
+                if let Ok(bytes) = readable.as_bytes(4) {
+                    return Some(bytes)
+                }
+            }
+            None
+        }
+
+        pub fn check_unsynchronisation(&mut self, body_bytes: &Vec<u8>)
+                                       -> Option<(usize, Vec<u8>)> {
+            if self.has_flag(FrameHeaderFlag::Unsynchronisation) {
+                debug!("'{}' is unsynchronised", self.id);
+                let mut out = body_bytes[..].to_vec();
+                let sync_size = bytes::to_synchronize(&mut out);
+                debug!("{:?}", bytes::to_hex(&out));
+
+                return Some((sync_size, out))
+            }
+            None
+        }
+
+        pub fn check_compression(&mut self, readable: &mut Readable<Cursor<Vec<u8>>>) -> Option<Vec<u8>> {
+            if self.has_flag(FrameHeaderFlag::Compression) {
+                debug!("'{}' is compressed", self.id);
+                if let Ok(bytes) = readable.as_bytes(4) {
+                    return Some(bytes)
+                }
+            }
+            None
+        }
+    }
+
+    impl Clone for FrameHeader {
+        fn clone(&self) -> Self {
+            FrameHeader {
+                id: self.id.to_string(),
+                header: self.header[..].to_vec(),
+                version: self.version,
+                group_id: self.group_id,
+                encryption_method: self.encryption_method
+            }
+        }
     }
 
     #[derive(Debug)]
     pub struct V2 {
         pub id: String,
-        header: Vec<u8>,
+        frame_header: FrameHeader,
         body: Vec<u8>,
         version: u8
     }
 
     impl V2 {
-        pub fn new(id: String, header: Vec<u8>, body: Vec<u8>, version: u8) -> Self {
+        pub fn new(id: String, frame_header: FrameHeader, body: Vec<u8>, version: u8) -> Self {
             V2 {
                 id: id,
-                header: header,
+                frame_header: frame_header,
                 body: body,
                 version: version
             }
@@ -511,22 +684,11 @@ pub mod frames {
 
     impl MetaFrame<(FrameHeader, FrameData)> for V2 {
         fn read(&self) -> Result<(FrameHeader, FrameData)> {
-            let frame_header = FrameHeader::new(self.header[..].to_vec(), self.version);
-
-            let mut readable = if frame_header.has_flag(FrameHeaderFlag::Compression) {
-                debug!("{} is compressed", self.id);
-                // skip 4 bytes that is decompressed size.
-                let real_frame = self.body.clone().split_off(4);
-                let mut decoder = ZlibDecoder::new(&real_frame[..]);
-                let mut out = vec![];
-                decoder.read_to_end(&mut out)?;
-
-                ::readable::factory::from_bytes(out)?
-            } else if frame_header.has_flag(FrameHeaderFlag::Encryption) {
-                return Ok((frame_header, FrameData::SKIP("Encrypted frame".to_string())));
-            } else {
-                ::readable::factory::from_bytes(self.body[..].to_vec())?
+            if self.frame_header.has_flag(FrameHeaderFlag::Encryption) {
+                return Ok((self.frame_header.clone(), FrameData::SKIP("Encrypted frame".to_string())));
             };
+
+            let mut readable = ::readable::factory::from_bytes(self.body[..].to_vec())?;
 
             let id = self.id.as_str();
 
@@ -692,7 +854,7 @@ pub mod frames {
                 }
             };
 
-            Ok((frame_header, frame_data))
+            Ok((self.frame_header.clone(), frame_data))
         }
     }
 }

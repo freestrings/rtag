@@ -52,7 +52,7 @@ pub fn to_synchsafe(bytes: &[u8]) -> u32 {
     v
 }
 
-pub fn to_synchronize(bytes: &mut Vec<u8>) {
+pub fn to_synchronize(bytes: &mut Vec<u8>) -> usize {
     let mut copy = true;
     let mut to = 0;
     for i in 0..bytes.len() {
@@ -64,4 +64,12 @@ pub fn to_synchronize(bytes: &mut Vec<u8>) {
         copy = (b & 0xff) != 0xff;
     }
 
+    to
+}
+
+pub fn to_hex(bytes: &Vec<u8>) -> String {
+    let strs: Vec<String> = bytes.iter()
+                                 .map(|b| format!("{:02x}", b))
+                                 .collect();
+    strs.connect(" ")
 }

@@ -23,15 +23,18 @@ use readable::{
 };
 
 use std::cell::RefCell;
+use std::error;
+use std::error::Error;
+use std::fmt;
 use std::fs::File;
+use std::mem;
+use std::io;
 use std::io::{
     Cursor,
-    Error,
-    ErrorKind,
-    Read,
-    Result
+    Read
 };
 use std::iter::Iterator;
+use std::result;
 use std::vec::Vec;
 use std::rc::Rc;
 
@@ -94,6 +97,70 @@ mod util {
     }
 }
 
+#[derive(Debug)]
+pub enum ParsingErrorKind {
+    InvalidV1FrameId,
+    InvalidV2FrameId,
+    InvalidFrameLength,
+    EncodingError
+}
+
+#[derive(Debug)]
+pub enum ParsingError {
+    BadData(ParsingErrorKind),
+    IoError(io::Error)
+}
+
+impl From<ParsingErrorKind> for ParsingError {
+    fn from(err: ParsingErrorKind) -> ParsingError {
+        ParsingError::BadData(err)
+    }
+}
+
+impl From<io::Error> for ParsingError {
+    fn from(err: io::Error) -> ParsingError {
+        ParsingError::IoError(err)
+    }
+}
+
+impl fmt::Display for ParsingErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ParsingErrorKind::InvalidV1FrameId => write!(f, "Only 'TAG' is allowed)"),
+            ParsingErrorKind::InvalidV2FrameId => write!(f, "Only 'ID3' is allowed)"),
+            ParsingErrorKind::InvalidFrameLength => write!(f, "Invalid frame length"),
+            ParsingErrorKind::EncodingError => write!(f, "Invalid text encoding")
+        }
+    }
+}
+
+impl fmt::Display for ParsingError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ParsingError::BadData(ref kind) => fmt::Display::fmt(kind, f),
+            ParsingError::IoError(ref err) => fmt::Display::fmt(err, f)
+        }
+    }
+}
+
+impl error::Error for ParsingError {
+    fn description(&self) -> &str {
+        match *self {
+            ParsingError::BadData(ref kind) => unsafe {
+                mem::transmute(&format!("{:?}", kind) as &str)
+            },
+            ParsingError::IoError(ref err) => err.description()
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            ParsingError::IoError(ref err) => Some(err as &error::Error),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Head {
     pub flag: u8,
@@ -104,7 +171,7 @@ pub struct Head {
 
 // http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header
 impl Head {
-    pub fn new(mut readable: Readable<Cursor<Vec<u8>>>) -> Result<Self> {
+    pub fn new(mut readable: Readable<Cursor<Vec<u8>>>) -> result::Result<Self, ParsingError> {
         let tag_id = readable.string(3)?;
         let version = readable.u8()?;
         let minor_version = readable.u8()?;
@@ -112,8 +179,7 @@ impl Head {
         let size = readable.synchsafe()?;
 
         if tag_id != "ID3" {
-            return Err(Error::new(ErrorKind::Other,
-                                  format!("Bad v2 tag id: {}", tag_id)));
+            return Err(ParsingError::BadData(ParsingErrorKind::InvalidV2FrameId));
         }
 
         Ok(Head {
@@ -169,7 +235,7 @@ pub struct Frame1 {
 }
 
 impl Frame1 {
-    pub fn new(readable: &mut Readable<Cursor<Vec<u8>>>) -> Result<Self> {
+    pub fn new(readable: &mut Readable<Cursor<Vec<u8>>>) -> result::Result<Self, ParsingError> {
         readable.skip(3)?;
 
         // offset 3
@@ -287,7 +353,8 @@ pub enum Unit {
     // TODO not yet implemented
     ExtendedHeader(Vec<u8>),
     FrameV1(Frame1),
-    FrameV2(FrameHeader, FrameData)
+    FrameV2(FrameHeader, FrameData),
+    Unknown(String)
 }
 
 pub struct Metadata {
@@ -296,7 +363,7 @@ pub struct Metadata {
 }
 
 impl Metadata {
-    pub fn new(path: &str) -> Result<Self> {
+    pub fn new(path: &str) -> result::Result<Self, ParsingError> {
         let file = File::open(path)?;
         let metadata = file.metadata()?;
         let file_len = metadata.len();
@@ -323,7 +390,7 @@ impl Metadata {
         }
     }
 
-    fn head(&mut self, readable_wrap: RefFileReader) -> Result<Unit> {
+    fn head(&mut self, readable_wrap: RefFileReader) -> result::Result<Unit, ParsingError> {
         let mut readable = readable_wrap.borrow_mut();
 
         let head = Head::new(readable.to_readable(10)?)?;
@@ -357,7 +424,7 @@ impl Metadata {
     // optional unit
     fn extended_head(&mut self,
                      head_wrap: RefHead,
-                     readable_wrap: RefFileReader) -> Result<Unit> {
+                     readable_wrap: RefFileReader) -> result::Result<Unit, ParsingError> {
         let mut readable = readable_wrap.borrow_mut();
 
         let size = match head_wrap.borrow().version {
@@ -379,18 +446,17 @@ impl Metadata {
         Ok(Unit::ExtendedHeader(extended_bytes))
     }
 
-    fn frame1(&mut self, readable: &mut Readable<File>) -> Result<Frame1> {
+    fn frame1(&mut self, readable: &mut Readable<File>) -> result::Result<Frame1, ParsingError> {
         if self.file_len < 128 {
-            return Err(Error::new(ErrorKind::InvalidInput,
-                                  format!("Invalid file length: {}", self.file_len)));
+            return Err(ParsingError::BadData(ParsingErrorKind::InvalidFrameLength));
         }
 
         readable.skip((self.file_len - 128) as i64)?;
 
-        let tag_id = readable.string(3)?;
-        if tag_id != "TAG" {
-            return Err(Error::new(ErrorKind::InvalidInput,
-                                  format!("Invalid v1 TAG: {}", tag_id)));
+        if readable.string(3)? != "TAG" {
+            let _ = readable.skip(-3);
+            debug!("{}", util::to_hex(&readable.bytes(3)?));
+            return Err(ParsingError::BadData(ParsingErrorKind::InvalidV1FrameId));
         }
 
         Frame1::new(&mut Cursor::new(readable.all_bytes()?).readable())
@@ -399,7 +465,7 @@ impl Metadata {
     // version 2.2
     fn frame2(&mut self,
               head: &Head,
-              readable: &mut Readable<Cursor<Vec<u8>>>) -> Result<Unit> {
+              readable: &mut Readable<Cursor<Vec<u8>>>) -> result::Result<Unit, ParsingError> {
         let id = readable.string(3)?;
         let size = readable.u24()?;
         let frame_header = FrameHeader::new(id.to_string(), head.version, 0, 0);
@@ -410,7 +476,7 @@ impl Metadata {
     }
 
     // v2.3
-    fn frame3(&mut self, head: &Head, readable: &mut Readable<Cursor<Vec<u8>>>) -> Result<Unit> {
+    fn frame3(&mut self, head: &Head, readable: &mut Readable<Cursor<Vec<u8>>>) -> result::Result<Unit, ParsingError> {
         let id = readable.string(4)?;
         let size = readable.u32()?;
         let status_flag = readable.u8()?;
@@ -419,17 +485,17 @@ impl Metadata {
 
         let mut extra_size: u32 = 0;
         if frame_header.has_flag(FrameHeaderFlag::GroupIdentity) {
-            readable.u8()?;
+            let _ = readable.u8()?;
             extra_size = extra_size + 1;
         }
 
         if frame_header.has_flag(FrameHeaderFlag::Encryption) {
-            readable.u8()?;
+            let _ = readable.u8()?;
             extra_size = extra_size + 1;
         }
 
         let body_bytes = if frame_header.has_flag(FrameHeaderFlag::Compression) {
-            readable.u32()?;
+            let _ = readable.u32()?;
             extra_size = extra_size + 4;
 
             let actual_size = size - extra_size as u32;
@@ -454,7 +520,7 @@ impl Metadata {
     // v2.4
     fn frame4(&mut self,
               head: &Head,
-              readable: &mut Readable<Cursor<Vec<u8>>>) -> Result<Unit> {
+              readable: &mut Readable<Cursor<Vec<u8>>>) -> result::Result<Unit, ParsingError> {
         let id = readable.string(4)?;
         let size = readable.synchsafe()?;
         let status_flag = readable.u8()?;
@@ -464,17 +530,17 @@ impl Metadata {
 
         let mut extra_size: u32 = 0;
         if frame_header.has_flag(FrameHeaderFlag::GroupIdentity) {
-            readable.u8()?;
+            let _ = readable.u8()?;
             extra_size = extra_size + 1;
         }
 
         if frame_header.has_flag(FrameHeaderFlag::Encryption) {
-            readable.u8()?;
+            let _ = readable.u8()?;
             extra_size = extra_size + 1;
         }
 
         if frame_header.has_flag(FrameHeaderFlag::DataLength) {
-            readable.u32()?;
+            let _ = readable.u32()?;
             extra_size = extra_size + 4;
         }
 
@@ -496,7 +562,7 @@ impl Metadata {
         if frame_header.has_flag(FrameHeaderFlag::Compression) {
             debug!("'{}' is compressed", id);
 
-            readable.u32()?;
+            let _ = readable.u32()?;
 
             let real_frame = body_bytes.clone();
             let mut out = vec![];
@@ -515,7 +581,7 @@ impl Metadata {
     fn frame(&mut self,
              head_wrap: RefHead,
              readable_wrap: RefFileReader,
-             frame_readable_wrap: RefByteReader) -> Result<Unit> {
+             frame_readable_wrap: RefByteReader) -> result::Result<Unit, ParsingError> {
         let mut readable = readable_wrap.borrow_mut();
         let mut frame_readable = frame_readable_wrap.borrow_mut();
         //
@@ -578,7 +644,7 @@ impl Iterator for Metadata {
             Status::Head(_) => match self.head(head.unwrap()) {
                 Ok(data) => Some(data),
                 Err(msg) => {
-                    trace!("Head ignored: {}", msg);
+                    debug!("Stop on 'Head': {}", msg);
                     None
                 }
             },
@@ -587,7 +653,7 @@ impl Iterator for Metadata {
                 match self.extended_head(head, readable) {
                     Ok(data) => Some(data),
                     Err(msg) => {
-                        trace!("Extended head ignored: {}", msg);
+                        debug!("Stop on 'Extended Head': {}", msg);
                         None
                     }
                 }
@@ -599,8 +665,8 @@ impl Iterator for Metadata {
                         Some(data)
                     },
                     Err(msg) => {
-                        trace!("Frame ignored: {}", msg);
-                        None
+                        debug!("Ignored 'Frame': {}", msg);
+                        Some(Unit::Unknown(msg.description().to_string()))
                     }
                 }
             }
@@ -612,7 +678,7 @@ impl Iterator for Metadata {
 fn frame_data(id: &str,
               version: u8,
               frame_header: &FrameHeader,
-              mut readable: Readable<Cursor<Vec<u8>>>) -> Result<FrameData> {
+              mut readable: Readable<Cursor<Vec<u8>>>) -> result::Result<FrameData, ParsingError> {
     if frame_header.has_flag(FrameHeaderFlag::Encryption) {
         return Ok(FrameData::SKIP("Encrypted frame".to_string()));
     };

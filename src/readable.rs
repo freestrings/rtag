@@ -1,21 +1,27 @@
 use std::vec::Vec;
-use std::io::{Error, ErrorKind, Read, Seek, SeekFrom, Result};
-use std::time::SystemTime;
+use std::io::{
+    Cursor,
+    Error,
+    ErrorKind,
+    Read,
+    Seek,
+    SeekFrom,
+    Result
+};
 
 const DEFAULT_BUF_SIZE: usize = 1024;
 
 #[derive(Debug)]
 pub struct Readable<I> where I: Read + Seek {
     input: I,
-    total_read: i64,
-    time: SystemTime
-
+    total_read: i64
 }
 
 impl<I> Readable<I> where I: Read + Seek {
     pub fn new(input: I) -> Self {
         Readable {
-            input: input, total_read: 0, time:  SystemTime::now()
+            input: input,
+            total_read: 0
         }
     }
 
@@ -23,7 +29,6 @@ impl<I> Readable<I> where I: Read + Seek {
         let mut buf = vec![];
         let read = self.input.read_to_end(&mut buf)?;
         self.total_read = self.total_read + read as i64;
-        trace!("#{:?}-total_read: {}", self.time, self.total_read);
 
         Ok(buf)
     }
@@ -32,7 +37,7 @@ impl<I> Readable<I> where I: Read + Seek {
         Ok(String::from_utf8_lossy(&self.all_bytes()?).into_owned())
     }
 
-    pub fn as_bytes(&mut self, amount: usize) -> Result<Vec<u8>> {
+    pub fn bytes(&mut self, amount: usize) -> Result<Vec<u8>> {
         let mut ret = vec![];
         let buf_size = if amount < DEFAULT_BUF_SIZE { amount } else { DEFAULT_BUF_SIZE };
         let mut buf = vec![0u8; buf_size];
@@ -43,24 +48,22 @@ impl<I> Readable<I> where I: Read + Seek {
             self.total_read = self.total_read + read as i64;
 
             if read <= 0 {
-                return Err(Error::new(ErrorKind::Other, format!("read zero!! require: {}", amount)));
+                return Err(Error::new(ErrorKind::Other, format!("read try: {}, but read zero.", amount)));
             }
             ret.append(&mut buf);
             total_read = total_read + read;
-            trace!("---- amount:{}, total_read:{}, read:{}", amount, total_read, read);
             if total_read >= amount {
                 break;
             }
             let remain = amount - total_read;
             buf.resize(if buf_size > remain { remain } else { buf_size }, 0);
         }
-        trace!("#{:?}-total_read: {}", self.time, self.total_read);
 
         Ok(ret)
     }
 
-    pub fn as_string(&mut self, amount: usize) -> Result<String> {
-        Ok(String::from_utf8_lossy(&self.as_bytes(amount)?).into_owned())
+    pub fn string(&mut self, amount: usize) -> Result<String> {
+        Ok(String::from_utf8_lossy(&self.bytes(amount)?).into_owned())
     }
 
     pub fn utf16_bytes(&mut self) -> Result<Vec<u8>> {
@@ -87,15 +90,14 @@ impl<I> Readable<I> where I: Read + Seek {
 
         let len = ret.len();
         self.total_read = self.total_read + len as i64;
-        trace!("#{:?}-total_read: {}", self.time, self.total_read);
 
         Ok(ret)
     }
 
     // <text>0x00 0x00
-    pub fn utf16_string(&mut self) -> Result<(usize, String)> {
+    pub fn utf16_string(&mut self) -> Result<String> {
         let ret = self.utf16_bytes()?;
-        Ok((ret.len() + 2, String::from_utf8_lossy(&ret).into_owned()))
+        Ok(String::from_utf8_lossy(&ret).into_owned())
     }
 
     // <text>0x00
@@ -118,32 +120,128 @@ impl<I> Readable<I> where I: Read + Seek {
 
         let len = ret.len();
         self.total_read = self.total_read + len as i64;
-        trace!("#{:?}-total_read: {}", self.time, self.total_read);
 
         Ok(ret)
     }
 
-    pub fn non_utf16_string(&mut self) -> Result<(usize, String)> {
+    pub fn non_utf16_string(&mut self) -> Result<String> {
         let ret = self.non_utf16_bytes()?;
-        Ok((ret.len() + 1, String::from_utf8_lossy(&ret).into_owned()))
+        Ok(String::from_utf8_lossy(&ret).into_owned())
     }
 
     pub fn skip(&mut self, amount: i64) -> Result<u64> {
         self.total_read = self.total_read + amount;
-        trace!("#{:?}-total_read: {}", self.time, self.total_read);
-
         Ok(self.input.seek(SeekFrom::Current(amount))?)
     }
 
-    pub fn position(&mut self, offset: u64) -> Result<u64> {
+    pub fn position(&mut self, offset: usize) -> Result<u64> {
         self.total_read = offset as i64;
-        trace!("#{:?}-total_read: {}", self.time, self.total_read);
-
-        Ok(self.input.seek(SeekFrom::Start(offset))?)
+        Ok(self.input.seek(SeekFrom::Start(offset as u64))?)
     }
 
     pub fn total_read(&mut self) -> i64 {
         self.total_read
+    }
+
+    pub fn u8(&mut self) -> Result<u8> {
+        Ok(self.bytes(1)?[0])
+    }
+
+    pub fn u16(&mut self) -> Result<u16> {
+        let bytes = self.bytes(2)?;
+
+        let mut v: u16 = (bytes[1] & 0xff) as u16;
+        v = v | ((bytes[0] & 0xff) as u16) << 8;
+
+        Ok(v)
+    }
+
+    pub fn u32(&mut self) -> Result<u32> {
+        let bytes = self.bytes(4)?;
+
+        let mut v: u32 = (bytes[3] & 0xff) as u32;
+        v = v | ((bytes[2] & 0xff) as u32) << 8;
+        v = v | ((bytes[1] & 0xff) as u32) << 16;
+        v = v | ((bytes[0] & 0xff) as u32) << 24;
+
+        Ok(v)
+    }
+
+    pub fn u24(&mut self) -> Result<u32> {
+        let bytes = self.bytes(3)?;
+
+        let mut v: u32 = (bytes[2] & 0xff) as u32;
+        v = v | ((bytes[1] & 0xff) as u32) << 8;
+        v = v | ((bytes[0] & 0xff) as u32) << 16;
+
+        Ok(v)
+    }
+
+    // Sizes are 4bytes long big-endian but first bit is 0
+    // @see http://id3.org/id3v2.4.0-structure > 6.2. Synchsafe integers
+    pub fn synchsafe(&mut self) -> Result<u32> {
+        let bytes = self.bytes(4)?;
+
+        let mut v: u32 = (bytes[3] & 0x7f) as u32;
+        v = v | ((bytes[2] & 0x7f) as u32) << 7;
+        v = v | ((bytes[1] & 0x7f) as u32) << 14;
+        v = v | ((bytes[0] & 0x7f) as u32) << 21;
+
+        Ok(v)
+    }
+
+    pub fn look_bytes(&mut self, amount: usize) -> Result<Vec<u8>> {
+        let v = self.bytes(amount)?;
+        let _ = self.skip((amount as i64) * -1)?;
+
+        Ok(v)
+    }
+
+    pub fn look_string(&mut self, amount: usize) -> Result<String> {
+        let v = self.string(amount)?;
+        let _ = self.skip((amount as i64) * -1)?;
+
+        Ok(v)
+    }
+
+    pub fn look_u8(&mut self) -> Result<u8> {
+        let v = self.u8()?;
+        let _ = self.skip(-1)?;
+
+        Ok(v)
+    }
+
+    pub fn look_u16(&mut self) -> Result<u16> {
+        let v = self.u16()?;
+        let _ = self.skip(-2)?;
+
+        Ok(v)
+    }
+
+    pub fn look_u32(&mut self) -> Result<u32> {
+        let v = self.u32()?;
+        let _ = self.skip(-4)?;
+
+        Ok(v)
+    }
+
+    pub fn look_u24(&mut self) -> Result<u32> {
+        let v = self.u24()?;
+        let _ = self.skip(-3)?;
+
+        Ok(v)
+    }
+
+    pub fn look_synchsafe(&mut self) -> Result<u32> {
+        let v = self.synchsafe()?;
+        let _ = self.skip(-4)?;
+
+        Ok(v)
+    }
+
+    pub fn to_readable(&mut self, amount: usize) -> Result<Readable<Cursor<Vec<u8>>>> {
+        let bytes = self.bytes(amount)?;
+        self::factory::from_bytes(bytes)
     }
 }
 
@@ -158,10 +256,6 @@ pub mod factory {
 
     pub fn from_path(str: &str) -> Result<super::Readable<File>> {
         Ok(super::Readable::new(File::open(str)?))
-    }
-
-    pub fn from_str(str: &str) -> Result<super::Readable<Cursor<String>>> {
-        Ok(super::Readable::new(Cursor::new(str.to_string())))
     }
 
     pub fn from_bytes(bytes: Vec<u8>) -> Result<super::Readable<Cursor<Vec<u8>>>> {

@@ -6,8 +6,18 @@ extern crate env_logger;
 extern crate rust_id3 as id3;
 
 use std::vec::Vec;
-use id3::frame::constants::{EventTimingCode, HeadFlag, FrameData, FrameHeaderFlag, TimestampFormat};
-use id3::metadata::{frames, MetaFrame, Metadata, Unit};
+use id3::frame::constants::{
+    EventTimingCode,
+    HeadFlag,
+    FrameData,
+    FrameHeaderFlag,
+    TimestampFormat
+};
+use id3::metadata::{
+    Frame1,
+    Metadata,
+    Unit
+};
 use id3::readable;
 
 fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
@@ -32,6 +42,7 @@ fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
         FrameData::TCOM(frame) |
         FrameData::TCON(frame) |
         FrameData::TCOP(frame) |
+        FrameData::TDAT(frame) |
         FrameData::TDEN(frame) |
         FrameData::TDLY(frame) |
         FrameData::TDOR(frame) |
@@ -40,6 +51,7 @@ fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
         FrameData::TDTG(frame) |
         FrameData::TENC(frame) |
         FrameData::TEXT(frame) |
+        FrameData::TIME(frame) |
         FrameData::TFLT(frame) |
         FrameData::TIPL(frame) |
         FrameData::TIT1(frame) |
@@ -55,6 +67,7 @@ fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
         FrameData::TOFN(frame) |
         FrameData::TOLY(frame) |
         FrameData::TOPE(frame) |
+        FrameData::TORY(frame) |
         FrameData::TOWN(frame) |
         FrameData::TPE1(frame) |
         FrameData::TPE2(frame) |
@@ -64,13 +77,16 @@ fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
         FrameData::TPRO(frame) |
         FrameData::TPUB(frame) |
         FrameData::TRCK(frame) |
+        FrameData::TRDA(frame) |
         FrameData::TRSN(frame) |
+        FrameData::TSIZ(frame) |
         FrameData::TRSO(frame) |
         FrameData::TSOA(frame) |
         FrameData::TSOP(frame) |
         FrameData::TSOT(frame) |
         FrameData::TSRC(frame) |
         FrameData::TSSE(frame) |
+        FrameData::TYER(frame) |
         FrameData::TSST(frame) => assert_eq!(data.pop().unwrap(), frame.text),
         FrameData::TXXX(frame) => assert_eq!(data.pop().unwrap(), format!("{}:{}",
                                                                           frame.description,
@@ -126,9 +142,8 @@ fn metadata_v1() {
                 "2017",
                 "COMMENTCOMMENTCOMMENTCOMMENTCO4");
 
-    let mut readable = readable::factory::from_str(id3v1_tag).unwrap();
-    let v1 = frames::V1::new(readable.all_bytes().unwrap());
-    let frame = v1.read().unwrap();
+    let mut readable = readable::factory::from_bytes(id3v1_tag.to_string().into_bytes()).unwrap();
+    let frame = Frame1::new(&mut readable).unwrap();
     assert_eq!(frame.title, "TITLETITLETITLETITLETITLETITLE");
     assert_eq!(frame.artist, "ARTISTARTISTARTISTARTISTARTIST");
     assert_eq!(frame.album, "ALBUMALBUMALBUMALBUMALBUMALBUM");
@@ -141,9 +156,8 @@ fn metadata_v1() {
                 "2017",
                 "COMMENT                        ");
 
-    let mut readable = readable::factory::from_str(id3v1_tag).unwrap();
-    let v1 = frames::V1::new(readable.all_bytes().unwrap());
-    let frame = v1.read().unwrap();
+    let mut readable = readable::factory::from_bytes(id3v1_tag.to_string().into_bytes()).unwrap();
+    let frame = Frame1::new(&mut readable).unwrap();
     assert_eq!(frame.title, "TITLE");
     assert_eq!(frame.artist, "ARTIST");
     assert_eq!(frame.album, "ALBUM");
@@ -204,12 +218,13 @@ fn metadata_frame_data() {
         for m in Metadata::new(path).unwrap() {
             match m {
                 Unit::FrameV2(_, frame) => {
-                    debug!("v2: {:?}", frame);
                     comp_frame(frame, &mut data);
                 },
                 _ => ()
             }
         }
+
+        assert_eq!(0, data.len());
     }
 
     test("./test-resources/v1-v2.mp3",
@@ -222,7 +237,7 @@ fn metadata_frame_data() {
          vec!["2017", "1", "1", "아티스트", "Album", "Artist/아티스트", "타이틀", "ABAB", "Alternative", "eng::~~"]);
 
     test("./test-resources/v2.2.mp3",
-         vec!["Test v2.2.0", "Pudge", "2", "(37)", "eng::All Rights Reserved", "1998"]);
+         vec!["Test v2.2.0", "Pudge", "2", "1998", "(37)", "eng::All Rights Reserved"]);
 }
 
 #[test]
@@ -251,7 +266,9 @@ fn metadata_frame_pcnt() {
     for m in Metadata::new("./test-resources/240-pcnt.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, FrameData::PCNT(frame)) => assert_eq!(256, frame.counter),
-            _ => ()
+            _ => (
+                println!("{:?}", m)
+            )
         }
     }
 }
@@ -530,8 +547,8 @@ fn metadata_unsync() {
     "Hydroponic Garden",
     "Silent Running",
     "4",
-    "(26)",
-    "2003"
+    "2003",
+    "(26)"
     ];
 
     for m in Metadata::new("./test-resources/v2.3-unsync.mp3").unwrap() {

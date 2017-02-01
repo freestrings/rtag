@@ -1,15 +1,12 @@
 use std::{io, vec};
 use std::io::Result;
-use bytes;
 use super::constants::{
-    id,
     PictureType,
     ReceivedAs,
     InterpolationMethod,
     ContentType,
     TimestampFormat,
     EventTimingCode,
-    FrameHeaderFlag,
     TextEncoding
 };
 
@@ -108,20 +105,11 @@ pub fn to_event_timing_code(t: u8, timestamp: u32) -> EventTimingCode {
     }
 }
 
-pub fn read_null_terminated(text_encoding: &TextEncoding, readable: &mut Readable) -> Result<(usize, String)> {
+pub fn read_null_terminated(text_encoding: &TextEncoding, readable: &mut Readable) -> Result<String> {
     Ok(match text_encoding {
-        &TextEncoding::Iso8859_1 | &TextEncoding::UTF8 => readable.non_utf16_string()?,
+        &TextEncoding::Iso88591 | &TextEncoding::UTF8 => readable.non_utf16_string()?,
         _ => readable.utf16_string()?
     })
-}
-
-pub fn trim_to_u32(bytes: &mut vec::Vec<u8>) -> u32 {
-    let len = bytes.len();
-    if len > 4 {
-        bytes.split_off(len - 4);
-    }
-
-    bytes::to_u32(&bytes)
 }
 
 pub fn to_content_type(t: u8) -> ContentType {
@@ -136,5 +124,15 @@ pub fn to_content_type(t: u8) -> ContentType {
         0x07 => ContentType::UrlsToWebpages,
         0x08 => ContentType::UrlsToImages,
         _ => ContentType::Other
+    }
+}
+
+pub fn to_encoding(encoding: u8) -> ::frame::constants::TextEncoding {
+    match encoding {
+        0 => ::frame::constants::TextEncoding::Iso88591,
+        1 => ::frame::constants::TextEncoding::UTF16LE,
+        2 => ::frame::constants::TextEncoding::UTF16BE,
+        3 => ::frame::constants::TextEncoding::UTF8,
+        _ => ::frame::constants::TextEncoding::Iso88591
     }
 }

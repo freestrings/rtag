@@ -4,11 +4,24 @@ extern crate regex;
 pub mod constants;
 mod util;
 
-use self::encoding::{Encoding, DecoderTrap};
-use std::vec::Vec;
-use std::io::{Result, Cursor, Error, ErrorKind};
+use self::encoding::{
+    Encoding,
+    DecoderTrap
+};
 
-use bytes;
+use self::encoding::all::{
+    ISO_8859_1,
+    UTF_16LE,
+    UTF_16BE,
+    UTF_8
+};
+
+use std::io::{
+    Result,
+    Cursor
+};
+use std::vec::Vec;
+
 use frame::constants::{
     id,
     PictureType,
@@ -17,7 +30,6 @@ use frame::constants::{
     ContentType,
     TimestampFormat,
     EventTimingCode,
-    FrameHeaderFlag,
     TextEncoding
 };
 
@@ -53,9 +65,9 @@ pub struct BUF {
 
 impl FrameReaderDefault<BUF> for BUF {
     fn read(readable: &mut Readable) -> Result<BUF> {
-        let buffer_size = bytes::to_u32(&readable.as_bytes(3)?);
-        let embedded_info_flag = readable.as_bytes(1)?[0];
-        let offset_to_next_tag = bytes::to_u32(&readable.as_bytes(4)?);
+        let buffer_size = readable.u24()?;
+        let embedded_info_flag = readable.u8()?;
+        let offset_to_next_tag = readable.u32()?;
 
         Ok(BUF {
             buffer_size: buffer_size,
@@ -76,8 +88,8 @@ pub struct CRM {
 
 impl FrameReaderDefault<CRM> for CRM {
     fn read(readable: &mut Readable) -> Result<CRM> {
-        let (_, owner_identifier) = readable.non_utf16_string()?;
-        let (_, content) = readable.non_utf16_string()?;
+        let owner_identifier = readable.non_utf16_string()?;
+        let content = readable.non_utf16_string()?;
         let encrypted_datablock = readable.all_bytes()?;
 
         Ok(CRM {
@@ -100,10 +112,10 @@ pub struct PIC {
 
 impl FrameReaderDefault<PIC> for PIC {
     fn read(readable: &mut Readable) -> Result<PIC> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let image_format = readable.as_string(3)?;
-        let picture_type = util::to_picture_type(readable.as_bytes(1)?[0]);
-        let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let image_format = readable.string(3)?;
+        let picture_type = util::to_picture_type(readable.u8()?);
+        let description = util::read_null_terminated(&text_encoding, readable)?;
         let picture_data = readable.all_bytes()?;
 
         Ok(PIC {
@@ -127,13 +139,16 @@ pub struct AENC {
 
 impl FrameReaderDefault<AENC> for AENC {
     fn read(readable: &mut Readable) -> Result<AENC> {
-        let (_, owner_identifier) = readable.non_utf16_string()?;
+        let owner_identifier = readable.non_utf16_string()?;
+        let preview_start = readable.u16()?;
+        let preview_end = readable.u16()?;
+        let encryption_info = readable.all_bytes()?;
 
         Ok(AENC {
             owner_identifier: owner_identifier,
-            preview_start: bytes::to_u16(&readable.as_bytes(2)?),
-            preview_end: bytes::to_u16(&readable.as_bytes(2)?),
-            encryption_info: readable.all_bytes()?
+            preview_start: preview_start,
+            preview_end: preview_end,
+            encryption_info: encryption_info
         })
     }
 }
@@ -151,10 +166,10 @@ pub struct APIC {
 
 impl FrameReaderDefault<APIC> for APIC {
     fn read(readable: &mut Readable) -> Result<APIC> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let (_, mine_type) = readable.non_utf16_string()?;
-        let picture_type = util::to_picture_type(readable.as_bytes(1)?[0]);
-        let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let mine_type = readable.non_utf16_string()?;
+        let picture_type = util::to_picture_type(readable.u8()?);
+        let description = util::read_null_terminated(&text_encoding, readable)?;
         let picture_data = readable.all_bytes()?;
 
         Ok(APIC {
@@ -180,11 +195,11 @@ pub struct ASPI {
 
 impl FrameReaderDefault<ASPI> for ASPI {
     fn read(readable: &mut Readable) -> Result<ASPI> {
-        let indexed_data_start = bytes::to_u32(&readable.as_bytes(4)?);
-        let indexed_data_length = bytes::to_u32(&readable.as_bytes(4)?);
-        let number_of_index_points = bytes::to_u16(&readable.as_bytes(2)?);
-        let bit_per_index_point = readable.as_bytes(1)?[0];
-        let fraction_at_index = readable.as_bytes(1)?[0];
+        let indexed_data_start = readable.u32()?;
+        let indexed_data_length = readable.u32()?;
+        let number_of_index_points = readable.u16()?;
+        let bit_per_index_point = readable.u8()?;
+        let fraction_at_index = readable.u8()?;
 
         Ok(ASPI {
             indexed_data_start: indexed_data_start,
@@ -207,9 +222,9 @@ pub struct COMM {
 
 impl FrameReaderDefault<COMM> for COMM {
     fn read(readable: &mut Readable) -> Result<COMM> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let language = readable.as_string(3)?;
-        let (_, short_description) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let language = readable.string(3)?;
+        let short_description = util::read_null_terminated(&text_encoding, readable)?;
         let actual_text = self::trim(readable.all_string()?);
 
         Ok(COMM {
@@ -239,14 +254,14 @@ pub struct COMR {
 
 impl FrameReaderDefault<COMR> for COMR {
     fn read(readable: &mut Readable) -> Result<COMR> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let (_, price_string) = readable.non_utf16_string()?;
-        let valid_util = readable.as_string(8)?;
-        let (_, contact_url) = readable.non_utf16_string()?;
-        let received_as = util::to_received_as(readable.as_bytes(1)?[0]);
-        let (_, name_of_seller) = readable.utf16_string()?;
-        let (_, description) = readable.utf16_string()?;
-        let (_, picture_mime_type) = readable.non_utf16_string()?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let price_string = readable.non_utf16_string()?;
+        let valid_util = readable.string(8)?;
+        let contact_url = readable.non_utf16_string()?;
+        let received_as = util::to_received_as(readable.u8()?);
+        let name_of_seller = readable.utf16_string()?;
+        let description = readable.utf16_string()?;
+        let picture_mime_type = readable.non_utf16_string()?;
         let seller_logo = readable.all_bytes()?;
 
         Ok(COMR {
@@ -274,8 +289,8 @@ pub struct ENCR {
 
 impl FrameReaderDefault<ENCR> for ENCR {
     fn read(readable: &mut Readable) -> Result<ENCR> {
-        let (_, owner_identifier) = readable.non_utf16_string()?;
-        let method_symbol = readable.as_bytes(1)?[0];
+        let owner_identifier = readable.non_utf16_string()?;
+        let method_symbol = readable.u8()?;
         let encryption_data = readable.all_bytes()?;
 
         Ok(ENCR {
@@ -295,7 +310,7 @@ pub struct EQUA {
 
 impl FrameReaderDefault<EQUA> for EQUA {
     fn read(readable: &mut Readable) -> Result<EQUA> {
-        let adjustment_bit = readable.as_bytes(1)?[0];
+        let adjustment_bit = readable.u8()?;
 
         Ok(EQUA {
             adjustment_bit: adjustment_bit
@@ -313,8 +328,8 @@ pub struct EQU2 {
 
 impl FrameReaderDefault<EQU2> for EQU2 {
     fn read(readable: &mut Readable) -> Result<EQU2> {
-        let interpolation_method = util::to_interpolation_method(readable.as_bytes(1)?[0]);
-        let (_, identification) = readable.non_utf16_string()?;
+        let interpolation_method = util::to_interpolation_method(readable.u8()?);
+        let identification = readable.non_utf16_string()?;
 
         Ok(EQU2 {
             interpolation_method: interpolation_method,
@@ -332,13 +347,13 @@ pub struct ETCO {
 
 impl FrameReaderDefault<ETCO> for ETCO {
     fn read(readable: &mut Readable) -> Result<ETCO> {
-        let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
+        let timestamp_format = util::to_timestamp_format(readable.u8()?);
         let mut event_timing_codes: Vec<EventTimingCode> = Vec::new();
         loop {
             let mut is_break = true;
-            if let Ok(code_type) = readable.as_bytes(1) {
-                if let Ok(timestamp) = readable.as_bytes(4) {
-                    let event_timing_code = util::to_event_timing_code(code_type[0], bytes::to_u32(&timestamp));
+            if let Ok(code_type) = readable.u8() {
+                if let Ok(timestamp) = readable.u32() {
+                    let event_timing_code = util::to_event_timing_code(code_type, timestamp);
                     event_timing_codes.push(event_timing_code);
                     is_break = false;
                 }
@@ -368,10 +383,10 @@ pub struct GEOB {
 
 impl FrameReaderDefault<GEOB> for GEOB {
     fn read(readable: &mut Readable) -> Result<GEOB> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let (_, mime_type) = readable.non_utf16_string()?;
-        let (_, filename) = util::read_null_terminated(&text_encoding, readable)?;
-        let (_, content_description) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let mime_type = readable.non_utf16_string()?;
+        let filename = util::read_null_terminated(&text_encoding, readable)?;
+        let content_description = util::read_null_terminated(&text_encoding, readable)?;
         let encapsulation_object = readable.all_bytes()?;
 
         Ok(GEOB {
@@ -395,8 +410,8 @@ pub struct GRID {
 
 impl FrameReaderDefault<GRID> for GRID {
     fn read(readable: &mut Readable) -> Result<GRID> {
-        let (_, owner_identifier) = readable.non_utf16_string()?;
-        let group_symbol = readable.as_bytes(1)?[0];
+        let owner_identifier = readable.non_utf16_string()?;
+        let group_symbol = readable.u8()?;
         let group_dependent_data = readable.all_bytes()?;
 
         Ok(GRID {
@@ -416,8 +431,8 @@ pub struct IPLS {
 
 impl FrameReaderDefault<IPLS> for IPLS {
     fn read(readable: &mut Readable) -> Result<IPLS> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let (_, people_list_strings) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let people_list_strings = util::read_null_terminated(&text_encoding, readable)?;
 
         Ok(IPLS {
             text_encoding: text_encoding,
@@ -437,10 +452,10 @@ pub struct LINK {
 impl FrameReaderVesionAware<LINK> for LINK {
     fn read(readable: &mut Readable, version: u8) -> Result<LINK> {
         let frame_id = match version {
-            2 | 3 => readable.as_string(3)?,
-            _ => readable.as_string(4)?
+            2 | 3 => readable.string(3)?,
+            _ => readable.string(4)?
         };
-        let (_, url) = readable.non_utf16_string()?;
+        let url = readable.non_utf16_string()?;
         let additional_data = readable.all_string()?;
 
         Ok(LINK {
@@ -498,10 +513,10 @@ pub struct OWNE {
 
 impl FrameReaderDefault<OWNE> for OWNE {
     fn read(readable: &mut Readable) -> Result<OWNE> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let (_, price_paid) = readable.non_utf16_string()?;
-        let date_of_purch = readable.as_string(4)?;
-        let (_, seller) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let price_paid = readable.non_utf16_string()?;
+        let date_of_purch = readable.string(4)?;
+        let seller = util::read_null_terminated(&text_encoding, readable)?;
 
         Ok(OWNE {
             text_encoding: text_encoding,
@@ -522,7 +537,7 @@ pub struct PRIV {
 
 impl FrameReaderDefault<PRIV> for PRIV {
     fn read(readable: &mut Readable) -> Result<PRIV> {
-        let (_, owner_identifier) = readable.non_utf16_string()?;
+        let owner_identifier = readable.non_utf16_string()?;
         let private_data = readable.all_bytes()?;
 
         Ok(PRIV {
@@ -541,8 +556,7 @@ pub struct PCNT {
 
 impl FrameReaderDefault<PCNT> for PCNT {
     fn read(readable: &mut Readable) -> Result<PCNT> {
-        let mut all_bytes = readable.all_bytes()?;
-        let counter = util::trim_to_u32(&mut all_bytes);
+        let counter = readable.u32()?;
 
         Ok(PCNT {
             counter: counter
@@ -562,12 +576,9 @@ pub struct POPM {
 
 impl FrameReaderDefault<POPM> for POPM {
     fn read(readable: &mut Readable) -> Result<POPM> {
-        let (_, email_to_user) = readable.non_utf16_string()?;
-        let rating = readable.as_bytes(1)?[0];
-        let counter = {
-            let mut all_bytes = readable.all_bytes()?;
-            util::trim_to_u32(&mut all_bytes)
-        };
+        let email_to_user = readable.non_utf16_string()?;
+        let rating = readable.u8()?;
+        let counter = readable.u32()?;
 
         Ok(POPM {
             email_to_user: email_to_user,
@@ -588,7 +599,7 @@ pub struct POSS {
 
 impl FrameReaderDefault<POSS> for POSS {
     fn read(readable: &mut Readable) -> Result<POSS> {
-        let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
+        let timestamp_format = util::to_timestamp_format(readable.u8()?);
         let position = readable.all_bytes()?;
 
         Ok(POSS {
@@ -609,9 +620,9 @@ pub struct RBUF {
 
 impl FrameReaderDefault<RBUF> for RBUF {
     fn read(readable: &mut Readable) -> Result<RBUF> {
-        let buffer_size = bytes::to_u32(&readable.as_bytes(3)?);
-        let embedded_info_flag = readable.as_bytes(1)?[0] & 0x01;
-        let offset_to_next_tag = bytes::to_u32(&readable.as_bytes(4)?);
+        let buffer_size = readable.u24()?;
+        let embedded_info_flag = readable.u8()?;
+        let offset_to_next_tag = readable.u32()?;
 
         Ok(RBUF {
             buffer_size: buffer_size,
@@ -657,16 +668,16 @@ pub struct RVRB {
 
 impl FrameReaderDefault<RVRB> for RVRB {
     fn read(readable: &mut Readable) -> Result<RVRB> {
-        let reverb_left = bytes::to_u16(&readable.as_bytes(2)?);
-        let reverb_right = bytes::to_u16(&readable.as_bytes(2)?);
-        let reverb_bounce_left = readable.as_bytes(1)?[0];
-        let reverb_bounce_right = readable.as_bytes(1)?[0];
-        let reverb_feedback_left_to_left = readable.as_bytes(1)?[0];
-        let reverb_feedback_left_to_right = readable.as_bytes(1)?[0];
-        let reverb_feedback_right_to_right = readable.as_bytes(1)?[0];
-        let reverb_feedback_right_to_left = readable.as_bytes(1)?[0];
-        let premix_left_to_right = readable.as_bytes(1)?[0];
-        let premix_right_to_left = readable.as_bytes(1)?[0];
+        let reverb_left = readable.u16()?;
+        let reverb_right = readable.u16()?;
+        let reverb_bounce_left = readable.u8()?;
+        let reverb_bounce_right = readable.u8()?;
+        let reverb_feedback_left_to_left = readable.u8()?;
+        let reverb_feedback_left_to_right = readable.u8()?;
+        let reverb_feedback_right_to_right = readable.u8()?;
+        let reverb_feedback_right_to_left = readable.u8()?;
+        let premix_left_to_right = readable.u8()?;
+        let premix_right_to_left = readable.u8()?;
 
         Ok(RVRB {
             reverb_left: reverb_left,
@@ -710,7 +721,7 @@ pub struct SIGN {
 
 impl FrameReaderDefault<SIGN> for SIGN {
     fn read(readable: &mut Readable) -> Result<SIGN> {
-        let group_symbol = readable.as_bytes(1)?[0];
+        let group_symbol = readable.u8()?;
         let signature = readable.all_bytes()?;
 
         Ok(SIGN {
@@ -733,11 +744,11 @@ pub struct SYLT {
 
 impl FrameReaderDefault<SYLT> for SYLT {
     fn read(readable: &mut Readable) -> Result<SYLT> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let language = readable.as_string(3)?;
-        let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
-        let content_type = util::to_content_type(readable.as_bytes(1)?[0]);
-        let (_, content_descriptor) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let language = readable.string(3)?;
+        let timestamp_format = util::to_timestamp_format(readable.u8()?);
+        let content_type = util::to_content_type(readable.u8()?);
+        let content_descriptor = util::read_null_terminated(&text_encoding, readable)?;
 
         Ok(SYLT {
             text_encoding: text_encoding,
@@ -759,7 +770,7 @@ pub struct SYTC {
 
 impl FrameReaderDefault<SYTC> for SYTC {
     fn read(readable: &mut Readable) -> Result<SYTC> {
-        let timestamp_format = util::to_timestamp_format(readable.as_bytes(1)?[0]);
+        let timestamp_format = util::to_timestamp_format(readable.u8()?);
         let tempo_data = readable.all_bytes()?;
 
         Ok(SYTC {
@@ -779,7 +790,7 @@ pub struct UFID {
 
 impl FrameReaderDefault<UFID> for UFID {
     fn read(readable: &mut Readable) -> Result<UFID> {
-        let (_, owner_identifier) = readable.non_utf16_string()?;
+        let owner_identifier = readable.non_utf16_string()?;
         let identifier = readable.all_bytes()?;
 
         Ok(UFID {
@@ -800,9 +811,9 @@ pub struct USER {
 
 impl FrameReaderDefault<USER> for USER {
     fn read(readable: &mut Readable) -> Result<USER> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let language = readable.as_string(3)?;
-        let (_, actual_text) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let language = readable.string(3)?;
+        let actual_text = util::read_null_terminated(&text_encoding, readable)?;
 
         Ok(USER {
             text_encoding: text_encoding,
@@ -824,10 +835,10 @@ pub struct USLT {
 
 impl FrameReaderDefault<USLT> for USLT {
     fn read(readable: &mut Readable) -> Result<USLT> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let language = readable.as_string(3)?;
-        let (_, content_descriptor) = util::read_null_terminated(&text_encoding, readable)?;
-        let (_, lyrics) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let language = readable.string(3)?;
+        let content_descriptor = util::read_null_terminated(&text_encoding, readable)?;
+        let lyrics = util::read_null_terminated(&text_encoding, readable)?;
 
         Ok(USLT {
             text_encoding: text_encoding,
@@ -846,11 +857,12 @@ pub struct TEXT {
 
 impl FrameReaderIdAware<TEXT> for TEXT {
     fn read(readable: &mut Readable, id: &str) -> Result<TEXT> {
-        fn _default(id: &str, decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>) -> String {
+        fn _default(id: &str, decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>)
+                    -> String {
             match decode {
                 Ok(text) => text,
                 Err(e) => {
-                    println!("TEXT Error {}, {:?}", id, e);
+                    debug!("TEXT Error {}, {:?}", id, e);
                     if id == id::TBPM_STR || id == id::TBP_STR {
                         "0".to_string()
                     } else {
@@ -860,13 +872,13 @@ impl FrameReaderIdAware<TEXT> for TEXT {
             }
         }
 
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
+        let text_encoding = util::to_encoding(readable.u8()?);
         let data = readable.all_bytes()?;
         let text = match text_encoding {
-            TextEncoding::Iso8859_1 => _default(id, encoding::all::ISO_8859_1.decode(&data, encoding::DecoderTrap::Strict)),
-            TextEncoding::UTF16LE => _default(id, encoding::all::UTF_16LE.decode(&data, encoding::DecoderTrap::Strict)),
-            TextEncoding::UTF16BE => _default(id, encoding::all::UTF_16BE.decode(&data, encoding::DecoderTrap::Strict)),
-            TextEncoding::UTF8 => _default(id, encoding::all::UTF_8.decode(&data, encoding::DecoderTrap::Strict))
+            TextEncoding::Iso88591 => _default(id, ISO_8859_1.decode(&data, DecoderTrap::Strict)),
+            TextEncoding::UTF16LE => _default(id, UTF_16LE.decode(&data, DecoderTrap::Strict)),
+            TextEncoding::UTF16BE => _default(id, UTF_16BE.decode(&data, DecoderTrap::Strict)),
+            TextEncoding::UTF8 => _default(id, UTF_8.decode(&data, DecoderTrap::Strict))
         };
 
         Ok(TEXT {
@@ -885,8 +897,8 @@ pub struct TXXX {
 
 impl FrameReaderDefault<TXXX> for TXXX {
     fn read(readable: &mut Readable) -> Result<TXXX> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let description = util::read_null_terminated(&text_encoding, readable)?;
         let value = readable.all_string()?;
 
         Ok(TXXX {
@@ -908,8 +920,8 @@ pub struct WXXX {
 
 impl FrameReaderDefault<WXXX> for WXXX {
     fn read(readable: &mut Readable) -> Result<WXXX> {
-        let text_encoding = bytes::to_encoding(readable.as_bytes(1)?[0]);
-        let (_, description) = util::read_null_terminated(&text_encoding, readable)?;
+        let text_encoding = util::to_encoding(readable.u8()?);
+        let description = util::read_null_terminated(&text_encoding, readable)?;
         let url = readable.all_string()?;
 
         Ok(WXXX {

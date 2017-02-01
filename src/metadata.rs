@@ -17,8 +17,10 @@ use frame::constants::{
     FrameHeaderFlag
 };
 
-use readable;
-use readable::Readable;
+use readable::{
+    Readable,
+    ReadableFactory
+};
 
 use std::cell::RefCell;
 use std::fs::File;
@@ -298,7 +300,7 @@ impl Metadata {
         let file = File::open(path)?;
         let metadata = file.metadata()?;
         let file_len = metadata.len();
-        let readable = readable::factory::from_file(file)?;
+        let readable = file.readable();
 
         Ok(Metadata {
             next: Status::Head(Rc::new(RefCell::new(Box::new(readable)))),
@@ -341,7 +343,7 @@ impl Metadata {
             } else {
                 readable.bytes(head_size)?
             };
-            let frame_readable = readable::factory::from_bytes(frame_bytes)?;
+            let frame_readable = Cursor::new(frame_bytes).readable();
             let frame_readable_wrap = Rc::new(RefCell::new(Box::new(frame_readable)));
 
             Status::Frame(head_wrap, readable_wrap.clone(), frame_readable_wrap)
@@ -369,7 +371,7 @@ impl Metadata {
         let extended_bytes = readable.bytes(size as usize)?;
         let head_size = head_wrap.borrow().size as usize;
         let frame_bytes = readable.bytes(head_size)?;
-        let frame_readable = readable::factory::from_bytes(frame_bytes)?;
+        let frame_readable = Cursor::new(frame_bytes).readable();
         let frame_readable_wrap = Rc::new(RefCell::new(Box::new(frame_readable)));
 
         self.next = Status::Frame(head_wrap, readable_wrap.clone(), frame_readable_wrap);
@@ -391,7 +393,7 @@ impl Metadata {
                                   format!("Invalid v1 TAG: {}", tag_id)));
         }
 
-        Frame1::new(&mut readable::factory::from_bytes(readable.all_bytes()?)?)
+        Frame1::new(&mut Cursor::new(readable.all_bytes()?).readable())
     }
 
     // version 2.2
@@ -443,7 +445,7 @@ impl Metadata {
             readable.bytes(actual_size as usize)?
         };
 
-        let frame_readable = readable::factory::from_bytes(body_bytes)?;
+        let frame_readable = Cursor::new(body_bytes).readable();
         let frame_body = frame_data(id.as_str(), head.version, &frame_header, frame_readable)?;
 
         Ok(Unit::FrameV2(frame_header, frame_body))
@@ -504,7 +506,7 @@ impl Metadata {
             body_bytes = out;
         }
 
-        let frame_readable = readable::factory::from_bytes(body_bytes)?;
+        let frame_readable = Cursor::new(body_bytes).readable();
         let frame_body = frame_data(id.as_str(), head.version, &frame_header, frame_readable)?;
 
         Ok(Unit::FrameV2(frame_header, frame_body))

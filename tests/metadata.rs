@@ -5,6 +5,7 @@ pub extern crate regex;
 extern crate env_logger;
 extern crate rust_id3 as id3;
 
+use std::io::Cursor;
 use std::vec::Vec;
 use id3::frame::constants::{
     EventTimingCode,
@@ -18,7 +19,7 @@ use id3::metadata::{
     Metadata,
     Unit
 };
-use id3::readable;
+use id3::readable::ReadableFactory;
 
 fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
     data.reverse();
@@ -142,7 +143,7 @@ fn metadata_v1() {
                 "2017",
                 "COMMENTCOMMENTCOMMENTCOMMENTCO4");
 
-    let mut readable = readable::factory::from_bytes(id3v1_tag.to_string().into_bytes()).unwrap();
+    let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes()).readable();
     let frame = Frame1::new(&mut readable).unwrap();
     assert_eq!(frame.title, "TITLETITLETITLETITLETITLETITLE");
     assert_eq!(frame.artist, "ARTISTARTISTARTISTARTISTARTIST");
@@ -156,7 +157,7 @@ fn metadata_v1() {
                 "2017",
                 "COMMENT                        ");
 
-    let mut readable = readable::factory::from_bytes(id3v1_tag.to_string().into_bytes()).unwrap();
+    let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes()).readable();
     let frame = Frame1::new(&mut readable).unwrap();
     assert_eq!(frame.title, "TITLE");
     assert_eq!(frame.artist, "ARTIST");

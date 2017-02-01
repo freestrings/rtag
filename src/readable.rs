@@ -1,4 +1,3 @@
-use std::vec::Vec;
 use std::io::{
     Cursor,
     Error,
@@ -8,6 +7,7 @@ use std::io::{
     SeekFrom,
     Result
 };
+use std::vec::Vec;
 
 const DEFAULT_BUF_SIZE: usize = 1024;
 
@@ -241,24 +241,16 @@ impl<I> Readable<I> where I: Read + Seek {
 
     pub fn to_readable(&mut self, amount: usize) -> Result<Readable<Cursor<Vec<u8>>>> {
         let bytes = self.bytes(amount)?;
-        self::factory::from_bytes(bytes)
+        Ok(Cursor::new(bytes).readable())
     }
 }
 
-pub mod factory {
-    use std::fs::File;
-    use std::vec::Vec;
-    use std::io::{Cursor, Result};
+pub trait ReadableFactory<T> where T: Read + Seek {
+    fn readable(self) -> Readable<T>;
+}
 
-    pub fn from_file(file: File) -> Result<super::Readable<File>> {
-        Ok(super::Readable::new(file))
-    }
-
-    pub fn from_path(str: &str) -> Result<super::Readable<File>> {
-        Ok(super::Readable::new(File::open(str)?))
-    }
-
-    pub fn from_bytes(bytes: Vec<u8>) -> Result<super::Readable<Cursor<Vec<u8>>>> {
-        Ok(super::Readable::new(Cursor::new(bytes)))
+impl<T: Read + Seek> ReadableFactory<T> for T {
+    fn readable(self) -> Readable<T> {
+        Readable::new(self)
     }
 }

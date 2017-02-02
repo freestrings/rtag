@@ -241,16 +241,16 @@ impl<I> Readable<I> where I: Read + Seek {
 
     pub fn to_readable(&mut self, amount: usize) -> Result<Readable<Cursor<Vec<u8>>>> {
         let bytes = self.bytes(amount)?;
-        Ok(Cursor::new(bytes).readable())
+        Ok(Cursor::new(bytes).to_readable())
     }
 }
 
 pub trait ReadableFactory<T> where T: Read + Seek {
-    fn readable(self) -> Readable<T>;
+    fn to_readable(self) -> Readable<T>;
 }
 
 impl<T: Read + Seek> ReadableFactory<T> for T {
-    fn readable(self) -> Readable<T> {
+    fn to_readable(self) -> Readable<T> {
         Readable::new(self)
     }
 }

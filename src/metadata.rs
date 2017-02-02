@@ -355,7 +355,7 @@ impl Metadata {
         let file = File::open(path)?;
         let metadata = file.metadata()?;
         let file_len = metadata.len();
-        let readable = file.readable();
+        let readable = file.to_readable();
 
         Ok(Metadata {
             next: Status::Head(Rc::new(RefCell::new(Box::new(readable)))),
@@ -398,7 +398,7 @@ impl Metadata {
             } else {
                 readable.bytes(head_size)?
             };
-            let frame_readable = Cursor::new(frame_bytes).readable();
+            let frame_readable = Cursor::new(frame_bytes).to_readable();
             let frame_readable_wrap = Rc::new(RefCell::new(Box::new(frame_readable)));
 
             Status::Frame(head_wrap, readable_wrap.clone(), frame_readable_wrap)
@@ -426,7 +426,7 @@ impl Metadata {
         let extended_bytes = readable.bytes(size as usize)?;
         let head_size = head_wrap.borrow().size as usize;
         let frame_bytes = readable.bytes(head_size)?;
-        let frame_readable = Cursor::new(frame_bytes).readable();
+        let frame_readable = Cursor::new(frame_bytes).to_readable();
         let frame_readable_wrap = Rc::new(RefCell::new(Box::new(frame_readable)));
 
         self.next = Status::Frame(head_wrap, readable_wrap.clone(), frame_readable_wrap);
@@ -447,7 +447,7 @@ impl Metadata {
             return Err(ParsingError::BadData(ParsingErrorKind::InvalidV1FrameId));
         }
 
-        Frame1::new(&mut Cursor::new(readable.all_bytes()?).readable())
+        Frame1::new(&mut Cursor::new(readable.all_bytes()?).to_readable())
     }
 
     // version 2.2
@@ -499,7 +499,7 @@ impl Metadata {
             readable.bytes(actual_size as usize)?
         };
 
-        let frame_readable = Cursor::new(body_bytes).readable();
+        let frame_readable = Cursor::new(body_bytes).to_readable();
         let frame_body = frame_data(id.as_str(), head.version, &frame_header, frame_readable)?;
 
         Ok(Unit::FrameV2(frame_header, frame_body))
@@ -560,7 +560,7 @@ impl Metadata {
             body_bytes = out;
         }
 
-        let frame_readable = Cursor::new(body_bytes).readable();
+        let frame_readable = Cursor::new(body_bytes).to_readable();
         let frame_body = frame_data(id.as_str(), head.version, &frame_header, frame_readable)?;
 
         Ok(Unit::FrameV2(frame_header, frame_body))

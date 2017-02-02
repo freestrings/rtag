@@ -8,12 +8,12 @@ use rtag::readable::ReadableFactory;
 #[test]
 fn readable_bytes() {
     let valid = "0123456789".to_string();
-    let mut readable = Cursor::new(valid.into_bytes()).readable();
+    let mut readable = Cursor::new(valid.into_bytes()).to_readable();
     assert!(readable.bytes(10).is_ok());
     assert!(readable.bytes(10).is_err());
 
     let str = "AB가나01".to_string();
-    let mut readable = Cursor::new(str.into_bytes()).readable();
+    let mut readable = Cursor::new(str.into_bytes()).to_readable();
     assert!(readable.skip(1).is_ok());
     assert_eq!(readable.string(1).unwrap(), "B");
     // utf8, 3bytes
@@ -24,7 +24,7 @@ fn readable_bytes() {
 
 #[test]
 fn readable_file() {
-    let mut readable = File::open("./test-resources/file1.txt").unwrap().readable();
+    let mut readable = File::open("./test-resources/file1.txt").unwrap().to_readable();
     assert!(readable.bytes(10).is_ok());
     assert!(readable.bytes(10).is_ok());
     assert!(readable.skip(-5).is_ok());
@@ -42,7 +42,7 @@ fn readable_utf16_string() {
     bytes.push(0x00);
     bytes.push(0x02);
     assert_eq!(bytes.len(), 15);
-    let mut readable = Cursor::new(bytes).readable();
+    let mut readable = Cursor::new(bytes).to_readableg();
     let read = readable.utf16_string().unwrap();
     assert_eq!("AB\u{ac00}\u{b098}01\u{0}\u{1}", read);
     assert!(readable.skip(1).is_ok());

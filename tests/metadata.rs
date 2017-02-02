@@ -143,7 +143,7 @@ fn metadata_v1() {
                 "2017",
                 "COMMENTCOMMENTCOMMENTCOMMENTCO4");
 
-    let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes()).readable();
+    let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes()).to_readable();
     let frame = Frame1::new(&mut readable).unwrap();
     assert_eq!(frame.title, "TITLETITLETITLETITLETITLETITLE");
     assert_eq!(frame.artist, "ARTISTARTISTARTISTARTISTARTIST");
@@ -157,7 +157,7 @@ fn metadata_v1() {
                 "2017",
                 "COMMENT                        ");
 
-    let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes()).readable();
+    let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes()).to_readable();
     let frame = Frame1::new(&mut readable).unwrap();
     assert_eq!(frame.title, "TITLE");
     assert_eq!(frame.artist, "ARTIST");

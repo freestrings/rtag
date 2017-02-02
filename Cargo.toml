@@ -1,11 +1,11 @@
 [package]
-name = "rust_id3"
-version = "0.1.0"
+name = "rtag"
+version = "0.2.0"
 authors = ["Mark Han <freestrings@gmail.com>"]
-description = "A rust id3 read/write library"
-repository = "https://github.com/freestrings/rust-id3"
+description = "Library for reading and writing a audio metadata"
+repository = "https://github.com/freestrings/rtag"
 license = "MIT"
-keywords = ["library", "id3", "music"]
+keywords = ["library", "id3", "music", "flag", "mp3"]
 
 [dependencies]
 log = "0.3"

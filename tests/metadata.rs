@@ -3,23 +3,23 @@ extern crate log;
 
 pub extern crate regex;
 extern crate env_logger;
-extern crate rust_id3 as id3;
+extern crate rtag;
 
 use std::io::Cursor;
 use std::vec::Vec;
-use id3::frame::constants::{
+use rtag::frame::constants::{
     EventTimingCode,
     HeadFlag,
     FrameData,
     FrameHeaderFlag,
     TimestampFormat
 };
-use id3::metadata::{
+use rtag::metadata::{
     Frame1,
     Metadata,
     Unit
 };
-use id3::readable::ReadableFactory;
+use rtag::readable::ReadableFactory;
 
 fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
     data.reverse();

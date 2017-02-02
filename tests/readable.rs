@@ -1,9 +1,9 @@
-extern crate rust_id3 as id3;
+extern crate rtag;
 
 use std::vec;
 use std::fs::File;
 use std::io::Cursor;
-use id3::readable::ReadableFactory;
+use rtag::readable::ReadableFactory;
 
 #[test]
 fn readable_bytes() {

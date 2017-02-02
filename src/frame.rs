@@ -45,15 +45,15 @@ pub trait FrameReaderVesionAware<T> {
 
 #[derive(Clone, Debug)]
 pub struct Head {
-    pub flag: u8,
     pub version: u8,
     pub minor_version: u8,
+    pub flag: u8,
     pub size: u32
 }
 
 // http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header
 impl Head {
-    pub fn new(mut readable: Readable) -> result::Result<Self, ParsingError> {
+    pub fn read(mut readable: Readable) -> result::Result<Self, ParsingError> {
         let tag_id = readable.string(3)?;
         let version = readable.u8()?;
         let minor_version = readable.u8()?;
@@ -116,7 +116,7 @@ pub struct Frame1 {
 }
 
 impl Frame1 {
-    pub fn new(readable: &mut Readable) -> result::Result<Self, ParsingError> {
+    pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
         readable.skip(3)?;
 
         // offset 3
@@ -167,51 +167,105 @@ impl Frame1 {
 }
 
 #[derive(Debug)]
-pub struct FrameHeader {
-    id: String,
-    version: u8,
-    status_flag: u8,
-    encoding_flag: u8
+pub enum FrameHeader {
+    V22(FrameHeaderV2),
+    V23(FrameHeaderV3),
+    V24(FrameHeaderV4)
 }
 
-impl FrameHeader {
-    pub fn new(id: String, version: u8, status_flag: u8, encoding_flag: u8) -> Self {
-        FrameHeader {
+#[derive(Debug)]
+pub struct FrameHeaderV2 {
+    pub id: String,
+    pub size: u32,
+}
+
+impl FrameHeaderV2 {
+    pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
+        let id = readable.string(3)?;
+        let size = readable.u24()?;
+
+        Ok(FrameHeaderV2 {
             id: id,
-            version: version,
-            status_flag: status_flag,
-            encoding_flag: encoding_flag
-        }
+            size: size
+        })
     }
 
     // There is no flag for 2.2 frame.
+    pub fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
+        return false;
+    }
+}
+
+#[derive(Debug)]
+pub struct FrameHeaderV3 {
+    pub id: String,
+    pub size: u32,
+    pub status_flag: u8,
+    pub encoding_flag: u8
+}
+
+impl FrameHeaderV3 {
+    pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
+        let id = readable.string(4)?;
+        let size = readable.u32()?;
+        let status_flag = readable.u8()?;
+        let encoding_flag = readable.u8()?;
+
+        Ok(FrameHeaderV3 {
+            id: id,
+            size: size,
+            status_flag: status_flag,
+            encoding_flag: encoding_flag
+        })
+    }
+
+    pub fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
+        match flag {
+            FrameHeaderFlag::TagAlter => self.status_flag & util::BIT7 != 0,
+            FrameHeaderFlag::FileAlter => self.status_flag & util::BIT6 != 0,
+            FrameHeaderFlag::ReadOnly => self.status_flag & util::BIT5 != 0,
+            FrameHeaderFlag::Compression => self.encoding_flag & util::BIT7 != 0,
+            FrameHeaderFlag::Encryption => self.encoding_flag & util::BIT6 != 0,
+            FrameHeaderFlag::GroupIdentity => self.encoding_flag & util::BIT5 != 0,
+            _ => false
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct FrameHeaderV4 {
+    pub id: String,
+    pub size: u32,
+    pub status_flag: u8,
+    pub encoding_flag: u8
+}
+
+impl FrameHeaderV4 {
+    pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
+        let id = readable.string(4)?;
+        let size = readable.synchsafe()?;
+        let status_flag = readable.u8()?;
+        let encoding_flag = readable.u8()?;
+
+        Ok(FrameHeaderV4 {
+            id: id,
+            size: size,
+            status_flag: status_flag,
+            encoding_flag: encoding_flag
+        })
+    }
+
     // http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
     pub fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
-        if self.version < 3 {
-            return false;
-        }
-
-        match self.version {
-            3 => match flag {
-                FrameHeaderFlag::TagAlter => self.status_flag & util::BIT7 != 0,
-                FrameHeaderFlag::FileAlter => self.status_flag & util::BIT6 != 0,
-                FrameHeaderFlag::ReadOnly => self.status_flag & util::BIT5 != 0,
-                FrameHeaderFlag::Compression => self.encoding_flag & util::BIT7 != 0,
-                FrameHeaderFlag::Encryption => self.encoding_flag & util::BIT6 != 0,
-                FrameHeaderFlag::GroupIdentity => self.encoding_flag & util::BIT5 != 0,
-                _ => false
-            },
-            4 => match flag {
-                FrameHeaderFlag::TagAlter => self.status_flag & util::BIT6 != 0,
-                FrameHeaderFlag::FileAlter => self.status_flag & util::BIT5 != 0,
-                FrameHeaderFlag::ReadOnly => self.status_flag & util::BIT4 != 0,
-                FrameHeaderFlag::GroupIdentity => self.encoding_flag & util::BIT6 != 0,
-                FrameHeaderFlag::Compression => self.encoding_flag & util::BIT3 != 0,
-                FrameHeaderFlag::Encryption => self.encoding_flag & util::BIT2 != 0,
-                FrameHeaderFlag::Unsynchronisation => self.encoding_flag & util::BIT1 != 0,
-                FrameHeaderFlag::DataLength => self.encoding_flag & util::BIT0 != 0
-            },
-            _ => false
+        match flag {
+            FrameHeaderFlag::TagAlter => self.status_flag & util::BIT6 != 0,
+            FrameHeaderFlag::FileAlter => self.status_flag & util::BIT5 != 0,
+            FrameHeaderFlag::ReadOnly => self.status_flag & util::BIT4 != 0,
+            FrameHeaderFlag::GroupIdentity => self.encoding_flag & util::BIT6 != 0,
+            FrameHeaderFlag::Compression => self.encoding_flag & util::BIT3 != 0,
+            FrameHeaderFlag::Encryption => self.encoding_flag & util::BIT2 != 0,
+            FrameHeaderFlag::Unsynchronisation => self.encoding_flag & util::BIT1 != 0,
+            FrameHeaderFlag::DataLength => self.encoding_flag & util::BIT0 != 0
         }
     }
 }

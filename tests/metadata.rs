@@ -133,7 +133,7 @@ fn metadata_v1() {
                 "COMMENTCOMMENTCOMMENTCOMMENTCO4");
 
     let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes()).to_readable();
-    let frame = Frame1::new(&mut readable).unwrap();
+    let frame = Frame1::read(&mut readable).unwrap();
     assert_eq!(frame.title, "TITLETITLETITLETITLETITLETITLE");
     assert_eq!(frame.artist, "ARTISTARTISTARTISTARTISTARTIST");
     assert_eq!(frame.album, "ALBUMALBUMALBUMALBUMALBUMALBUM");
@@ -147,7 +147,7 @@ fn metadata_v1() {
                 "COMMENT                        ");
 
     let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes()).to_readable();
-    let frame = Frame1::new(&mut readable).unwrap();
+    let frame = Frame1::read(&mut readable).unwrap();
     assert_eq!(frame.title, "TITLE");
     assert_eq!(frame.artist, "ARTIST");
     assert_eq!(frame.album, "ALBUM");
@@ -337,7 +337,7 @@ fn metadata_compressed() {
     let iter = Metadata::new("./test-resources/v2.3-compressed-frame.mp3").unwrap();
     let mut i = iter.filter(|m| {
         match m {
-            &Unit::FrameV2(ref header, _) => header.has_flag(FrameHeaderFlag::Compression),
+            &Unit::FrameV2(FrameHeader::V23(ref header), _) => header.has_flag(FrameHeaderFlag::Compression),
             _ => false
         }
     });
@@ -353,7 +353,7 @@ fn metadata_compressed() {
     let iter = Metadata::new("./test-resources/v2.4-compressed-frame.mp3").unwrap();
     let mut i = iter.filter(|m| {
         match m {
-            &Unit::FrameV2(ref header, _) => header.has_flag(FrameHeaderFlag::Compression),
+            &Unit::FrameV2(FrameHeader::V24(ref header), _) => header.has_flag(FrameHeaderFlag::Compression),
             _ => false
         }
     });
@@ -374,7 +374,7 @@ fn metadata_encrypted() {
     let iter = Metadata::new("./test-resources/v2.3-encrypted-frame.mp3").unwrap();
     let mut i = iter.filter(|m| {
         match m {
-            &Unit::FrameV2(ref head, _) => head.has_flag(FrameHeaderFlag::Encryption),
+            &Unit::FrameV2(FrameHeader::V23(ref head), _) => head.has_flag(FrameHeaderFlag::Encryption),
             _ => false
         }
     });
@@ -390,7 +390,7 @@ fn metadata_encrypted() {
     let iter = Metadata::new("./test-resources/v2.4-encrypted-frame.mp3").unwrap();
     let mut i = iter.filter(|m| {
         match m {
-            &Unit::FrameV2(ref head, _) => head.has_flag(FrameHeaderFlag::Encryption),
+            &Unit::FrameV2(FrameHeader::V24(ref head), _) => head.has_flag(FrameHeaderFlag::Encryption),
             _ => false
         }
     });

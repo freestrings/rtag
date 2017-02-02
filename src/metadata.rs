@@ -83,7 +83,7 @@ impl Metadata {
     fn head(&mut self, readable_wrap: RefFileReader) -> result::Result<Unit, ParsingError> {
         let mut readable = readable_wrap.borrow_mut();
 
-        let head = Head::new(readable.to_readable(10)?)?;
+        let head = Head::read(readable.to_readable(10)?)?;
         debug!("{:?}", head);
 
         let is_extended = head.has_flag(HeadFlag::ExtendedHeader);
@@ -149,29 +149,27 @@ impl Metadata {
             return Err(ParsingError::BadData(ParsingErrorKind::InvalidV1FrameId));
         }
 
-        Frame1::new(&mut Cursor::new(readable.all_bytes()?).to_readable())
+        Frame1::read(&mut Cursor::new(readable.all_bytes()?).to_readable())
     }
 
     // version 2.2
     fn frame2(&mut self,
               head: &Head,
               readable: &mut Readable<Cursor<Vec<u8>>>) -> result::Result<Unit, ParsingError> {
-        let id = readable.string(3)?;
-        let size = readable.u24()?;
-        let frame_header = FrameHeader::new(id.to_string(), head.version, 0, 0);
-        let frame_readable = readable.to_readable(size as usize)?;
-        let frame_body = frame_data(id.as_str(), head.version, &frame_header, frame_readable)?;
+        let frame_header = FrameHeaderV2::read(readable)?;
+        let frame_body = if frame_header.has_flag(FrameHeaderFlag::Encryption) {
+            FrameData::SKIP("Encrypted frame".to_string())
+        } else {
+            let frame_readable = readable.to_readable(frame_header.size as usize)?;
+            frame_data(frame_header.id.as_str(), head.version, frame_readable)?
+        };
 
-        Ok(Unit::FrameV2(frame_header, frame_body))
+        Ok(Unit::FrameV2(FrameHeader::V22(frame_header), frame_body))
     }
 
     // v2.3
     fn frame3(&mut self, head: &Head, readable: &mut Readable<Cursor<Vec<u8>>>) -> result::Result<Unit, ParsingError> {
-        let id = readable.string(4)?;
-        let size = readable.u32()?;
-        let status_flag = readable.u8()?;
-        let encoding_flag = readable.u8()?;
-        let frame_header = FrameHeader::new(id.to_string(), head.version, status_flag, encoding_flag);
+        let frame_header = FrameHeaderV3::read(readable)?;
 
         let mut extra_size: u32 = 0;
         if frame_header.has_flag(FrameHeaderFlag::GroupIdentity) {
@@ -188,7 +186,7 @@ impl Metadata {
             let _ = readable.u32()?;
             extra_size = extra_size + 4;
 
-            let actual_size = size - extra_size as u32;
+            let actual_size = frame_header.size - extra_size as u32;
             let body_bytes = readable.bytes(actual_size as usize)?;
             let mut out = vec![];
             let mut decoder = ZlibDecoder::new(&body_bytes[..]);
@@ -197,26 +195,25 @@ impl Metadata {
 
             out
         } else {
-            let actual_size = size - extra_size as u32;
+            let actual_size = frame_header.size - extra_size as u32;
             readable.bytes(actual_size as usize)?
         };
 
-        let frame_readable = Cursor::new(body_bytes).to_readable();
-        let frame_body = frame_data(id.as_str(), head.version, &frame_header, frame_readable)?;
+        let frame_body = if frame_header.has_flag(FrameHeaderFlag::Encryption) {
+            FrameData::SKIP("Encrypted frame".to_string())
+        } else {
+            let frame_readable = Cursor::new(body_bytes).to_readable();
+            frame_data(frame_header.id.as_str(), head.version, frame_readable)?
+        };
 
-        Ok(Unit::FrameV2(frame_header, frame_body))
+        Ok(Unit::FrameV2(FrameHeader::V23(frame_header), frame_body))
     }
 
     // v2.4
     fn frame4(&mut self,
               head: &Head,
               readable: &mut Readable<Cursor<Vec<u8>>>) -> result::Result<Unit, ParsingError> {
-        let id = readable.string(4)?;
-        let size = readable.synchsafe()?;
-        let status_flag = readable.u8()?;
-        let encoding_flag = readable.u8()?;
-        let frame_header = FrameHeader::new(id.to_string(), head.version, status_flag, encoding_flag);
-
+        let frame_header = FrameHeaderV4::read(readable)?;
 
         let mut extra_size: u32 = 0;
         if frame_header.has_flag(FrameHeaderFlag::GroupIdentity) {
@@ -234,11 +231,11 @@ impl Metadata {
             extra_size = extra_size + 4;
         }
 
-        let actual_size = size - extra_size as u32;
+        let actual_size = frame_header.size - extra_size as u32;
         let mut body_bytes = readable.bytes(actual_size as usize)?;
 
         if frame_header.has_flag(FrameHeaderFlag::Unsynchronisation) {
-            debug!("'{}' is unsynchronised", id);
+            debug!("'{}' is unsynchronised", frame_header.id);
 
             let mut out = body_bytes[..].to_vec();
             let sync_size = util::to_synchronize(&mut out);
@@ -250,7 +247,7 @@ impl Metadata {
         }
 
         if frame_header.has_flag(FrameHeaderFlag::Compression) {
-            debug!("'{}' is compressed", id);
+            debug!("'{}' is compressed", frame_header.id);
 
             let _ = readable.u32()?;
 
@@ -262,10 +259,14 @@ impl Metadata {
             body_bytes = out;
         }
 
-        let frame_readable = Cursor::new(body_bytes).to_readable();
-        let frame_body = frame_data(id.as_str(), head.version, &frame_header, frame_readable)?;
+        let frame_body = if frame_header.has_flag(FrameHeaderFlag::Encryption) {
+            FrameData::SKIP("Encrypted frame".to_string())
+        } else {
+            let frame_readable = Cursor::new(body_bytes).to_readable();
+            frame_data(frame_header.id.as_str(), head.version, frame_readable)?
+        };
 
-        Ok(Unit::FrameV2(frame_header, frame_body))
+        Ok(Unit::FrameV2(FrameHeader::V24(frame_header), frame_body))
     }
 
     fn frame(&mut self,
@@ -367,12 +368,7 @@ impl Iterator for Metadata {
 
 fn frame_data(id: &str,
               version: u8,
-              frame_header: &FrameHeader,
               mut readable: Readable<Cursor<Vec<u8>>>) -> result::Result<FrameData, ParsingError> {
-    if frame_header.has_flag(FrameHeaderFlag::Encryption) {
-        return Ok(FrameData::SKIP("Encrypted frame".to_string()));
-    };
-
     let frame_data = match id.as_ref() {
         BUF_STR => FrameData::BUF(BUF::read(&mut readable)?),
         CNT_STR => FrameData::PCNT(PCNT::read(&mut readable)?),

@@ -875,7 +875,7 @@ impl FrameReaderIdAware<TEXT> for TEXT {
         let text_encoding = util::to_encoding(readable.u8()?);
         let data = readable.all_bytes()?;
         let text = match text_encoding {
-            TextEncoding::Iso88591 => _default(id, ISO_8859_1.decode(&data, DecoderTrap::Strict)),
+            TextEncoding::ISO88591 => _default(id, ISO_8859_1.decode(&data, DecoderTrap::Strict)),
             TextEncoding::UTF16LE => _default(id, UTF_16LE.decode(&data, DecoderTrap::Strict)),
             TextEncoding::UTF16BE => _default(id, UTF_16BE.decode(&data, DecoderTrap::Strict)),
             TextEncoding::UTF8 => _default(id, UTF_8.decode(&data, DecoderTrap::Strict))

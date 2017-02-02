@@ -77,20 +77,8 @@ mod util {
         strs.join(" ")
     }
 
-    pub fn rtrim(bytes: &Vec<u8>) -> Vec<u8> {
-        let mut idx = 0;
-        for v in bytes.iter().rev() {
-            if v > &32 { break; }
-            idx = idx + 1;
-        }
-        let mut clone = bytes.clone();
-        clone.split_off(bytes.len() - idx);
-        clone
-    }
-
-    pub fn string_and_rtrim(bytes: &Vec<u8>) -> String {
-        let cloned = rtrim(bytes);
-        match ISO_8859_1.decode(&cloned, DecoderTrap::Strict) {
+    pub fn to_iso8859_1(bytes: &Vec<u8>) -> String {
+        match ISO_8859_1.decode(&bytes, DecoderTrap::Strict) {
             Ok(value) => value.to_string(),
             _ => "".to_string()
         }
@@ -239,13 +227,13 @@ impl Frame1 {
         readable.skip(3)?;
 
         // offset 3
-        let title = util::string_and_rtrim(&readable.bytes(30)?);
+        let title = util::to_iso8859_1(&readable.bytes(30)?).trim().to_string();
         // offset 33
-        let artist = util::string_and_rtrim(&readable.bytes(30)?);
+        let artist = util::to_iso8859_1(&readable.bytes(30)?).trim().to_string();
         // offset 63
-        let album = util::string_and_rtrim(&readable.bytes(30)?);
+        let album = util::to_iso8859_1(&readable.bytes(30)?).trim().to_string();
         // offset 93
-        let year = util::string_and_rtrim(&readable.bytes(4)?);
+        let year = util::to_iso8859_1(&readable.bytes(4)?).trim().to_string();
         // goto track marker offset
         readable.skip(28)?;
         // offset 125
@@ -259,12 +247,12 @@ impl Frame1 {
 
         let (comment, track) = if track_marker != 0 {
             (
-                util::string_and_rtrim(&readable.bytes(30)?),
+                util::to_iso8859_1(&readable.bytes(30)?).trim().to_string(),
                 String::new()
             )
         } else {
             (
-                util::string_and_rtrim(&readable.bytes(28)?),
+                util::to_iso8859_1(&readable.bytes(28)?).trim().to_string(),
                 if _track == 0 {
                     String::new()
                 } else {

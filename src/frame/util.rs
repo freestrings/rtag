@@ -107,7 +107,7 @@ pub fn to_event_timing_code(t: u8, timestamp: u32) -> EventTimingCode {
 
 pub fn read_null_terminated(text_encoding: &TextEncoding, readable: &mut Readable) -> Result<String> {
     Ok(match text_encoding {
-        &TextEncoding::Iso88591 | &TextEncoding::UTF8 => readable.non_utf16_string()?,
+        &TextEncoding::ISO88591 | &TextEncoding::UTF8 => readable.non_utf16_string()?,
         _ => readable.utf16_string()?
     })
 }
@@ -129,10 +129,10 @@ pub fn to_content_type(t: u8) -> ContentType {
 
 pub fn to_encoding(encoding: u8) -> ::frame::constants::TextEncoding {
     match encoding {
-        0 => ::frame::constants::TextEncoding::Iso88591,
+        0 => ::frame::constants::TextEncoding::ISO88591,
         1 => ::frame::constants::TextEncoding::UTF16LE,
         2 => ::frame::constants::TextEncoding::UTF16BE,
         3 => ::frame::constants::TextEncoding::UTF8,
-        _ => ::frame::constants::TextEncoding::Iso88591
+        _ => ::frame::constants::TextEncoding::ISO88591
     }
 }

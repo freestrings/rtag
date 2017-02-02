@@ -1,8 +1,8 @@
 extern crate rtag;
 
-use std::vec;
 use std::fs::File;
 use std::io::Cursor;
+use std::vec::Vec;
 use rtag::readable::ReadableFactory;
 
 #[test]
@@ -35,14 +35,14 @@ fn readable_file() {
 #[test]
 fn readable_utf16_string() {
     let str = "AB가나01".to_string();
-    let mut bytes: vec::Vec<u8> = str.into_bytes();
+    let mut bytes: Vec<u8> = str.into_bytes();
     bytes.push(0x00);
     bytes.push(0x01);
     bytes.push(0x00);
     bytes.push(0x00);
     bytes.push(0x02);
     assert_eq!(bytes.len(), 15);
-    let mut readable = Cursor::new(bytes).to_readableg();
+    let mut readable = Cursor::new(bytes).to_readable();
     let read = readable.utf16_string().unwrap();
     assert_eq!("AB\u{ac00}\u{b098}01\u{0}\u{1}", read);
     assert!(readable.skip(1).is_ok());

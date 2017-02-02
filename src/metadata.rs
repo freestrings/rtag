@@ -1,21 +1,13 @@
-extern crate encoding;
 pub extern crate regex;
 extern crate flate2;
 
 use self::flate2::read::ZlibDecoder;
 
-use frame;
-use frame::{
-    FrameReaderDefault,
-    FrameReaderIdAware,
-    FrameReaderVesionAware
-};
-use frame::constants::{
-    id,
-    HeadFlag,
-    FrameData,
-    FrameHeaderFlag
-};
+use errors::*;
+use std::error::Error;
+use frame::*;
+use frame::id::*;
+use util;
 
 use readable::{
     Readable,
@@ -23,305 +15,15 @@ use readable::{
 };
 
 use std::cell::RefCell;
-use std::error;
-use std::error::Error;
-use std::fmt;
 use std::fs::File;
-use std::mem;
-use std::io;
 use std::io::{
     Cursor,
     Read
 };
 use std::iter::Iterator;
+use std::rc::Rc;
 use std::result;
 use std::vec::Vec;
-use std::rc::Rc;
-
-const BIT7: u8 = 0x80;
-const BIT6: u8 = 0x40;
-const BIT5: u8 = 0x20;
-const BIT4: u8 = 0x10;
-const BIT3: u8 = 0x08;
-const BIT2: u8 = 0x04;
-const BIT1: u8 = 0x02;
-const BIT0: u8 = 0x01;
-
-mod util {
-    use super::encoding::{
-        Encoding,
-        DecoderTrap
-    };
-    use super::encoding::all::ISO_8859_1;
-
-    pub fn to_synchronize(bytes: &mut Vec<u8>) -> usize {
-        let mut copy = true;
-        let mut to = 0;
-        for i in 0..bytes.len() {
-            let b = bytes[i];
-            if copy || b != 0 {
-                bytes[to] = b;
-                to = to + 1
-            }
-            copy = (b & 0xff) != 0xff;
-        }
-
-        to
-    }
-
-    #[allow(dead_code)]
-    pub fn to_hex(bytes: &Vec<u8>) -> String {
-        let strs: Vec<String> = bytes.iter()
-                                     .map(|b| format!("{:02x}", b))
-                                     .collect();
-        strs.join(" ")
-    }
-
-    pub fn to_iso8859_1(bytes: &Vec<u8>) -> String {
-        match ISO_8859_1.decode(&bytes, DecoderTrap::Strict) {
-            Ok(value) => value.to_string(),
-            _ => "".to_string()
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ParsingErrorKind {
-    InvalidV1FrameId,
-    InvalidV2FrameId,
-    InvalidFrameLength,
-    EncodingError
-}
-
-#[derive(Debug)]
-pub enum ParsingError {
-    BadData(ParsingErrorKind),
-    IoError(io::Error)
-}
-
-impl From<ParsingErrorKind> for ParsingError {
-    fn from(err: ParsingErrorKind) -> ParsingError {
-        ParsingError::BadData(err)
-    }
-}
-
-impl From<io::Error> for ParsingError {
-    fn from(err: io::Error) -> ParsingError {
-        ParsingError::IoError(err)
-    }
-}
-
-impl fmt::Display for ParsingErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ParsingErrorKind::InvalidV1FrameId => write!(f, "Only 'TAG' is allowed)"),
-            ParsingErrorKind::InvalidV2FrameId => write!(f, "Only 'ID3' is allowed)"),
-            ParsingErrorKind::InvalidFrameLength => write!(f, "Invalid frame length"),
-            ParsingErrorKind::EncodingError => write!(f, "Invalid text encoding")
-        }
-    }
-}
-
-impl fmt::Display for ParsingError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ParsingError::BadData(ref kind) => fmt::Display::fmt(kind, f),
-            ParsingError::IoError(ref err) => fmt::Display::fmt(err, f)
-        }
-    }
-}
-
-impl error::Error for ParsingError {
-    fn description(&self) -> &str {
-        match *self {
-            ParsingError::BadData(ref kind) => unsafe {
-                mem::transmute(&format!("{:?}", kind) as &str)
-            },
-            ParsingError::IoError(ref err) => err.description()
-        }
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        match *self {
-            ParsingError::IoError(ref err) => Some(err as &error::Error),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Head {
-    pub flag: u8,
-    pub version: u8,
-    pub minor_version: u8,
-    pub size: u32
-}
-
-// http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header
-impl Head {
-    pub fn new(mut readable: Readable<Cursor<Vec<u8>>>) -> result::Result<Self, ParsingError> {
-        let tag_id = readable.string(3)?;
-        let version = readable.u8()?;
-        let minor_version = readable.u8()?;
-        let flag = readable.u8()?;
-        let size = readable.synchsafe()?;
-
-        if tag_id != "ID3" {
-            return Err(ParsingError::BadData(ParsingErrorKind::InvalidV2FrameId));
-        }
-
-        Ok(Head {
-            version: version,
-            minor_version: minor_version,
-            flag: flag,
-            size: size
-        })
-    }
-
-    // ./id3v2_summary.md/id3v2.md#id3v2 Header
-    //
-    // Head level 'Unsynchronisation' does not work on "./test-resources/v2.4-unsync.mp3".
-    pub fn has_flag(&self, flag: HeadFlag) -> bool {
-        match self.version {
-            2 => match flag {
-                HeadFlag::Unsynchronisation => self.flag & BIT7 != 0,
-                HeadFlag::Compression => self.flag & BIT6 != 0,
-                _ => false
-            },
-            3 => match flag {
-                HeadFlag::Unsynchronisation => self.flag & BIT7 != 0,
-                HeadFlag::ExtendedHeader => self.flag & BIT6 != 0,
-                HeadFlag::ExperimentalIndicator => self.flag & BIT5 != 0,
-                _ => false
-            },
-            4 => match flag {
-                //
-                // HeadFlag::Unsynchronisation => self.flag & super::BIT7 != 0,
-                HeadFlag::ExtendedHeader => self.flag & BIT6 != 0,
-                HeadFlag::ExperimentalIndicator => self.flag & BIT5 != 0,
-                HeadFlag::FooterPresent => self.flag & BIT4 != 0,
-                _ => false
-            },
-            _ => {
-                warn!("Header.has_flag=> Unknown version!");
-                false
-            }
-        }
-    }
-}
-
-
-#[derive(Debug)]
-pub struct Frame1 {
-    pub title: String,
-    pub artist: String,
-    pub album: String,
-    pub year: String,
-    pub comment: String,
-    pub track: String,
-    pub genre: String
-}
-
-impl Frame1 {
-    pub fn new(readable: &mut Readable<Cursor<Vec<u8>>>) -> result::Result<Self, ParsingError> {
-        readable.skip(3)?;
-
-        // offset 3
-        let title = util::to_iso8859_1(&readable.bytes(30)?).trim().to_string();
-        // offset 33
-        let artist = util::to_iso8859_1(&readable.bytes(30)?).trim().to_string();
-        // offset 63
-        let album = util::to_iso8859_1(&readable.bytes(30)?).trim().to_string();
-        // offset 93
-        let year = util::to_iso8859_1(&readable.bytes(4)?).trim().to_string();
-        // goto track marker offset
-        readable.skip(28)?;
-        // offset 125
-        let track_marker = readable.u8()?;
-        // offset 126
-        let _track = readable.u8()? & 0xff;
-        // offset 127
-        let genre = (readable.u8()? & 0xff).to_string();
-        // goto comment offset
-        readable.skip(-31)?;
-
-        let (comment, track) = if track_marker != 0 {
-            (
-                util::to_iso8859_1(&readable.bytes(30)?).trim().to_string(),
-                String::new()
-            )
-        } else {
-            (
-                util::to_iso8859_1(&readable.bytes(28)?).trim().to_string(),
-                if _track == 0 {
-                    String::new()
-                } else {
-                    _track.to_string()
-                }
-            )
-        };
-
-        Ok(Frame1 {
-            title: title,
-            artist: artist,
-            album: album,
-            year: year,
-            comment: comment,
-            track: track,
-            genre: genre
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct FrameHeader {
-    id: String,
-    version: u8,
-    status_flag: u8,
-    encoding_flag: u8
-}
-
-impl FrameHeader {
-    pub fn new(id: String, version: u8, status_flag: u8, encoding_flag: u8) -> Self {
-        FrameHeader {
-            id: id,
-            version: version,
-            status_flag: status_flag,
-            encoding_flag: encoding_flag
-        }
-    }
-
-    // There is no flag for 2.2 frame.
-    // http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
-    pub fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
-        if self.version < 3 {
-            return false;
-        }
-
-        match self.version {
-            3 => match flag {
-                FrameHeaderFlag::TagAlter => self.status_flag & BIT7 != 0,
-                FrameHeaderFlag::FileAlter => self.status_flag & BIT6 != 0,
-                FrameHeaderFlag::ReadOnly => self.status_flag & BIT5 != 0,
-                FrameHeaderFlag::Compression => self.encoding_flag & BIT7 != 0,
-                FrameHeaderFlag::Encryption => self.encoding_flag & BIT6 != 0,
-                FrameHeaderFlag::GroupIdentity => self.encoding_flag & BIT5 != 0,
-                _ => false
-            },
-            4 => match flag {
-                FrameHeaderFlag::TagAlter => self.status_flag & BIT6 != 0,
-                FrameHeaderFlag::FileAlter => self.status_flag & BIT5 != 0,
-                FrameHeaderFlag::ReadOnly => self.status_flag & BIT4 != 0,
-                FrameHeaderFlag::GroupIdentity => self.encoding_flag & BIT6 != 0,
-                FrameHeaderFlag::Compression => self.encoding_flag & BIT3 != 0,
-                FrameHeaderFlag::Encryption => self.encoding_flag & BIT2 != 0,
-                FrameHeaderFlag::Unsynchronisation => self.encoding_flag & BIT1 != 0,
-                FrameHeaderFlag::DataLength => self.encoding_flag & BIT0 != 0
-            },
-            _ => false
-        }
-    }
-}
 
 type RefHead = Rc<RefCell<Box<Head>>>;
 type RefFileReader = Rc<RefCell<Box<Readable<File>>>>;
@@ -672,164 +374,164 @@ fn frame_data(id: &str,
     };
 
     let frame_data = match id.as_ref() {
-        id::BUF_STR => FrameData::BUF(frame::BUF::read(&mut readable)?),
-        id::CNT_STR => FrameData::PCNT(frame::PCNT::read(&mut readable)?),
-        id::COM_STR => FrameData::COMM(frame::COMM::read(&mut readable)?),
-        id::CRA_STR => FrameData::AENC(frame::AENC::read(&mut readable)?),
-        id::CRM_STR => FrameData::CRM(frame::CRM::read(&mut readable)?),
-        id::ETC_STR => FrameData::ETCO(frame::ETCO::read(&mut readable)?),
-        id::EQU_STR => FrameData::EQUA(frame::EQUA::read(&mut readable)?),
-        id::GEO_STR => FrameData::GEOB(frame::GEOB::read(&mut readable)?),
-        id::IPL_STR => FrameData::IPLS(frame::IPLS::read(&mut readable)?),
-        id::LNK_STR => FrameData::LINK(frame::LINK::read(&mut readable, version)?),
-        id::MCI_STR => FrameData::MCDI(frame::MCDI::read(&mut readable)?),
-        id::MLL_STR => FrameData::MLLT(frame::MLLT::read(&mut readable)?),
-        id::PIC_STR => FrameData::PIC(frame::PIC::read(&mut readable)?),
-        id::POP_STR => FrameData::POPM(frame::POPM::read(&mut readable)?),
-        id::REV_STR => FrameData::RVRB(frame::RVRB::read(&mut readable)?),
-        id::RVA_STR => FrameData::RVAD(frame::RVA2::read(&mut readable)?),
-        id::SLT_STR => FrameData::SYLT(frame::SYLT::read(&mut readable)?),
-        id::STC_STR => FrameData::SYTC(frame::SYTC::read(&mut readable)?),
-        id::TAL_STR => FrameData::TALB(frame::TEXT::read(&mut readable, id)?),
-        id::TBP_STR => FrameData::TBPM(frame::TEXT::read(&mut readable, id)?),
-        id::TCM_STR => FrameData::TCOM(frame::TEXT::read(&mut readable, id)?),
-        id::TCO_STR => FrameData::TCON(frame::TEXT::read(&mut readable, id)?),
-        id::TCR_STR => FrameData::TCOP(frame::TEXT::read(&mut readable, id)?),
-        id::TDA_STR => FrameData::TDAT(frame::TEXT::read(&mut readable, id)?),
-        id::TDY_STR => FrameData::TDLY(frame::TEXT::read(&mut readable, id)?),
-        id::TEN_STR => FrameData::TENC(frame::TEXT::read(&mut readable, id)?),
-        id::TFT_STR => FrameData::TFLT(frame::TEXT::read(&mut readable, id)?),
-        id::TIM_STR => FrameData::TIME(frame::TEXT::read(&mut readable, id)?),
-        id::TKE_STR => FrameData::TKEY(frame::TEXT::read(&mut readable, id)?),
-        id::TLA_STR => FrameData::TLAN(frame::TEXT::read(&mut readable, id)?),
-        id::TLE_STR => FrameData::TLEN(frame::TEXT::read(&mut readable, id)?),
-        id::TMT_STR => FrameData::TMED(frame::TEXT::read(&mut readable, id)?),
-        id::TOA_STR => FrameData::TMED(frame::TEXT::read(&mut readable, id)?),
-        id::TOF_STR => FrameData::TOFN(frame::TEXT::read(&mut readable, id)?),
-        id::TOL_STR => FrameData::TOLY(frame::TEXT::read(&mut readable, id)?),
-        id::TOR_STR => FrameData::TORY(frame::TEXT::read(&mut readable, id)?),
-        id::TOT_STR => FrameData::TOAL(frame::TEXT::read(&mut readable, id)?),
-        id::TP1_STR => FrameData::TPE1(frame::TEXT::read(&mut readable, id)?),
-        id::TP2_STR => FrameData::TPE2(frame::TEXT::read(&mut readable, id)?),
-        id::TP3_STR => FrameData::TPE3(frame::TEXT::read(&mut readable, id)?),
-        id::TP4_STR => FrameData::TPE4(frame::TEXT::read(&mut readable, id)?),
-        id::TPA_STR => FrameData::TPOS(frame::TEXT::read(&mut readable, id)?),
-        id::TPB_STR => FrameData::TPUB(frame::TEXT::read(&mut readable, id)?),
-        id::TRC_STR => FrameData::TSRC(frame::TEXT::read(&mut readable, id)?),
-        id::TRD_STR => FrameData::TRDA(frame::TEXT::read(&mut readable, id)?),
-        id::TRK_STR => FrameData::TRCK(frame::TEXT::read(&mut readable, id)?),
-        id::TSI_STR => FrameData::TSIZ(frame::TEXT::read(&mut readable, id)?),
-        id::TSS_STR => FrameData::TSSE(frame::TEXT::read(&mut readable, id)?),
-        id::TT1_STR => FrameData::TIT1(frame::TEXT::read(&mut readable, id)?),
-        id::TT2_STR => FrameData::TIT2(frame::TEXT::read(&mut readable, id)?),
-        id::TT3_STR => FrameData::TIT3(frame::TEXT::read(&mut readable, id)?),
-        id::TXT_STR => FrameData::TEXT(frame::TEXT::read(&mut readable, id)?),
-        id::TXX_STR => FrameData::TXXX(frame::TXXX::read(&mut readable)?),
-        id::TYE_STR => FrameData::TYER(frame::TEXT::read(&mut readable, id)?),
-        id::UFI_STR => FrameData::UFID(frame::UFID::read(&mut readable)?),
-        id::ULT_STR => FrameData::USLT(frame::USLT::read(&mut readable)?),
-        id::WAF_STR => FrameData::WOAF(frame::LINK::read(&mut readable, version)?),
-        id::WAR_STR => FrameData::WOAR(frame::LINK::read(&mut readable, version)?),
-        id::WAS_STR => FrameData::WOAS(frame::LINK::read(&mut readable, version)?),
-        id::WCM_STR => FrameData::WCOM(frame::LINK::read(&mut readable, version)?),
-        id::WCP_STR => FrameData::WCOP(frame::LINK::read(&mut readable, version)?),
-        id::WPB_STR => FrameData::WPUB(frame::LINK::read(&mut readable, version)?),
-        id::WXX_STR => FrameData::WXXX(frame::WXXX::read(&mut readable)?),
-        id::AENC_STR => FrameData::AENC(frame::AENC::read(&mut readable)?),
-        id::APIC_STR => FrameData::APIC(frame::APIC::read(&mut readable)?),
-        id::ASPI_STR => FrameData::ASPI(frame::ASPI::read(&mut readable)?),
-        id::COMM_STR => FrameData::COMM(frame::COMM::read(&mut readable)?),
-        id::COMR_STR => FrameData::COMR(frame::COMR::read(&mut readable)?),
-        id::ENCR_STR => FrameData::ENCR(frame::ENCR::read(&mut readable)?),
-        id::EQUA_STR => FrameData::EQUA(frame::EQUA::read(&mut readable)?),
-        id::EQU2_STR => FrameData::EQU2(frame::EQU2::read(&mut readable)?),
-        id::ETCO_STR => FrameData::ETCO(frame::ETCO::read(&mut readable)?),
-        id::GEOB_STR => FrameData::GEOB(frame::GEOB::read(&mut readable)?),
-        id::GRID_STR => FrameData::GRID(frame::GRID::read(&mut readable)?),
-        id::IPLS_STR => FrameData::IPLS(frame::IPLS::read(&mut readable)?),
-        id::LINK_STR => FrameData::LINK(frame::LINK::read(&mut readable, version)?),
-        id::MCDI_STR => FrameData::MCDI(frame::MCDI::read(&mut readable)?),
-        id::MLLT_STR => FrameData::MLLT(frame::MLLT::read(&mut readable)?),
-        id::OWNE_STR => FrameData::OWNE(frame::OWNE::read(&mut readable)?),
-        id::PRIV_STR => FrameData::PRIV(frame::PRIV::read(&mut readable)?),
-        id::PCNT_STR => FrameData::PCNT(frame::PCNT::read(&mut readable)?),
-        id::POPM_STR => FrameData::POPM(frame::POPM::read(&mut readable)?),
-        id::POSS_STR => FrameData::POSS(frame::POSS::read(&mut readable)?),
-        id::RBUF_STR => FrameData::RBUF(frame::RBUF::read(&mut readable)?),
-        id::RVAD_STR => FrameData::RVAD(frame::RVA2::read(&mut readable)?),
-        id::RVA2_STR => FrameData::RVA2(frame::RVA2::read(&mut readable)?),
-        id::RVRB_STR => FrameData::RVRB(frame::RVRB::read(&mut readable)?),
-        id::SEEK_STR => FrameData::SEEK(frame::SEEK::read(&mut readable)?),
-        id::SIGN_STR => FrameData::SIGN(frame::SIGN::read(&mut readable)?),
-        id::SYLT_STR => FrameData::SYLT(frame::SYLT::read(&mut readable)?),
-        id::SYTC_STR => FrameData::SYTC(frame::SYTC::read(&mut readable)?),
-        id::UFID_STR => FrameData::UFID(frame::UFID::read(&mut readable)?),
-        id::USER_STR => FrameData::USER(frame::USER::read(&mut readable)?),
-        id::USLT_STR => FrameData::USLT(frame::USLT::read(&mut readable)?),
-        id::TALB_STR => FrameData::TALB(frame::TEXT::read(&mut readable, id)?),
-        id::TBPM_STR => FrameData::TBPM(frame::TEXT::read(&mut readable, id)?),
-        id::TCOM_STR => FrameData::TCOM(frame::TEXT::read(&mut readable, id)?),
-        id::TCON_STR => FrameData::TCON(frame::TEXT::read(&mut readable, id)?),
-        id::TCOP_STR => FrameData::TCOP(frame::TEXT::read(&mut readable, id)?),
-        id::TDAT_STR => FrameData::TDAT(frame::TEXT::read(&mut readable, id)?),
-        id::TDEN_STR => FrameData::TDEN(frame::TEXT::read(&mut readable, id)?),
-        id::TDLY_STR => FrameData::TDLY(frame::TEXT::read(&mut readable, id)?),
-        id::TDOR_STR => FrameData::TDOR(frame::TEXT::read(&mut readable, id)?),
-        id::TDRC_STR => FrameData::TDRC(frame::TEXT::read(&mut readable, id)?),
-        id::TDRL_STR => FrameData::TDRL(frame::TEXT::read(&mut readable, id)?),
-        id::TDTG_STR => FrameData::TDTG(frame::TEXT::read(&mut readable, id)?),
-        id::TENC_STR => FrameData::TENC(frame::TEXT::read(&mut readable, id)?),
-        id::TEXT_STR => FrameData::TEXT(frame::TEXT::read(&mut readable, id)?),
-        id::TIME_STR => FrameData::TIME(frame::TEXT::read(&mut readable, id)?),
-        id::TFLT_STR => FrameData::TFLT(frame::TEXT::read(&mut readable, id)?),
-        id::TIPL_STR => FrameData::TIPL(frame::TEXT::read(&mut readable, id)?),
-        id::TIT1_STR => FrameData::TIT1(frame::TEXT::read(&mut readable, id)?),
-        id::TIT2_STR => FrameData::TIT2(frame::TEXT::read(&mut readable, id)?),
-        id::TIT3_STR => FrameData::TIT3(frame::TEXT::read(&mut readable, id)?),
-        id::TKEY_STR => FrameData::TKEY(frame::TEXT::read(&mut readable, id)?),
-        id::TLAN_STR => FrameData::TLAN(frame::TEXT::read(&mut readable, id)?),
-        id::TLEN_STR => FrameData::TLEN(frame::TEXT::read(&mut readable, id)?),
-        id::TMCL_STR => FrameData::TMCL(frame::TEXT::read(&mut readable, id)?),
-        id::TMED_STR => FrameData::TMED(frame::TEXT::read(&mut readable, id)?),
-        id::TMOO_STR => FrameData::TMOO(frame::TEXT::read(&mut readable, id)?),
-        id::TOAL_STR => FrameData::TOAL(frame::TEXT::read(&mut readable, id)?),
-        id::TOFN_STR => FrameData::TOFN(frame::TEXT::read(&mut readable, id)?),
-        id::TOLY_STR => FrameData::TOLY(frame::TEXT::read(&mut readable, id)?),
-        id::TOPE_STR => FrameData::TOPE(frame::TEXT::read(&mut readable, id)?),
-        id::TORY_STR => FrameData::TORY(frame::TEXT::read(&mut readable, id)?),
-        id::TOWN_STR => FrameData::TOWN(frame::TEXT::read(&mut readable, id)?),
-        id::TPE1_STR => FrameData::TPE1(frame::TEXT::read(&mut readable, id)?),
-        id::TPE2_STR => FrameData::TPE2(frame::TEXT::read(&mut readable, id)?),
-        id::TPE3_STR => FrameData::TPE3(frame::TEXT::read(&mut readable, id)?),
-        id::TPE4_STR => FrameData::TPE4(frame::TEXT::read(&mut readable, id)?),
-        id::TPOS_STR => FrameData::TPOS(frame::TEXT::read(&mut readable, id)?),
-        id::TPRO_STR => FrameData::TPRO(frame::TEXT::read(&mut readable, id)?),
-        id::TPUB_STR => FrameData::TPUB(frame::TEXT::read(&mut readable, id)?),
-        id::TRCK_STR => FrameData::TRCK(frame::TEXT::read(&mut readable, id)?),
-        id::TRDA_STR => FrameData::TRDA(frame::TEXT::read(&mut readable, id)?),
-        id::TRSN_STR => FrameData::TRSN(frame::TEXT::read(&mut readable, id)?),
-        id::TSIZ_STR => FrameData::TSIZ(frame::TEXT::read(&mut readable, id)?),
-        id::TRSO_STR => FrameData::TRSO(frame::TEXT::read(&mut readable, id)?),
-        id::TSOA_STR => FrameData::TSOA(frame::TEXT::read(&mut readable, id)?),
-        id::TSOP_STR => FrameData::TSOP(frame::TEXT::read(&mut readable, id)?),
-        id::TSOT_STR => FrameData::TSOT(frame::TEXT::read(&mut readable, id)?),
-        id::TSRC_STR => FrameData::TSRC(frame::TEXT::read(&mut readable, id)?),
-        id::TSSE_STR => FrameData::TSSE(frame::TEXT::read(&mut readable, id)?),
-        id::TYER_STR => FrameData::TYER(frame::TEXT::read(&mut readable, id)?),
-        id::TSST_STR => FrameData::TSST(frame::TEXT::read(&mut readable, id)?),
-        id::TXXX_STR => FrameData::TXXX(frame::TXXX::read(&mut readable)?),
-        id::WCOM_STR => FrameData::WCOM(frame::LINK::read(&mut readable, version)?),
-        id::WCOP_STR => FrameData::WCOP(frame::LINK::read(&mut readable, version)?),
-        id::WOAF_STR => FrameData::WOAF(frame::LINK::read(&mut readable, version)?),
-        id::WOAR_STR => FrameData::WOAR(frame::LINK::read(&mut readable, version)?),
-        id::WOAS_STR => FrameData::WOAS(frame::LINK::read(&mut readable, version)?),
-        id::WORS_STR => FrameData::WORS(frame::LINK::read(&mut readable, version)?),
-        id::WPAY_STR => FrameData::WPAY(frame::LINK::read(&mut readable, version)?),
-        id::WPUB_STR => FrameData::WPUB(frame::LINK::read(&mut readable, version)?),
-        id::WXXX_STR => FrameData::WXXX(frame::WXXX::read(&mut readable)?),
+        BUF_STR => FrameData::BUF(BUF::read(&mut readable)?),
+        CNT_STR => FrameData::PCNT(PCNT::read(&mut readable)?),
+        COM_STR => FrameData::COMM(COMM::read(&mut readable)?),
+        CRA_STR => FrameData::AENC(AENC::read(&mut readable)?),
+        CRM_STR => FrameData::CRM(CRM::read(&mut readable)?),
+        ETC_STR => FrameData::ETCO(ETCO::read(&mut readable)?),
+        EQU_STR => FrameData::EQUA(EQUA::read(&mut readable)?),
+        GEO_STR => FrameData::GEOB(GEOB::read(&mut readable)?),
+        IPL_STR => FrameData::IPLS(IPLS::read(&mut readable)?),
+        LNK_STR => FrameData::LINK(LINK::read(&mut readable, version)?),
+        MCI_STR => FrameData::MCDI(MCDI::read(&mut readable)?),
+        MLL_STR => FrameData::MLLT(MLLT::read(&mut readable)?),
+        PIC_STR => FrameData::PIC(PIC::read(&mut readable)?),
+        POP_STR => FrameData::POPM(POPM::read(&mut readable)?),
+        REV_STR => FrameData::RVRB(RVRB::read(&mut readable)?),
+        RVA_STR => FrameData::RVAD(RVA2::read(&mut readable)?),
+        SLT_STR => FrameData::SYLT(SYLT::read(&mut readable)?),
+        STC_STR => FrameData::SYTC(SYTC::read(&mut readable)?),
+        TAL_STR => FrameData::TALB(TEXT::read(&mut readable, id)?),
+        TBP_STR => FrameData::TBPM(TEXT::read(&mut readable, id)?),
+        TCM_STR => FrameData::TCOM(TEXT::read(&mut readable, id)?),
+        TCO_STR => FrameData::TCON(TEXT::read(&mut readable, id)?),
+        TCR_STR => FrameData::TCOP(TEXT::read(&mut readable, id)?),
+        TDA_STR => FrameData::TDAT(TEXT::read(&mut readable, id)?),
+        TDY_STR => FrameData::TDLY(TEXT::read(&mut readable, id)?),
+        TEN_STR => FrameData::TENC(TEXT::read(&mut readable, id)?),
+        TFT_STR => FrameData::TFLT(TEXT::read(&mut readable, id)?),
+        TIM_STR => FrameData::TIME(TEXT::read(&mut readable, id)?),
+        TKE_STR => FrameData::TKEY(TEXT::read(&mut readable, id)?),
+        TLA_STR => FrameData::TLAN(TEXT::read(&mut readable, id)?),
+        TLE_STR => FrameData::TLEN(TEXT::read(&mut readable, id)?),
+        TMT_STR => FrameData::TMED(TEXT::read(&mut readable, id)?),
+        TOA_STR => FrameData::TMED(TEXT::read(&mut readable, id)?),
+        TOF_STR => FrameData::TOFN(TEXT::read(&mut readable, id)?),
+        TOL_STR => FrameData::TOLY(TEXT::read(&mut readable, id)?),
+        TOR_STR => FrameData::TORY(TEXT::read(&mut readable, id)?),
+        TOT_STR => FrameData::TOAL(TEXT::read(&mut readable, id)?),
+        TP1_STR => FrameData::TPE1(TEXT::read(&mut readable, id)?),
+        TP2_STR => FrameData::TPE2(TEXT::read(&mut readable, id)?),
+        TP3_STR => FrameData::TPE3(TEXT::read(&mut readable, id)?),
+        TP4_STR => FrameData::TPE4(TEXT::read(&mut readable, id)?),
+        TPA_STR => FrameData::TPOS(TEXT::read(&mut readable, id)?),
+        TPB_STR => FrameData::TPUB(TEXT::read(&mut readable, id)?),
+        TRC_STR => FrameData::TSRC(TEXT::read(&mut readable, id)?),
+        TRD_STR => FrameData::TRDA(TEXT::read(&mut readable, id)?),
+        TRK_STR => FrameData::TRCK(TEXT::read(&mut readable, id)?),
+        TSI_STR => FrameData::TSIZ(TEXT::read(&mut readable, id)?),
+        TSS_STR => FrameData::TSSE(TEXT::read(&mut readable, id)?),
+        TT1_STR => FrameData::TIT1(TEXT::read(&mut readable, id)?),
+        TT2_STR => FrameData::TIT2(TEXT::read(&mut readable, id)?),
+        TT3_STR => FrameData::TIT3(TEXT::read(&mut readable, id)?),
+        TXT_STR => FrameData::TEXT(TEXT::read(&mut readable, id)?),
+        TXX_STR => FrameData::TXXX(TXXX::read(&mut readable)?),
+        TYE_STR => FrameData::TYER(TEXT::read(&mut readable, id)?),
+        UFI_STR => FrameData::UFID(UFID::read(&mut readable)?),
+        ULT_STR => FrameData::USLT(USLT::read(&mut readable)?),
+        WAF_STR => FrameData::WOAF(LINK::read(&mut readable, version)?),
+        WAR_STR => FrameData::WOAR(LINK::read(&mut readable, version)?),
+        WAS_STR => FrameData::WOAS(LINK::read(&mut readable, version)?),
+        WCM_STR => FrameData::WCOM(LINK::read(&mut readable, version)?),
+        WCP_STR => FrameData::WCOP(LINK::read(&mut readable, version)?),
+        WPB_STR => FrameData::WPUB(LINK::read(&mut readable, version)?),
+        WXX_STR => FrameData::WXXX(WXXX::read(&mut readable)?),
+        AENC_STR => FrameData::AENC(AENC::read(&mut readable)?),
+        APIC_STR => FrameData::APIC(APIC::read(&mut readable)?),
+        ASPI_STR => FrameData::ASPI(ASPI::read(&mut readable)?),
+        COMM_STR => FrameData::COMM(COMM::read(&mut readable)?),
+        COMR_STR => FrameData::COMR(COMR::read(&mut readable)?),
+        ENCR_STR => FrameData::ENCR(ENCR::read(&mut readable)?),
+        EQUA_STR => FrameData::EQUA(EQUA::read(&mut readable)?),
+        EQU2_STR => FrameData::EQU2(EQU2::read(&mut readable)?),
+        ETCO_STR => FrameData::ETCO(ETCO::read(&mut readable)?),
+        GEOB_STR => FrameData::GEOB(GEOB::read(&mut readable)?),
+        GRID_STR => FrameData::GRID(GRID::read(&mut readable)?),
+        IPLS_STR => FrameData::IPLS(IPLS::read(&mut readable)?),
+        LINK_STR => FrameData::LINK(LINK::read(&mut readable, version)?),
+        MCDI_STR => FrameData::MCDI(MCDI::read(&mut readable)?),
+        MLLT_STR => FrameData::MLLT(MLLT::read(&mut readable)?),
+        OWNE_STR => FrameData::OWNE(OWNE::read(&mut readable)?),
+        PRIV_STR => FrameData::PRIV(PRIV::read(&mut readable)?),
+        PCNT_STR => FrameData::PCNT(PCNT::read(&mut readable)?),
+        POPM_STR => FrameData::POPM(POPM::read(&mut readable)?),
+        POSS_STR => FrameData::POSS(POSS::read(&mut readable)?),
+        RBUF_STR => FrameData::RBUF(RBUF::read(&mut readable)?),
+        RVAD_STR => FrameData::RVAD(RVA2::read(&mut readable)?),
+        RVA2_STR => FrameData::RVA2(RVA2::read(&mut readable)?),
+        RVRB_STR => FrameData::RVRB(RVRB::read(&mut readable)?),
+        SEEK_STR => FrameData::SEEK(SEEK::read(&mut readable)?),
+        SIGN_STR => FrameData::SIGN(SIGN::read(&mut readable)?),
+        SYLT_STR => FrameData::SYLT(SYLT::read(&mut readable)?),
+        SYTC_STR => FrameData::SYTC(SYTC::read(&mut readable)?),
+        UFID_STR => FrameData::UFID(UFID::read(&mut readable)?),
+        USER_STR => FrameData::USER(USER::read(&mut readable)?),
+        USLT_STR => FrameData::USLT(USLT::read(&mut readable)?),
+        TALB_STR => FrameData::TALB(TEXT::read(&mut readable, id)?),
+        TBPM_STR => FrameData::TBPM(TEXT::read(&mut readable, id)?),
+        TCOM_STR => FrameData::TCOM(TEXT::read(&mut readable, id)?),
+        TCON_STR => FrameData::TCON(TEXT::read(&mut readable, id)?),
+        TCOP_STR => FrameData::TCOP(TEXT::read(&mut readable, id)?),
+        TDAT_STR => FrameData::TDAT(TEXT::read(&mut readable, id)?),
+        TDEN_STR => FrameData::TDEN(TEXT::read(&mut readable, id)?),
+        TDLY_STR => FrameData::TDLY(TEXT::read(&mut readable, id)?),
+        TDOR_STR => FrameData::TDOR(TEXT::read(&mut readable, id)?),
+        TDRC_STR => FrameData::TDRC(TEXT::read(&mut readable, id)?),
+        TDRL_STR => FrameData::TDRL(TEXT::read(&mut readable, id)?),
+        TDTG_STR => FrameData::TDTG(TEXT::read(&mut readable, id)?),
+        TENC_STR => FrameData::TENC(TEXT::read(&mut readable, id)?),
+        TEXT_STR => FrameData::TEXT(TEXT::read(&mut readable, id)?),
+        TIME_STR => FrameData::TIME(TEXT::read(&mut readable, id)?),
+        TFLT_STR => FrameData::TFLT(TEXT::read(&mut readable, id)?),
+        TIPL_STR => FrameData::TIPL(TEXT::read(&mut readable, id)?),
+        TIT1_STR => FrameData::TIT1(TEXT::read(&mut readable, id)?),
+        TIT2_STR => FrameData::TIT2(TEXT::read(&mut readable, id)?),
+        TIT3_STR => FrameData::TIT3(TEXT::read(&mut readable, id)?),
+        TKEY_STR => FrameData::TKEY(TEXT::read(&mut readable, id)?),
+        TLAN_STR => FrameData::TLAN(TEXT::read(&mut readable, id)?),
+        TLEN_STR => FrameData::TLEN(TEXT::read(&mut readable, id)?),
+        TMCL_STR => FrameData::TMCL(TEXT::read(&mut readable, id)?),
+        TMED_STR => FrameData::TMED(TEXT::read(&mut readable, id)?),
+        TMOO_STR => FrameData::TMOO(TEXT::read(&mut readable, id)?),
+        TOAL_STR => FrameData::TOAL(TEXT::read(&mut readable, id)?),
+        TOFN_STR => FrameData::TOFN(TEXT::read(&mut readable, id)?),
+        TOLY_STR => FrameData::TOLY(TEXT::read(&mut readable, id)?),
+        TOPE_STR => FrameData::TOPE(TEXT::read(&mut readable, id)?),
+        TORY_STR => FrameData::TORY(TEXT::read(&mut readable, id)?),
+        TOWN_STR => FrameData::TOWN(TEXT::read(&mut readable, id)?),
+        TPE1_STR => FrameData::TPE1(TEXT::read(&mut readable, id)?),
+        TPE2_STR => FrameData::TPE2(TEXT::read(&mut readable, id)?),
+        TPE3_STR => FrameData::TPE3(TEXT::read(&mut readable, id)?),
+        TPE4_STR => FrameData::TPE4(TEXT::read(&mut readable, id)?),
+        TPOS_STR => FrameData::TPOS(TEXT::read(&mut readable, id)?),
+        TPRO_STR => FrameData::TPRO(TEXT::read(&mut readable, id)?),
+        TPUB_STR => FrameData::TPUB(TEXT::read(&mut readable, id)?),
+        TRCK_STR => FrameData::TRCK(TEXT::read(&mut readable, id)?),
+        TRDA_STR => FrameData::TRDA(TEXT::read(&mut readable, id)?),
+        TRSN_STR => FrameData::TRSN(TEXT::read(&mut readable, id)?),
+        TSIZ_STR => FrameData::TSIZ(TEXT::read(&mut readable, id)?),
+        TRSO_STR => FrameData::TRSO(TEXT::read(&mut readable, id)?),
+        TSOA_STR => FrameData::TSOA(TEXT::read(&mut readable, id)?),
+        TSOP_STR => FrameData::TSOP(TEXT::read(&mut readable, id)?),
+        TSOT_STR => FrameData::TSOT(TEXT::read(&mut readable, id)?),
+        TSRC_STR => FrameData::TSRC(TEXT::read(&mut readable, id)?),
+        TSSE_STR => FrameData::TSSE(TEXT::read(&mut readable, id)?),
+        TYER_STR => FrameData::TYER(TEXT::read(&mut readable, id)?),
+        TSST_STR => FrameData::TSST(TEXT::read(&mut readable, id)?),
+        TXXX_STR => FrameData::TXXX(TXXX::read(&mut readable)?),
+        WCOM_STR => FrameData::WCOM(LINK::read(&mut readable, version)?),
+        WCOP_STR => FrameData::WCOP(LINK::read(&mut readable, version)?),
+        WOAF_STR => FrameData::WOAF(LINK::read(&mut readable, version)?),
+        WOAR_STR => FrameData::WOAR(LINK::read(&mut readable, version)?),
+        WOAS_STR => FrameData::WOAS(LINK::read(&mut readable, version)?),
+        WORS_STR => FrameData::WORS(LINK::read(&mut readable, version)?),
+        WPAY_STR => FrameData::WPAY(LINK::read(&mut readable, version)?),
+        WPUB_STR => FrameData::WPUB(LINK::read(&mut readable, version)?),
+        WXXX_STR => FrameData::WXXX(WXXX::read(&mut readable)?),
         _ => {
             warn!("No frame id found!! '{}'", id);
-            FrameData::TEXT(frame::TEXT::read(&mut readable, id)?)
+            FrameData::TEXT(TEXT::read(&mut readable, id)?)
         }
     };
 

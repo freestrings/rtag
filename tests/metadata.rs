@@ -1,24 +1,13 @@
 #[macro_use]
 extern crate log;
-
-pub extern crate regex;
 extern crate env_logger;
+
 extern crate rtag;
 
 use std::io::Cursor;
 use std::vec::Vec;
-use rtag::frame::constants::{
-    EventTimingCode,
-    HeadFlag,
-    FrameData,
-    FrameHeaderFlag,
-    TimestampFormat
-};
-use rtag::metadata::{
-    Frame1,
-    Metadata,
-    Unit
-};
+use rtag::frame::*;
+use rtag::metadata::*;
 use rtag::readable::ReadableFactory;
 
 fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {

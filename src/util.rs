@@ -1,6 +1,12 @@
-use std::{io, vec};
-use std::io::Result;
-use super::constants::{
+extern crate encoding;
+
+use self::encoding::all::ISO_8859_1;
+use self::encoding::{
+    Encoding,
+    DecoderTrap
+};
+
+use frame::{
     PictureType,
     ReceivedAs,
     InterpolationMethod,
@@ -9,8 +15,22 @@ use super::constants::{
     EventTimingCode,
     TextEncoding
 };
+use readable::Readable;
 
-type Readable = ::readable::Readable<io::Cursor<vec::Vec<u8>>>;
+use std::io::{
+    Cursor,
+    Result
+};
+use std::vec::Vec;
+
+pub const BIT7: u8 = 0x80;
+pub const BIT6: u8 = 0x40;
+pub const BIT5: u8 = 0x20;
+pub const BIT4: u8 = 0x10;
+pub const BIT3: u8 = 0x08;
+pub const BIT2: u8 = 0x04;
+pub const BIT1: u8 = 0x02;
+pub const BIT0: u8 = 0x01;
 
 pub fn to_picture_type(t: u8) -> PictureType {
     match t {
@@ -105,9 +125,14 @@ pub fn to_event_timing_code(t: u8, timestamp: u32) -> EventTimingCode {
     }
 }
 
-pub fn read_null_terminated(text_encoding: &TextEncoding, readable: &mut Readable) -> Result<String> {
+pub fn read_null_terminated(text_encoding: &TextEncoding,
+                            readable: &mut Readable<Cursor<Vec<u8>>>)
+                            -> Result<String> {
     Ok(match text_encoding {
-        &TextEncoding::ISO88591 | &TextEncoding::UTF8 => readable.non_utf16_string()?,
+        &TextEncoding::ISO88591 |
+        &TextEncoding::UTF8 =>
+            readable.non_utf16_string()?,
+
         _ => readable.utf16_string()?
     })
 }
@@ -127,12 +152,42 @@ pub fn to_content_type(t: u8) -> ContentType {
     }
 }
 
-pub fn to_encoding(encoding: u8) -> ::frame::constants::TextEncoding {
+pub fn to_encoding(encoding: u8) -> TextEncoding {
     match encoding {
-        0 => ::frame::constants::TextEncoding::ISO88591,
-        1 => ::frame::constants::TextEncoding::UTF16LE,
-        2 => ::frame::constants::TextEncoding::UTF16BE,
-        3 => ::frame::constants::TextEncoding::UTF8,
-        _ => ::frame::constants::TextEncoding::ISO88591
+        0 => TextEncoding::ISO88591,
+        1 => TextEncoding::UTF16LE,
+        2 => TextEncoding::UTF16BE,
+        3 => TextEncoding::UTF8,
+        _ => TextEncoding::ISO88591
+    }
+}
+
+pub fn to_synchronize(bytes: &mut Vec<u8>) -> usize {
+    let mut copy = true;
+    let mut to = 0;
+    for i in 0..bytes.len() {
+        let b = bytes[i];
+        if copy || b != 0 {
+            bytes[to] = b;
+            to = to + 1
+        }
+        copy = (b & 0xff) != 0xff;
+    }
+
+    to
+}
+
+#[allow(dead_code)]
+pub fn to_hex(bytes: &Vec<u8>) -> String {
+    let strs: Vec<String> = bytes.iter()
+                                 .map(|b| format!("{:02x}", b))
+                                 .collect();
+    strs.join(" ")
+}
+
+pub fn to_iso8859_1(bytes: &Vec<u8>) -> String {
+    match ISO_8859_1.decode(&bytes, DecoderTrap::Strict) {
+        Ok(value) => value.to_string(),
+        _ => "".to_string()
     }
 }

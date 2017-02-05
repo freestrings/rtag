@@ -16,6 +16,7 @@ use frame::{
     TextEncoding
 };
 use readable::Readable;
+use writable::Writable;
 
 use std::io::{
     Cursor,
@@ -59,6 +60,32 @@ pub fn to_picture_type(t: u8) -> PictureType {
     }
 }
 
+pub fn from_picture_type(t: &PictureType) -> u8 {
+    match t {
+        &PictureType::Other => 0x00,
+        &PictureType::FileIcon => 0x01,
+        &PictureType::OtherFileIcon => 0x02,
+        &PictureType::CoverFront => 0x03,
+        &PictureType::CoverBack => 0x04,
+        &PictureType::LeafletPage => 0x05,
+        &PictureType::Media => 0x06,
+        &PictureType::LeadArtist => 0x07,
+        &PictureType::Artist => 0x08,
+        &PictureType::Conductor => 0x09,
+        &PictureType::Band => 0x0a,
+        &PictureType::Composer => 0x0b,
+        &PictureType::Lyricist => 0x0c,
+        &PictureType::RecordingLocation => 0x0d,
+        &PictureType::DuringRecording => 0x0e,
+        &PictureType::DuringPerformance => 0x0f,
+        &PictureType::MovieScreenCapture => 0x10,
+        &PictureType::BrightColouredFish => 0x11,
+        &PictureType::Illustration => 0x12,
+        &PictureType::BandLogotype => 0x13,
+        &PictureType::PublisherLogoType => 0x14
+    }
+}
+
 pub fn to_received_as(t: u8) -> ReceivedAs {
     match t {
         0x00 => ReceivedAs::Other,
@@ -74,6 +101,20 @@ pub fn to_received_as(t: u8) -> ReceivedAs {
     }
 }
 
+pub fn from_received_as(t: &ReceivedAs) -> u8 {
+    match t {
+        &ReceivedAs::Other => 0x00,
+        &ReceivedAs::StandardCDAlbum => 0x01,
+        &ReceivedAs::CompressedAudioOnCD => 0x02,
+        &ReceivedAs::FileOverInternet => 0x03,
+        &ReceivedAs::StreamOverInternet => 0x04,
+        &ReceivedAs::AsNoteSheets => 0x05,
+        &ReceivedAs::AsNoteSheetsInBook => 0x06,
+        &ReceivedAs::MusicOnMedia => 0x07,
+        &ReceivedAs::NonMusicalMerchandise => 0x08
+    }
+}
+
 pub fn to_interpolation_method(t: u8) -> InterpolationMethod {
     match t {
         0x00 => InterpolationMethod::Band,
@@ -82,11 +123,25 @@ pub fn to_interpolation_method(t: u8) -> InterpolationMethod {
     }
 }
 
+pub fn from_interpolation_method(t: &InterpolationMethod) -> u8 {
+    match t {
+        &InterpolationMethod::Band => 0x00,
+        &InterpolationMethod::Linear => 0x01
+    }
+}
+
 pub fn to_timestamp_format(t: u8) -> TimestampFormat {
     match t {
         0x01 => TimestampFormat::MpecFrames,
         0x02 => TimestampFormat::Milliseconds,
         _ => TimestampFormat::MpecFrames
+    }
+}
+
+pub fn from_timestamp_format(t: &TimestampFormat) -> u8 {
+    match t {
+        &TimestampFormat::MpecFrames => 0x01,
+        &TimestampFormat::Milliseconds => 0x02
     }
 }
 
@@ -115,9 +170,9 @@ pub fn to_event_timing_code(t: u8, timestamp: u32) -> EventTimingCode {
         0x14 => EventTimingCode::ThemeEnd(timestamp),
         0x15 => EventTimingCode::Profanity(timestamp),
         0x16 => EventTimingCode::ProfanityEnd(timestamp),
-        0x17 ... 0xdf => EventTimingCode::ReservedForFutureUse(timestamp),
-        0xe0 ... 0xef => EventTimingCode::NotPredefinedSynch(timestamp),
-        0xf0 ... 0xfc => EventTimingCode::ReservedForFutureUse(timestamp),
+        0x17 ... 0xdf => EventTimingCode::ReservedForFutureUse(timestamp, t),
+        0xe0 ... 0xef => EventTimingCode::NotPredefinedSynch(timestamp, t),
+        0xf0 ... 0xfc => EventTimingCode::ReservedForFutureUse(timestamp, t),
         0xfd => EventTimingCode::AudioEnd(timestamp),
         0xfe => EventTimingCode::AudioFileEnds(timestamp),
         0xff => EventTimingCode::OneMoreByteOfEventsFollows(timestamp),
@@ -125,15 +180,69 @@ pub fn to_event_timing_code(t: u8, timestamp: u32) -> EventTimingCode {
     }
 }
 
+pub fn from_event_timing_code(e: &EventTimingCode) -> (u8, u32) {
+    match e {
+        &EventTimingCode::Padding(timestamp) => (0x00, timestamp),
+        &EventTimingCode::EndOfInitialSilence(timestamp) => (0x01, timestamp),
+        &EventTimingCode::IntroStart(timestamp) => (0x02, timestamp),
+        &EventTimingCode::MainPartStart(timestamp) => (0x03, timestamp),
+        &EventTimingCode::OutroStart(timestamp) => (0x04, timestamp),
+        &EventTimingCode::OutroEnd(timestamp) => (0x05, timestamp),
+        &EventTimingCode::VerseStart(timestamp) => (0x06, timestamp),
+        &EventTimingCode::RefrainStart(timestamp) => (0x07, timestamp),
+        &EventTimingCode::InterludeStart(timestamp) => (0x08, timestamp),
+        &EventTimingCode::ThemeStart(timestamp) => (0x09, timestamp),
+        &EventTimingCode::VariationStart(timestamp) => (0x0a, timestamp),
+        &EventTimingCode::KeyChange(timestamp) => (0x0b, timestamp),
+        &EventTimingCode::TimeChange(timestamp) => (0x0c, timestamp),
+        &EventTimingCode::MomentaryUnwantedNoise(timestamp) => (0x0d, timestamp),
+        &EventTimingCode::SustainedNoise(timestamp) => (0x0e, timestamp),
+        &EventTimingCode::SustainedNoiseEnd(timestamp) => (0x0f, timestamp),
+        &EventTimingCode::IntroEnd(timestamp) => (0x10, timestamp),
+        &EventTimingCode::MainPartEnd(timestamp) => (0x11, timestamp),
+        &EventTimingCode::VerseEnd(timestamp) => (0x12, timestamp),
+        &EventTimingCode::RefrainEnd(timestamp) => (0x13, timestamp),
+        &EventTimingCode::ThemeEnd(timestamp) => (0x14, timestamp),
+        &EventTimingCode::Profanity(timestamp) => (0x15, timestamp),
+        &EventTimingCode::ProfanityEnd(timestamp) => (0x16, timestamp),
+        &EventTimingCode::ReservedForFutureUse(timestamp, t) => {
+            if (0x17 <= t && t < 0xdf) || (0xf0 <= t && t < 0xfc) {
+                (t, timestamp)
+            } else {
+                (0x17, timestamp)
+            }
+        },
+        &EventTimingCode::NotPredefinedSynch(timestamp, t) => {
+            if 0xe0 <= t && t < 0xef {
+                (t, timestamp)
+            } else {
+                (0xe0, timestamp)
+            }
+        },
+        &EventTimingCode::AudioEnd(timestamp) => (0xfd, timestamp),
+        &EventTimingCode::AudioFileEnds(timestamp) => (0xfe, timestamp),
+        &EventTimingCode::OneMoreByteOfEventsFollows(timestamp) => (0xff, timestamp),
+    }
+}
+
 pub fn read_null_terminated(text_encoding: &TextEncoding,
                             readable: &mut Readable<Cursor<Vec<u8>>>)
                             -> Result<String> {
     Ok(match text_encoding {
-        &TextEncoding::ISO88591 |
-        &TextEncoding::UTF8 =>
+        &TextEncoding::ISO88591 | &TextEncoding::UTF8 =>
             readable.non_utf16_string()?,
-
         _ => readable.utf16_string()?
+    })
+}
+
+pub fn write_null_terminated(text_encoding: &TextEncoding,
+                             text: &str,
+                             writable: &mut Writable<Cursor<Vec<u8>>>)
+                             -> Result<()> {
+    Ok(match text_encoding {
+        &TextEncoding::ISO88591 | &TextEncoding::UTF8 =>
+            writable.non_utf16_string(text)?,
+        _ => writable.utf16_string(text)?
     })
 }
 
@@ -152,6 +261,20 @@ pub fn to_content_type(t: u8) -> ContentType {
     }
 }
 
+pub fn from_content_type(t: &ContentType) -> u8 {
+    match t {
+        &ContentType::Other => 0x00,
+        &ContentType::Lyrics => 0x01,
+        &ContentType::TextTranscription => 0x02,
+        &ContentType::MovementName => 0x03,
+        &ContentType::Events => 0x04,
+        &ContentType::Chord => 0x05,
+        &ContentType::Trivia => 0x06,
+        &ContentType::UrlsToWebpages => 0x07,
+        &ContentType::UrlsToImages => 0x08
+    }
+}
+
 pub fn to_encoding(encoding: u8) -> TextEncoding {
     match encoding {
         0 => TextEncoding::ISO88591,
@@ -159,6 +282,15 @@ pub fn to_encoding(encoding: u8) -> TextEncoding {
         2 => TextEncoding::UTF16BE,
         3 => TextEncoding::UTF8,
         _ => TextEncoding::ISO88591
+    }
+}
+
+pub fn from_encoding(encoding: &TextEncoding) -> u8 {
+    match encoding {
+        &TextEncoding::ISO88591 => 0,
+        &TextEncoding::UTF16LE => 1,
+        &TextEncoding::UTF16BE => 2,
+        &TextEncoding::UTF8 => 3
     }
 }
 

@@ -68,3 +68,46 @@ impl error::Error for ParsingError {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum WriteError {
+    BadInput(String),
+    IoError(io::Error)
+}
+
+impl From<String> for WriteError {
+    fn from(err: String) -> WriteError {
+        WriteError::BadInput(err)
+    }
+}
+
+impl From<io::Error> for WriteError {
+    fn from(err: io::Error) -> WriteError {
+        WriteError::IoError(err)
+    }
+}
+
+impl fmt::Display for WriteError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            WriteError::BadInput(ref msg) => fmt::Display::fmt(msg, f),
+            WriteError::IoError(ref err) => fmt::Display::fmt(err, f)
+        }
+    }
+}
+
+impl error::Error for WriteError {
+    fn description(&self) -> &str {
+        match *self {
+            WriteError::BadInput(ref msg) => &*msg,
+            WriteError::IoError(ref err) => err.description()
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            WriteError::IoError(ref err) => Some(err as &error::Error),
+            _ => None,
+        }
+    }
+}

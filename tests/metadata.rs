@@ -100,7 +100,7 @@ fn metadata_regex() {
 fn metadata_empty() {
     let _ = env_logger::init();
 
-    for m in Metadata::new("./test-resources/empty-meta.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/empty-meta.mp3").unwrap() {
         match m {
             Unit::FrameV1(_) => assert!(false),
             Unit::FrameV2(_, _) => assert!(false),
@@ -113,7 +113,7 @@ fn metadata_empty() {
 fn metadata_v1() {
     let _ = env_logger::init();
 
-    for m in Metadata::new("./test-resources/v1-v2.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/v1-v2.mp3").unwrap() {
         match m {
             Unit::FrameV1(frame) => {
                 debug!("v1: {:?}", frame);
@@ -159,7 +159,7 @@ fn metadata_v1() {
 fn metadata_v1_no_id() {
     let _ = env_logger::init();
 
-    for m in Metadata::new("./test-resources/230-no-id3.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/230-no-id3.mp3").unwrap() {
         match m {
             Unit::FrameV1(_) => assert!(false),
             _ => ()
@@ -171,7 +171,7 @@ fn metadata_v1_no_id() {
 fn metadata_header() {
     let _ = env_logger::init();
 
-    for m in Metadata::new("./test-resources/230.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/230.mp3").unwrap() {
         match m {
             Unit::Header(header) => {
                 assert_eq!(3, header.version);
@@ -185,7 +185,7 @@ fn metadata_header() {
         }
     }
 
-    for m in Metadata::new("./test-resources/240.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/240.mp3").unwrap() {
         match m {
             Unit::Header(header) => {
                 assert_eq!(4, header.version);
@@ -205,7 +205,7 @@ fn metadata_frame_data() {
     let _ = env_logger::init();
 
     fn test(path: &str, mut data: Vec<&str>) {
-        for m in Metadata::new(path).unwrap() {
+        for m in MetadataReader::new(path).unwrap() {
             match m {
                 Unit::FrameV2(_, frame) => {
                     comp_frame(frame, &mut data);
@@ -234,7 +234,7 @@ fn metadata_frame_data() {
 fn metadata_frame_etco() {
     let _ = env_logger::init();
 
-    for m in Metadata::new("./test-resources/230-etco.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/230-etco.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, FrameData::ETCO(frame)) => {
                 assert_eq! ( &TimestampFormat::Milliseconds, &frame.timestamp_format);
@@ -253,7 +253,7 @@ fn metadata_frame_etco() {
 fn metadata_frame_pcnt() {
     let _ = env_logger::init();
 
-    for m in Metadata::new("./test-resources/240-pcnt.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/240-pcnt.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, FrameData::PCNT(frame)) => assert_eq!(256, frame.counter),
             _ => (
@@ -267,7 +267,7 @@ fn metadata_frame_pcnt() {
 fn metadata_frame_tbpm() {
     let _ = env_logger::init();
 
-    for m in Metadata::new("./test-resources/230-tbpm.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/230-tbpm.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, FrameData::TBPM(frame)) => assert_eq!("0", frame.text),
             _ => ()
@@ -279,7 +279,7 @@ fn metadata_frame_tbpm() {
 fn metadata_encoding() {
     let _ = env_logger::init();
 
-    for m in Metadata::new("./test-resources/v1-iso-8859-1.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/v1-iso-8859-1.mp3").unwrap() {
         match m {
             Unit::FrameV1(frame) => {
                 assert_eq!("räksmörgås", frame.title);
@@ -291,7 +291,7 @@ fn metadata_encoding() {
         }
     }
 
-    for m in Metadata::new("./test-resources/v1-utf8.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/v1-utf8.mp3").unwrap() {
         match m {
             Unit::FrameV1(frame) => {
                 assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.title);
@@ -303,7 +303,7 @@ fn metadata_encoding() {
         }
     }
 
-    for m in Metadata::new("./test-resources/v2.3-iso-8859-1.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/v2.3-iso-8859-1.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, FrameData::TPE1(frame)) =>
                 assert_eq!("Ester Koèièková a Lubomír Nohavica", frame.text),
@@ -320,7 +320,7 @@ fn metadata_encoding() {
 fn metadata_v220() {
     let _ = env_logger::init();
 
-    for m in Metadata::new("./test-resources/v2.2-pic.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/v2.2-pic.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, FrameData::PIC(frame)) => {
                 comp_frame(FrameData::PIC(frame), &mut vec!["PNG:Other::61007"]);
@@ -334,7 +334,7 @@ fn metadata_v220() {
 fn metadata_compressed() {
     let _ = env_logger::init();
 
-    let iter = Metadata::new("./test-resources/v2.3-compressed-frame.mp3").unwrap();
+    let iter = MetadataReader::new("./test-resources/v2.3-compressed-frame.mp3").unwrap();
     let mut i = iter.filter(|m| {
         match m {
             &Unit::FrameV2(FrameHeader::V23(ref header), _) => header.has_flag(FrameHeaderFlag::Compression),
@@ -350,7 +350,7 @@ fn metadata_compressed() {
 
     assert!(i.next().is_none());
 
-    let iter = Metadata::new("./test-resources/v2.4-compressed-frame.mp3").unwrap();
+    let iter = MetadataReader::new("./test-resources/v2.4-compressed-frame.mp3").unwrap();
     let mut i = iter.filter(|m| {
         match m {
             &Unit::FrameV2(FrameHeader::V24(ref header), _) => header.has_flag(FrameHeaderFlag::Compression),
@@ -371,7 +371,7 @@ fn metadata_compressed() {
 fn metadata_encrypted() {
     let _ = env_logger::init();
 
-    let iter = Metadata::new("./test-resources/v2.3-encrypted-frame.mp3").unwrap();
+    let iter = MetadataReader::new("./test-resources/v2.3-encrypted-frame.mp3").unwrap();
     let mut i = iter.filter(|m| {
         match m {
             &Unit::FrameV2(FrameHeader::V23(ref head), _) => head.has_flag(FrameHeaderFlag::Encryption),
@@ -387,7 +387,7 @@ fn metadata_encrypted() {
 
     assert!(i.next().is_none());
 
-    let iter = Metadata::new("./test-resources/v2.4-encrypted-frame.mp3").unwrap();
+    let iter = MetadataReader::new("./test-resources/v2.4-encrypted-frame.mp3").unwrap();
     let mut i = iter.filter(|m| {
         match m {
             &Unit::FrameV2(FrameHeader::V24(ref head), _) => head.has_flag(FrameHeaderFlag::Encryption),
@@ -410,7 +410,7 @@ fn metadata_v230_ext_header() {
 
     // file with extend header bit set but no extended header
     {
-        let iter = Metadata::new("./test-resources/v2.3-ext-header-invalid.mp3").unwrap();
+        let iter = MetadataReader::new("./test-resources/v2.3-ext-header-invalid.mp3").unwrap();
         let i = iter.filter(|m| {
             match m {
                 &Unit::Header(ref header) => header.has_flag(HeadFlag::ExtendedHeader),
@@ -420,7 +420,7 @@ fn metadata_v230_ext_header() {
 
         assert!(i.count() == 1);
 
-        let iter = Metadata::new("./test-resources/v2.3-ext-header-invalid.mp3").unwrap();
+        let iter = MetadataReader::new("./test-resources/v2.3-ext-header-invalid.mp3").unwrap();
         let i = iter.filter(|m| {
             match m {
                 &Unit::ExtendedHeader(_) => true,
@@ -432,7 +432,7 @@ fn metadata_v230_ext_header() {
     }
 
     {
-        let iter = Metadata::new("./test-resources/v2.3-ext-header.mp3").unwrap();
+        let iter = MetadataReader::new("./test-resources/v2.3-ext-header.mp3").unwrap();
         let i = iter.filter(|m| {
             match m {
                 &Unit::ExtendedHeader(_) => true,
@@ -442,7 +442,7 @@ fn metadata_v230_ext_header() {
 
         assert!(i.count() == 1);
 
-        for m in Metadata::new("./test-resources/v2.3-ext-header.mp3").unwrap() {
+        for m in MetadataReader::new("./test-resources/v2.3-ext-header.mp3").unwrap() {
             match m {
                 Unit::FrameV2(_, FrameData::TCON(frame)) => assert_eq!("(0)Blues", frame.text),
                 _ => ()
@@ -456,7 +456,7 @@ fn metadata_v230_ext_header() {
 fn metadata_v230_invalid_aenc() {
     let _ = env_logger::init();
 
-    let iter = Metadata::new("./test-resources/v2.3-invalid-aenc.mp3").unwrap();
+    let iter = MetadataReader::new("./test-resources/v2.3-invalid-aenc.mp3").unwrap();
     let i = iter.filter(|m| {
         match m {
             &Unit::FrameV2(_, FrameData::AENC(_)) => true,
@@ -473,7 +473,7 @@ fn metadata_v230_link() {
 
     let re = regex::Regex::new(r"^http://www\.emusic\.com").unwrap();
 
-    for m in Metadata::new("./test-resources/v2.3-link-frame.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/v2.3-link-frame.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, FrameData::LINK(frame)) => {
                 assert_eq!("WCO", frame.frame_identifier);
@@ -488,7 +488,7 @@ fn metadata_v230_link() {
 fn metadata_v230_mcdi() {
     let _ = env_logger::init();
 
-    for m in Metadata::new("./test-resources/v2.3-mcdi.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/v2.3-mcdi.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, FrameData::MCDI(frame)) => {
                 assert_eq!(804, frame.cd_toc.len());
@@ -502,7 +502,7 @@ fn metadata_v230_mcdi() {
 fn metadata_v240_geob() {
     let _ = env_logger::init();
 
-    let iter = Metadata::new("./test-resources/v2.4-geob-multiple.mp3").unwrap();
+    let iter = MetadataReader::new("./test-resources/v2.4-geob-multiple.mp3").unwrap();
     let mut i = iter.filter(|m| {
         match m {
             &Unit::FrameV2(_, FrameData::GEOB(_)) => true,
@@ -541,7 +541,7 @@ fn metadata_unsync() {
     "(26)"
     ];
 
-    for m in Metadata::new("./test-resources/v2.3-unsync.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/v2.3-unsync.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, frame) => {
                 comp_frame(frame, &mut data);
@@ -559,7 +559,7 @@ fn metadata_unsync() {
     "replaygain_track_peak:0.000715\u{0}"
     ];
 
-    for m in Metadata::new("./test-resources/v2.4-unsync.mp3").unwrap() {
+    for m in MetadataReader::new("./test-resources/v2.4-unsync.mp3").unwrap() {
         match m {
             Unit::FrameV2(_, frame) => {
                 comp_frame(frame, &mut data);

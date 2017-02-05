@@ -14,21 +14,21 @@ const DEFAULT_BUF_SIZE: usize = 1024;
 #[derive(Debug)]
 pub struct Readable<I> where I: Read + Seek {
     input: I,
-    total_read: i64
+    total: i64
 }
 
 impl<I> Readable<I> where I: Read + Seek {
     pub fn new(input: I) -> Self {
         Readable {
             input: input,
-            total_read: 0
+            total: 0
         }
     }
 
     pub fn all_bytes(&mut self) -> Result<Vec<u8>> {
         let mut buf = vec![];
         let read = self.input.read_to_end(&mut buf)?;
-        self.total_read = self.total_read + read as i64;
+        self.total = self.total + read as i64;
 
         Ok(buf)
     }
@@ -39,16 +39,22 @@ impl<I> Readable<I> where I: Read + Seek {
 
     pub fn bytes(&mut self, amount: usize) -> Result<Vec<u8>> {
         let mut ret = vec![];
-        let buf_size = if amount < DEFAULT_BUF_SIZE { amount } else { DEFAULT_BUF_SIZE };
+        let buf_size = if amount < DEFAULT_BUF_SIZE {
+            amount
+        } else {
+            DEFAULT_BUF_SIZE
+        };
         let mut buf = vec![0u8; buf_size];
         let mut total_read = 0;
         loop {
             let read = self.input.read(buf.as_mut_slice())?;
 
-            self.total_read = self.total_read + read as i64;
+            self.total = self.total + read as i64;
 
             if read <= 0 {
-                return Err(Error::new(ErrorKind::Other, format!("read try: {}, but read zero.", amount)));
+                return Err(Error::new(ErrorKind::Other,
+                                      format!("read try: {}, but read zero.",
+                                              amount)));
             }
             ret.append(&mut buf);
             total_read = total_read + read;
@@ -89,7 +95,7 @@ impl<I> Readable<I> where I: Read + Seek {
         }
 
         let len = ret.len();
-        self.total_read = self.total_read + len as i64;
+        self.total = self.total + len as i64;
 
         Ok(ret)
     }
@@ -119,7 +125,7 @@ impl<I> Readable<I> where I: Read + Seek {
         }
 
         let len = ret.len();
-        self.total_read = self.total_read + len as i64;
+        self.total = self.total + len as i64;
 
         Ok(ret)
     }
@@ -130,17 +136,21 @@ impl<I> Readable<I> where I: Read + Seek {
     }
 
     pub fn skip(&mut self, amount: i64) -> Result<u64> {
-        self.total_read = self.total_read + amount;
-        Ok(self.input.seek(SeekFrom::Current(amount))?)
+        let ret = self.input.seek(SeekFrom::Current(amount))?;
+        self.total = self.total + amount;
+
+        Ok(ret)
     }
 
     pub fn position(&mut self, offset: usize) -> Result<u64> {
-        self.total_read = offset as i64;
-        Ok(self.input.seek(SeekFrom::Start(offset as u64))?)
+        let ret = self.input.seek(SeekFrom::Start(offset as u64))?;
+        self.total = offset as i64;
+
+        Ok(ret)
     }
 
     pub fn total_read(&mut self) -> i64 {
-        self.total_read
+        self.total
     }
 
     pub fn u8(&mut self) -> Result<u8> {
@@ -156,6 +166,16 @@ impl<I> Readable<I> where I: Read + Seek {
         Ok(v)
     }
 
+    pub fn u24(&mut self) -> Result<u32> {
+        let bytes = self.bytes(3)?;
+
+        let mut v: u32 = (bytes[2] & 0xff) as u32;
+        v = v | ((bytes[1] & 0xff) as u32) << 8;
+        v = v | ((bytes[0] & 0xff) as u32) << 16;
+
+        Ok(v)
+    }
+
     pub fn u32(&mut self) -> Result<u32> {
         let bytes = self.bytes(4)?;
 
@@ -163,16 +183,6 @@ impl<I> Readable<I> where I: Read + Seek {
         v = v | ((bytes[2] & 0xff) as u32) << 8;
         v = v | ((bytes[1] & 0xff) as u32) << 16;
         v = v | ((bytes[0] & 0xff) as u32) << 24;
-
-        Ok(v)
-    }
-
-    pub fn u24(&mut self) -> Result<u32> {
-        let bytes = self.bytes(3)?;
-
-        let mut v: u32 = (bytes[2] & 0xff) as u32;
-        v = v | ((bytes[1] & 0xff) as u32) << 8;
-        v = v | ((bytes[0] & 0xff) as u32) << 16;
 
         Ok(v)
     }

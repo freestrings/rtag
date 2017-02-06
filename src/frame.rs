@@ -156,7 +156,11 @@ impl FlagAware<HeadFlag> for Head {
 
 impl FrameWriterDefault for Head {
     fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        unimplemented!()
+        writable.string("ID3")?;
+        writable.u8(self.version)?;
+        writable.u8(self.minor_version)?;
+        writable.u8(self.flag)?;
+        writable.u32(self.size)
     }
 }
 
@@ -224,7 +228,23 @@ impl Frame1 {
 
 impl FrameWriterDefault for Frame1 {
     fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        unimplemented!()
+        writable.string("TAG")?;
+        writable.write(&util::from_iso8859_1(&self.title, 30))?;
+        writable.write(&util::from_iso8859_1(&self.artist, 30))?;
+        writable.write(&util::from_iso8859_1(&self.album, 30))?;
+        writable.write(&util::from_iso8859_1(&self.year, 4))?;
+        writable.write(&util::from_iso8859_1(&self.comment, 28))?;
+        writable.u8(0)?;//track marker
+        match self.track.as_str().parse::<u8>() {
+            Ok(v) => writable.u8(v)?,
+            Err(_) => writable.u8(0)?,
+        };
+        match self.genre.as_str().parse::<u8>() {
+            Ok(v) => writable.u8(v)?,
+            Err(_) => writable.u8(0)?,
+        };
+
+        Ok(())
     }
 }
 
@@ -1218,7 +1238,7 @@ impl FrameReaderDefault<PRIV> for PRIV {
 
 impl FrameWriterDefault for PRIV {
     fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.non_utf16_string(self.owner_identifier.as_str());
+        writable.non_utf16_string(self.owner_identifier.as_str())?;
         writable.write(&self.private_data)
     }
 }

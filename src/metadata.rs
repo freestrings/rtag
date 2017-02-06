@@ -18,7 +18,10 @@ use writable::{
 
 use std::cell::RefCell;
 use std::error::Error;
-use std::fs::File;
+use std::fs::{
+    File,
+    OpenOptions
+};
 use std::io::{
     Cursor,
     Read
@@ -58,8 +61,7 @@ pub struct MetadataReader {
 impl MetadataReader {
     pub fn new(path: &str) -> result::Result<Self, ParsingError> {
         let file = File::open(path)?;
-        let metadata = file.metadata()?;
-        let file_len = metadata.len();
+        let file_len = file.metadata()?.len();
         let readable = file.to_readable();
 
         Ok(MetadataReader {
@@ -375,15 +377,75 @@ impl Iterator for MetadataReader {
     }
 }
 
-pub struct MetadataWriter {
-    writable: Writable<Cursor<Vec<u8>>>
+pub struct MetadataWriter<'a> {
+    path: &'a str
 }
 
-impl MetadataWriter {
-    pub fn new(path: &str) -> result::Result<Self, WriteError> {
+impl<'a> MetadataWriter<'a> {
+    pub fn new(path: &'a str) -> result::Result<Self, WriteError> {
         Ok(MetadataWriter {
-            writable: Writable::new(Cursor::new(vec![]))
+            path: path
         })
+    }
+
+    pub fn head_to_bytes(&self, head: &Head) -> result::Result<Vec<u8>, WriteError> {
+        let mut writable = Writable::new(Cursor::new(vec![]));
+        head.write(&mut writable)?;
+
+        let mut buf = Vec::new();
+        writable.as_mut().read_to_end(&mut buf)?;
+
+        Ok(buf)
+    }
+
+    pub fn frame_to_bytes(&self, frames: Vec<(FrameHeader, FrameData)>) -> result::Result<Vec<u8>, WriteError> {
+        let mut writable = Writable::new(Cursor::new(vec![]));
+        for frame in frames {
+            let (mut frame_header, frame_data) = frame;
+
+            match frame_header {
+                FrameHeader::V22(ref mut frame_header) => {
+                    let (id, bytes) = write_frame_data(&frame_data, 2)?;
+                    frame_header.id = id.to_string();
+                    frame_header.size = bytes.len() as u32;
+                    frame_header.write(&mut writable)?;
+                    writable.write(&bytes)?;
+                },
+                FrameHeader::V23(ref mut frame_header) => {
+                    let (id, bytes) = write_frame_data(&frame_data, 3)?;
+                    frame_header.id = id.to_string();
+                    frame_header.size = bytes.len() as u32;
+                    frame_header.write(&mut writable)?;
+                    writable.write(&bytes)?;
+                },
+                FrameHeader::V24(ref mut frame_header) => {
+                    let (id, bytes) = write_frame_data(&frame_data, 4)?;
+                    frame_header.id = id.to_string();
+                    frame_header.size = if frame_header.has_flag(FrameHeaderFlag::Unsynchronisation) {
+                        util::to_unsynchronize(&bytes).len() as u32
+                    } else {
+                        bytes.len() as u32
+                    };
+                    frame_header.write(&mut writable)?;
+                    writable.write(&bytes)?;
+                },
+            };
+        }
+
+        let mut buf = Vec::new();
+        writable.as_mut().read_to_end(&mut buf)?;
+
+        Ok(buf)
+    }
+
+    pub fn frame1_to_bytes(&self, frame1: Frame1) -> result::Result<Vec<u8>, WriteError> {
+        let mut writable = Writable::new(Cursor::new(vec![]));
+        frame1.write(&mut writable)?;
+
+        let mut buf = Vec::new();
+        writable.as_mut().read_to_end(&mut buf)?;
+
+        Ok(buf)
     }
 
     pub fn write(&mut self, units: Vec<Unit>) -> result::Result<(), WriteError> {
@@ -400,54 +462,76 @@ impl MetadataWriter {
             }
         };
 
-        let mut writable = Writable::new(Cursor::new(vec![]));
-
-        let head = if head_wrap.is_none() {
+        let mut head = if head_wrap.is_none() {
             Head { version: 4, minor_version: 0, flag: 0, size: 0 }
         } else {
             head_wrap.unwrap()
         };
 
-        for frame in frames {
-            let (mut frame_header, frame_data) = frame;
+        let frame_bytes = if head.has_flag(HeadFlag::Unsynchronisation) {
+            util::to_unsynchronize(&self.frame_to_bytes(frames)?)
+        } else {
+            self.frame_to_bytes(frames)?
+        };
+        head.size = frame_bytes.len() as u32;
 
-            let bytes = match frame_header {
-                FrameHeader::V22(ref mut frame_header) => {
-                    let (id, bytes) = write_frame_data(&frame_data, 2)?;
-                    frame_header.id = id.to_string();
-                    frame_header.size = bytes.len() as u32;
-                    frame_header.write(&mut writable);
-                    bytes
-                },
-                FrameHeader::V23(ref mut frame_header) => {
-                    let (id, bytes) = write_frame_data(&frame_data, 3)?;
-                    frame_header.id = id.to_string();
-                    frame_header.size = bytes.len() as u32;
-                    frame_header.write(&mut writable);
-                    bytes
-                },
-                FrameHeader::V24(ref mut frame_header) => {
-                    let (id, bytes) = write_frame_data(&frame_data, 4)?;
-                    frame_header.id = id.to_string();
-                    frame_header.size = bytes.len() as u32;
-                    frame_header.write(&mut writable);
+        let head_bytes = self.head_to_bytes(&head)?;
+        let frame1_bytes = if let Some(frame1) = frame1_wrap {
+            self.frame1_to_bytes(frame1)?
+        } else {
+            vec![0u8; 0]
+        };
 
-                    if !head.has_flag(HeadFlag::Unsynchronisation) &&
-                        frame_header.has_flag(FrameHeaderFlag::Unsynchronisation) {
-                        //
-                    }
-                    bytes
-                },
-            };
+        let file_len = self.adjust_metadata_size(&head)?;
 
-            writable.write(&bytes);
-        }
+        let mut writable = OpenOptions::new().write(true).open(self.path)?.to_writable();
+        writable.write(&head_bytes)?;
+        writable.write(&frame_bytes)?;
 
-        if head.has_flag(HeadFlag::Unsynchronisation) {
-            //
+        if frame1_bytes.len() > 0 {
+            writable.position(file_len as usize - 128)?;
+            writable.write(&frame1_bytes)?;
         }
 
         Ok(())
+    }
+
+    fn adjust_metadata_size(&self, head: &Head) -> result::Result<u64, WriteError> {
+        let metadata_length = self.metadata_length();
+        let file = OpenOptions::new().read(true).write(true).open(self.path)?;
+        let file_len = file.metadata()?.len();
+
+        let mut writable = file.to_writable();
+
+        if metadata_length > head.size {
+            let unshift_size = (metadata_length - head.size) as u64;
+
+            writable.unshift(unshift_size as usize)?;
+
+            let len = file_len - unshift_size;
+            OpenOptions::new().write(true).open(self.path)?.set_len(len)?;
+
+            Ok(len)
+        } else {
+            writable.shift((head.size - metadata_length) as usize)?;
+
+            Ok(file_len)
+        }
+    }
+
+    fn metadata_length(&self) -> u32 {
+        match self::MetadataReader::new(self.path) {
+            Ok(meta) => {
+                for m in meta {
+                    match m {
+                        Unit::Header(header) => return header.size,
+                        _ => ()
+                    }
+                }
+                0
+            },
+            _ => 0
+        }
     }
 }
 
@@ -1009,7 +1093,7 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
     };
 
     let mut buf = Vec::new();
-    writable.as_mut().read_to_end(&mut buf);
+    writable.as_mut().read_to_end(&mut buf)?;
 
     Ok((id, buf))
 }

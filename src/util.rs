@@ -3,7 +3,8 @@ extern crate encoding;
 use self::encoding::all::ISO_8859_1;
 use self::encoding::{
     Encoding,
-    DecoderTrap
+    DecoderTrap,
+    EncoderTrap
 };
 
 use frame::{
@@ -309,6 +310,48 @@ pub fn to_synchronize(bytes: &mut Vec<u8>) -> usize {
     to
 }
 
+pub fn to_unsynchronize(bytes: &Vec<u8>) -> Vec<u8> {
+    fn require_unsync(bytes: &Vec<u8>) -> usize {
+        let mut count = 0;
+        let len = bytes.len();
+        for i in 0..len - 1 {
+            if bytes[i] & 0xff == 0xff &&
+                (bytes[i + 1] & 0xe0 == 0xe0 || bytes[i + 1] == 0) {
+                count = count + 1;
+            }
+        }
+        if len > 0 && bytes[len - 1] == 0xff {
+            count = count + 1;
+        }
+        count
+    }
+
+    let count = require_unsync(bytes);
+    if count == 0 {
+        return bytes.clone()
+    }
+
+    let len = bytes.len();
+    let mut out = vec![0u8; len + count];
+    let mut j = 0;
+    for i in 0..len - 1 {
+        out[j] = bytes[i];
+        j = j + 1;
+        if bytes[i] & 0xff == 0xff &&
+            (bytes[i + 1] & 0xe0 == 0xe0 || bytes[i + 1] == 0) {
+            out[j] = 0;
+            j = j + 1;
+        }
+    }
+    out[j] = bytes[len - 1];
+    j = j + 1;
+    if bytes[len - 1] == 0xff {
+        out[j] = 0;
+    }
+
+    out
+}
+
 #[allow(dead_code)]
 pub fn to_hex(bytes: &Vec<u8>) -> String {
     let strs: Vec<String> = bytes.iter()
@@ -322,4 +365,16 @@ pub fn to_iso8859_1(bytes: &Vec<u8>) -> String {
         Ok(value) => value.to_string(),
         _ => "".to_string()
     }
+}
+
+pub fn from_iso8859_1(v: &String, len: usize) -> Vec<u8> {
+    let mut v = match ISO_8859_1.encode(&v, EncoderTrap::Strict) {
+        Ok(value) => value,
+        _ => vec![0u8; len]
+    };
+
+    for i in v.len()..len {
+        v[i] = 0;
+    }
+    v.to_vec()
 }

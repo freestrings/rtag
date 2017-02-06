@@ -393,7 +393,7 @@ impl<'a> MetadataWriter<'a> {
         head.write(&mut writable)?;
 
         let mut buf = Vec::new();
-        writable.as_mut().read_to_end(&mut buf)?;
+        let _ = writable.copy(&mut buf);
 
         Ok(buf)
     }

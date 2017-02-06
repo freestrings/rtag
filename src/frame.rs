@@ -64,7 +64,7 @@ pub trait FlagAware<T> {
     fn set_flag(&mut self, flag: T);
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Head {
     pub version: u8,
     pub minor_version: u8,
@@ -160,7 +160,7 @@ impl FrameWriterDefault for Head {
         writable.u8(self.version)?;
         writable.u8(self.minor_version)?;
         writable.u8(self.flag)?;
-        writable.u32(self.size)
+        writable.synchsafe(self.size)
     }
 }
 

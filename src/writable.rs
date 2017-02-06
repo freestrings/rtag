@@ -9,6 +9,7 @@ use std::io::{
 
 const DEFAULT_BUF_SIZE: usize = 1024;
 
+#[derive(Debug)]
 pub struct Writable<I> where I: Read + Write + Seek {
     input: I,
     total: i64
@@ -194,6 +195,15 @@ impl<I> Writable<I> where I: Read + Write + Seek {
 
     pub fn total_write(&mut self) -> i64 {
         self.total
+    }
+
+    pub fn copy(&mut self, bytes: &mut Vec<u8>) -> Result<()> {
+        let curr = self.input.seek(SeekFrom::Current(0))?;
+        self.input.seek(SeekFrom::Start(0))?;
+        self.input.read_to_end(bytes)?;
+        self.input.seek(SeekFrom::Start(curr))?;
+
+        Ok(())
     }
 }
 

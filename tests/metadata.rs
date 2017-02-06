@@ -1,5 +1,4 @@
-#[macro_use]
-extern crate log;
+#[macro_use] extern crate log;
 extern crate env_logger;
 
 extern crate rtag;
@@ -8,7 +7,10 @@ use std::io::Cursor;
 use std::vec::Vec;
 use rtag::frame::*;
 use rtag::metadata::*;
-use rtag::readable::ReadableFactory;
+use rtag::readable::{
+    Readable,
+    ReadableFactory
+};
 
 fn comp_frame(frame_data: FrameData, data: &mut Vec<&str>) {
     data.reverse();
@@ -194,6 +196,30 @@ fn metadata_header() {
                 assert_eq!(header.has_flag(HeadFlag::ExtendedHeader), false);
                 assert_eq!(header.has_flag(HeadFlag::ExperimentalIndicator), false);
                 assert_eq!(header.size, 165126);
+            },
+            _ => ()
+        }
+    }
+
+    for m in MetadataReader::new("./test-resources/230.mp3").unwrap() {
+        match m {
+            Unit::Header(ref header) => {
+                let writer = MetadataWriter::new("").unwrap();
+                let bytes = writer.head_to_bytes(header).unwrap();
+                let readable = Readable::new(Cursor::new(bytes));
+                assert_eq!(header, &Head::read(readable).unwrap());
+            },
+            _ => ()
+        }
+    }
+
+    for m in MetadataReader::new("./test-resources/240.mp3").unwrap() {
+        match m {
+            Unit::Header(ref header) => {
+                let writer = MetadataWriter::new("").unwrap();
+                let bytes = writer.head_to_bytes(header).unwrap();
+                let readable = Readable::new(Cursor::new(bytes));
+                assert_eq!(header, &Head::read(readable).unwrap());
             },
             _ => ()
         }

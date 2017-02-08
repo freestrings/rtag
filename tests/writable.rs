@@ -15,7 +15,7 @@ fn shift() {
         writable.string("1234567890abcdefghij").unwrap();
     }
 
-    let path = "./test-resources/write.txt";
+    let path = "./test-resources/write_shift.txt";
     let _ = fs::remove_file(path);
 
     init(path);
@@ -105,7 +105,7 @@ fn unshift() {
         writable.string("1234567890abcdefghij").unwrap();
     }
 
-    let path = "./test-resources/write.txt";
+    let path = "./test-resources/write_unshift.txt";
     let _ = fs::remove_file(path);
 
     init(path);

@@ -34,7 +34,8 @@ impl<I> Readable<I> where I: Read + Seek {
     }
 
     pub fn all_string(&mut self) -> Result<String> {
-        Ok(String::from_utf8_lossy(&self.all_bytes()?).into_owned())
+        let bytes = self.all_bytes()?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
     pub fn bytes(&mut self, amount: usize) -> Result<Vec<u8>> {

@@ -1,7 +1,9 @@
 pub extern crate regex;
 extern crate flate2;
 
+use self::flate2::Compression;
 use self::flate2::read::ZlibDecoder;
+use self::flate2::write::ZlibEncoder;
 
 use errors::*;
 use frame::*;
@@ -24,7 +26,8 @@ use std::fs::{
 };
 use std::io::{
     Cursor,
-    Read
+    Read,
+    Write
 };
 use std::iter::Iterator;
 use std::rc::Rc;
@@ -89,7 +92,7 @@ impl MetadataReader {
             readable_wrap: RefFileReader)
             -> result::Result<Unit, ParsingError> {
         let mut readable = readable_wrap.borrow_mut();
-        let head = Head::read(readable.to_readable(10)?)?;
+        let head = Head::read(&mut readable.to_readable(10)?)?;
         let is_extended = head.has_flag(HeadFlag::ExtendedHeader);
         let head_wrap = Rc::new(RefCell::new(Box::new(head.clone())));
 
@@ -142,7 +145,7 @@ impl MetadataReader {
         Ok(Unit::ExtendedHeader(extended_bytes))
     }
 
-    fn frame1(&mut self, readable: &mut Readable<File>)
+    fn frame1(&self, readable: &mut Readable<File>)
               -> result::Result<Frame1, ParsingError> {
         if self.file_len < 128 {
             return Err(ParsingError::BadData(ParsingErrorKind::InvalidFrameLength));
@@ -160,24 +163,25 @@ impl MetadataReader {
     }
 
     // version 2.2
-    fn frame2(&mut self,
-              head: &Head,
-              readable: &mut Readable<Cursor<Vec<u8>>>)
-              -> result::Result<Unit, ParsingError> {
+    pub fn frame2(&mut self,
+                  readable: &mut Readable<Cursor<Vec<u8>>>)
+                  -> result::Result<Unit, ParsingError> {
         let frame_header = FrameHeaderV2::read(readable)?;
+
         let frame_body = if frame_header.has_flag(FrameHeaderFlag::Encryption) {
-            FrameData::SKIP("Encrypted frame".to_string())
+            FrameData::SKIP(frame_header.id.to_owned(), readable.bytes(frame_header.size as usize)?)
         } else {
             let frame_readable = readable.to_readable(frame_header.size as usize)?;
-            frame_data(frame_header.id.as_str(), head.version, frame_readable)?
+            frame_data(frame_header.id.as_str(), 2, frame_readable)?
         };
 
         Ok(Unit::FrameV2(FrameHeader::V22(frame_header), frame_body))
     }
 
     // v2.3
-    fn frame3(&mut self, head: &Head, readable: &mut Readable<Cursor<Vec<u8>>>)
-              -> result::Result<Unit, ParsingError> {
+    pub fn frame3(&mut self,
+                  readable: &mut Readable<Cursor<Vec<u8>>>)
+                  -> result::Result<Unit, ParsingError> {
         let frame_header = FrameHeaderV3::read(readable)?;
 
         let mut extra_size: u32 = 0;
@@ -209,20 +213,19 @@ impl MetadataReader {
         };
 
         let frame_body = if frame_header.has_flag(FrameHeaderFlag::Encryption) {
-            FrameData::SKIP("Encrypted frame".to_string())
+            FrameData::SKIP(frame_header.id.to_owned(), body_bytes)
         } else {
             let frame_readable = Cursor::new(body_bytes).to_readable();
-            frame_data(frame_header.id.as_str(), head.version, frame_readable)?
+            frame_data(frame_header.id.as_str(), 3, frame_readable)?
         };
 
         Ok(Unit::FrameV2(FrameHeader::V23(frame_header), frame_body))
     }
 
     // v2.4
-    fn frame4(&mut self,
-              head: &Head,
-              readable: &mut Readable<Cursor<Vec<u8>>>)
-              -> result::Result<Unit, ParsingError> {
+    pub fn frame4(&mut self,
+                  readable: &mut Readable<Cursor<Vec<u8>>>)
+                  -> result::Result<Unit, ParsingError> {
         let frame_header = FrameHeaderV4::read(readable)?;
 
         let mut extra_size: u32 = 0;
@@ -259,21 +262,17 @@ impl MetadataReader {
         if frame_header.has_flag(FrameHeaderFlag::Compression) {
             debug!("'{}' is compressed", frame_header.id);
 
-            let _ = readable.u32()?;
-
             let real_frame = body_bytes.clone();
             let mut out = vec![];
             let mut decoder = ZlibDecoder::new(&real_frame[..]);
             let _ = decoder.read_to_end(&mut out);
-
             body_bytes = out;
         }
-
         let frame_body = if frame_header.has_flag(FrameHeaderFlag::Encryption) {
-            FrameData::SKIP("Encrypted frame".to_string())
+            FrameData::SKIP(frame_header.id.to_owned(), body_bytes)
         } else {
             let frame_readable = Cursor::new(body_bytes).to_readable();
-            frame_data(frame_header.id.as_str(), head.version, frame_readable)?
+            frame_data(frame_header.id.as_str(), 4, frame_readable)?
         };
 
         Ok(Unit::FrameV2(FrameHeader::V24(frame_header), frame_body))
@@ -296,10 +295,10 @@ impl MetadataReader {
         //
         // frame v2
         match head_wrap.borrow().version {
-            2 => self.frame2(&head_wrap.borrow(), &mut frame_readable),
-            3 => self.frame3(&head_wrap.borrow(), &mut frame_readable),
-            4 => self.frame4(&head_wrap.borrow(), &mut frame_readable),
-            _ => self.frame4(&head_wrap.borrow(), &mut frame_readable)
+            2 => self.frame2(&mut frame_readable),
+            3 => self.frame3(&mut frame_readable),
+            4 => self.frame4(&mut frame_readable),
+            _ => self.frame4(&mut frame_readable)
         }
     }
 }
@@ -388,7 +387,7 @@ impl<'a> MetadataWriter<'a> {
         })
     }
 
-    pub fn head_to_bytes(&self, head: &Head) -> result::Result<Vec<u8>, WriteError> {
+    pub fn head_to_bytes(&self, head: Head) -> result::Result<Vec<u8>, WriteError> {
         let mut writable = Writable::new(Cursor::new(vec![]));
         head.write(&mut writable)?;
 
@@ -398,57 +397,171 @@ impl<'a> MetadataWriter<'a> {
         Ok(buf)
     }
 
-    pub fn frame_to_bytes(&self, frames: Vec<(FrameHeader, FrameData)>) -> result::Result<Vec<u8>, WriteError> {
+    pub fn frame2_to_bytes(&self, frame_header: &mut FrameHeaderV2, frame_data: FrameData)
+                           -> result::Result<Vec<u8>, WriteError> {
         let mut writable = Writable::new(Cursor::new(vec![]));
-        for frame in frames {
-            let (mut frame_header, frame_data) = frame;
 
-            match frame_header {
-                FrameHeader::V22(ref mut frame_header) => {
-                    let (id, bytes) = write_frame_data(&frame_data, 2)?;
-                    frame_header.id = id.to_string();
-                    frame_header.size = bytes.len() as u32;
-                    frame_header.write(&mut writable)?;
-                    writable.write(&bytes)?;
-                },
-                FrameHeader::V23(ref mut frame_header) => {
-                    let (id, bytes) = write_frame_data(&frame_data, 3)?;
-                    frame_header.id = id.to_string();
-                    frame_header.size = bytes.len() as u32;
-                    frame_header.write(&mut writable)?;
-                    writable.write(&bytes)?;
-                },
-                FrameHeader::V24(ref mut frame_header) => {
-                    let (id, bytes) = write_frame_data(&frame_data, 4)?;
-                    frame_header.id = id.to_string();
-                    frame_header.size = if frame_header.has_flag(FrameHeaderFlag::Unsynchronisation) {
-                        util::to_unsynchronize(&bytes).len() as u32
-                    } else {
-                        bytes.len() as u32
-                    };
-                    frame_header.write(&mut writable)?;
-                    writable.write(&bytes)?;
-                },
-            };
+        if frame_header.has_flag(FrameHeaderFlag::Encryption) {
+            if let FrameData::OBJECT(_) = frame_data {
+                //
+            } else {
+                return Err(WriteError::BadInput(
+                    "Encrypted frame must be FrameData::OBJECT.".to_string()));
+            }
         }
 
+        let (id, bytes) = write_frame_data(&frame_data, 2)?;
+        frame_header.id = id.to_string();
+        frame_header.size = bytes.len() as u32;
+        frame_header.write(&mut writable)?;
+        writable.write(&bytes)?;
+
         let mut buf = Vec::new();
-        writable.as_mut().read_to_end(&mut buf)?;
+        writable.copy(&mut buf)?;
 
         Ok(buf)
     }
 
-    pub fn frame1_to_bytes(&self, frame1: Frame1) -> result::Result<Vec<u8>, WriteError> {
+    pub fn frame3_to_bytes(&self, frame_header: &mut FrameHeaderV3, frame_data: FrameData)
+                           -> result::Result<Vec<u8>, WriteError> {
+        let mut writable = Writable::new(Cursor::new(vec![]));
+
+        if frame_header.has_flag(FrameHeaderFlag::Encryption) {
+            if let FrameData::OBJECT(object) = frame_data {
+                frame_header.size = object.data.len() as u32;
+                let _ = frame_header.write(&mut writable);
+                let _ = writable.write(&object.data);
+
+                let mut buf = Vec::new();
+                writable.copy(&mut buf)?;
+
+                return Ok(buf)
+            } else {
+                return Err(WriteError::BadInput(
+                    "Encrypted frame must be FrameData::OBJECT.".to_string()));
+            }
+        }
+
+        let (id, mut bytes) = write_frame_data(&frame_data, 3)?;
+        frame_header.id = id.to_string();
+        frame_header.size = if frame_header.has_flag(FrameHeaderFlag::Compression) {
+            let mut encoder = ZlibEncoder::new(Vec::new(), Compression::Default);
+            let _ = encoder.write(&bytes);
+            bytes = encoder.finish()?;
+            bytes.len() as u32
+        } else {
+            bytes.len() as u32
+        };
+
+        frame_header.write(&mut writable)?;
+        writable.write(&bytes)?;
+
+        let mut buf = Vec::new();
+        writable.copy(&mut buf)?;
+
+        Ok(buf)
+    }
+
+    pub fn frame4_to_bytes(&self, frame_header: &mut FrameHeaderV4, frame_data: FrameData)
+                           -> result::Result<Vec<u8>, WriteError> {
+        let mut writable = Writable::new(Cursor::new(vec![]));
+
+        if frame_header.has_flag(FrameHeaderFlag::Encryption) {
+            if let FrameData::OBJECT(object) = frame_data {
+                frame_header.size = object.data.len() as u32;
+                let _ = frame_header.write(&mut writable);
+                let _ = writable.write(&object.data);
+
+                let mut buf = Vec::new();
+                writable.copy(&mut buf)?;
+
+                return Ok(buf)
+            } else {
+                return Err(WriteError::BadInput(
+                    "Encrypted frame must be FrameData::OBJECT.".to_string()));
+            }
+        }
+
+        let (id, mut bytes) = write_frame_data(&frame_data, 4)?;
+
+        frame_header.id = id.to_string();
+        frame_header.size = bytes.len() as u32;
+
+        if frame_header.has_flag(FrameHeaderFlag::Unsynchronisation) {
+            debug!("write {} unsynchronization", id);
+
+            bytes = util::to_unsynchronize(&bytes);
+            frame_header.size = bytes.len() as u32
+        }
+
+        if frame_header.has_flag(FrameHeaderFlag::Compression) {
+            debug!("write {} compression", id);
+
+            let mut encoder = ZlibEncoder::new(Vec::new(), Compression::Default);
+            let _ = encoder.write(&bytes);
+            bytes = encoder.finish()?;
+            frame_header.size = bytes.len() as u32
+        }
+
+        frame_header.write(&mut writable)?;
+        writable.write(&bytes)?;
+
+        let mut buf = Vec::new();
+        writable.copy(&mut buf)?;
+
+        Ok(buf)
+    }
+
+    pub fn frame_to_bytes(&self, frame: (FrameHeader, FrameData))
+                          -> result::Result<Vec<u8>, WriteError> {
+        let mut writable = Writable::new(Cursor::new(vec![]));
+
+        let (mut frame_header, frame_data) = frame;
+
+        match frame_header {
+            FrameHeader::V22(ref mut frame_header) => {
+                writable.write(&self.frame2_to_bytes(frame_header, frame_data)?)?;
+            },
+            FrameHeader::V23(ref mut frame_header) => {
+                writable.write(&self.frame3_to_bytes(frame_header, frame_data)?)?;
+            },
+            FrameHeader::V24(ref mut frame_header) => {
+                writable.write(&self.frame4_to_bytes(frame_header, frame_data)?)?;
+            }
+        }
+
+        let mut buf = Vec::new();
+        writable.copy(&mut buf)?;
+
+        Ok(buf)
+    }
+
+    pub fn frames_to_bytes(&self, frames: Vec<(FrameHeader, FrameData)>)
+                           -> result::Result<Vec<u8>, WriteError> {
+        let mut writable = Writable::new(Cursor::new(vec![]));
+        for frame in frames {
+            let _ = writable.write(&self.frame_to_bytes(frame)?);
+        }
+
+        let mut buf = Vec::new();
+        writable.copy(&mut buf)?;
+
+        Ok(buf)
+    }
+
+    pub fn frame1_to_bytes(&self, frame1: Frame1)
+                           -> result::Result<Vec<u8>, WriteError> {
         let mut writable = Writable::new(Cursor::new(vec![]));
         frame1.write(&mut writable)?;
 
         let mut buf = Vec::new();
-        writable.as_mut().read_to_end(&mut buf)?;
+        writable.copy(&mut buf)?;
 
         Ok(buf)
     }
 
-    pub fn write(&mut self, units: Vec<Unit>) -> result::Result<(), WriteError> {
+    pub fn write_all(&mut self, units: Vec<Unit>)
+                     -> result::Result<(), WriteError> {
         let mut head_wrap = None;
         let mut frame1_wrap = None;
         let mut frames = Vec::new();
@@ -469,20 +582,20 @@ impl<'a> MetadataWriter<'a> {
         };
 
         let frame_bytes = if head.has_flag(HeadFlag::Unsynchronisation) {
-            util::to_unsynchronize(&self.frame_to_bytes(frames)?)
+            util::to_unsynchronize(&self.frames_to_bytes(frames)?)
         } else {
-            self.frame_to_bytes(frames)?
+            self.frames_to_bytes(frames)?
         };
         head.size = frame_bytes.len() as u32;
 
-        let head_bytes = self.head_to_bytes(&head)?;
         let frame1_bytes = if let Some(frame1) = frame1_wrap {
             self.frame1_to_bytes(frame1)?
         } else {
             vec![0u8; 0]
         };
 
-        let file_len = self.adjust_metadata_size(&head)?;
+        let file_len = self.adjust_metadata_size(head.size)?;
+        let head_bytes = self.head_to_bytes(head)?;
 
         let mut writable = OpenOptions::new().write(true).open(self.path)?.to_writable();
         writable.write(&head_bytes)?;
@@ -496,15 +609,15 @@ impl<'a> MetadataWriter<'a> {
         Ok(())
     }
 
-    fn adjust_metadata_size(&self, head: &Head) -> result::Result<u64, WriteError> {
+    fn adjust_metadata_size(&self, head_size: u32) -> result::Result<u64, WriteError> {
         let metadata_length = self.metadata_length();
         let file = OpenOptions::new().read(true).write(true).open(self.path)?;
         let file_len = file.metadata()?.len();
 
         let mut writable = file.to_writable();
 
-        if metadata_length > head.size {
-            let unshift_size = (metadata_length - head.size) as u64;
+        if metadata_length > head_size {
+            let unshift_size = (metadata_length - head_size) as u64;
 
             writable.unshift(unshift_size as usize)?;
 
@@ -513,7 +626,7 @@ impl<'a> MetadataWriter<'a> {
 
             Ok(len)
         } else {
-            writable.shift((head.size - metadata_length) as usize)?;
+            writable.shift((head_size - metadata_length) as usize)?;
 
             Ok(file_len)
         }
@@ -723,7 +836,7 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::AENC(ref frame) => {
             frame.write(&mut writable)?;
-            id::AENC_STR
+            if version == 2 { id::CRA_STR } else { id::AENC_STR }
         },
         &FrameData::APIC(ref frame) => {
             frame.write(&mut writable)?;
@@ -735,7 +848,7 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::COMM(ref frame) => {
             frame.write(&mut writable)?;
-            id::COMM_STR
+            if version == 2 { id::COM_STR } else { id::COMM_STR }
         },
         &FrameData::COMR(ref frame) => {
             frame.write(&mut writable)?;
@@ -747,7 +860,7 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::EQUA(ref frame) => {
             frame.write(&mut writable)?;
-            id::EQUA_STR
+            if version == 2 { id::EQU_STR } else { id::EQUA_STR }
         },
         &FrameData::EQU2(ref frame) => {
             frame.write(&mut writable)?;
@@ -755,11 +868,11 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::ETCO(ref frame) => {
             frame.write(&mut writable)?;
-            id::ETCO_STR
+            if version == 2 { id::ETC_STR } else { id::ETCO_STR }
         },
         &FrameData::GEOB(ref frame) => {
             frame.write(&mut writable)?;
-            id::GEOB_STR
+            if version == 2 { id::GEO_STR } else { id::GEOB_STR }
         },
         &FrameData::GRID(ref frame) => {
             frame.write(&mut writable)?;
@@ -767,19 +880,19 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::IPLS(ref frame) => {
             frame.write(&mut writable)?;
-            id::IPLS_STR
+            if version == 2 { id::IPL_STR } else { id::IPLS_STR }
         },
         &FrameData::LINK(ref frame) => {
             frame.write(&mut writable, version)?;
-            id::LINK_STR
+            if version == 2 { id::LNK_STR } else { id::LINK_STR }
         },
         &FrameData::MCDI(ref frame) => {
             frame.write(&mut writable)?;
-            id::MCDI_STR
+            if version == 2 { id::MCI_STR } else { id::MCDI_STR }
         },
         &FrameData::MLLT(ref frame) => {
             frame.write(&mut writable)?;
-            id::MLLT_STR
+            if version == 2 { id::MLL_STR } else { id::MLLT_STR }
         },
         &FrameData::OWNE(ref frame) => {
             frame.write(&mut writable)?;
@@ -791,11 +904,11 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::PCNT(ref frame) => {
             frame.write(&mut writable)?;
-            id::PCNT_STR
+            if version == 2 { id::CNT_STR } else { id::PCNT_STR }
         },
         &FrameData::POPM(ref frame) => {
             frame.write(&mut writable)?;
-            id::POPM_STR
+            if version == 2 { id::POP_STR } else { id::POPM_STR }
         },
         &FrameData::POSS(ref frame) => {
             frame.write(&mut writable)?;
@@ -807,7 +920,7 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::RVAD(ref frame) => {
             frame.write(&mut writable)?;
-            id::RVAD_STR
+            if version == 2 { id::RVA_STR } else { id::RVAD_STR }
         },
         &FrameData::RVA2(ref frame) => {
             frame.write(&mut writable)?;
@@ -815,7 +928,7 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::RVRB(ref frame) => {
             frame.write(&mut writable)?;
-            id::RVRB_STR
+            if version == 2 { id::REV_STR } else { id::RVRB_STR }
         },
         &FrameData::SEEK(ref frame) => {
             frame.write(&mut writable)?;
@@ -827,35 +940,35 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::SYLT(ref frame) => {
             frame.write(&mut writable)?;
-            id::SYLT_STR
+            if version == 2 { id::SLT_STR } else { id::SYLT_STR }
         },
         &FrameData::SYTC(ref frame) => {
             frame.write(&mut writable)?;
-            id::SYTC_STR
+            if version == 2 { id::STC_STR } else { id::SYTC_STR }
         },
         &FrameData::TALB(ref frame) => {
             frame.write(&mut writable)?;
-            id::TALB_STR
+            if version == 2 { id::TAL_STR } else { id::TALB_STR }
         },
         &FrameData::TBPM(ref frame) => {
             frame.write(&mut writable)?;
-            id::TBPM_STR
+            if version == 2 { id::TBP_STR } else { id::TBPM_STR }
         },
         &FrameData::TCOM(ref frame) => {
             frame.write(&mut writable)?;
-            id::TCOM_STR
+            if version == 2 { id::TCM_STR } else { id::TCOM_STR }
         },
         &FrameData::TCON(ref frame) => {
             frame.write(&mut writable)?;
-            id::TCON_STR
+            if version == 2 { id::TCO_STR } else { id::TCON_STR }
         },
         &FrameData::TCOP(ref frame) => {
             frame.write(&mut writable)?;
-            id::TCOP_STR
+            if version == 2 { id::TCR_STR } else { id::TCOP_STR }
         },
         &FrameData::TDAT(ref frame) => {
             frame.write(&mut writable)?;
-            id::TDAT_STR
+            if version == 2 { id::TDA_STR } else { id::TDAT_STR }
         },
         &FrameData::TDEN(ref frame) => {
             frame.write(&mut writable)?;
@@ -863,7 +976,7 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::TDLY(ref frame) => {
             frame.write(&mut writable)?;
-            id::TDLY_STR
+            if version == 2 { id::TDY_STR } else { id::TDLY_STR }
         },
         &FrameData::TDOR(ref frame) => {
             frame.write(&mut writable)?;
@@ -883,19 +996,19 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::TENC(ref frame) => {
             frame.write(&mut writable)?;
-            id::TENC_STR
+            if version == 2 { id::TEN_STR } else { id::TENC_STR }
         },
         &FrameData::TEXT(ref frame) => {
             frame.write(&mut writable)?;
-            id::TEXT_STR
+            if version == 2 { id::TXT_STR } else { id::TEXT_STR }
         },
         &FrameData::TFLT(ref frame) => {
             frame.write(&mut writable)?;
-            id::TFLT_STR
+            if version == 2 { id::TFT_STR } else { id::TFLT_STR }
         },
         &FrameData::TIME(ref frame) => {
             frame.write(&mut writable)?;
-            id::TIME_STR
+            if version == 2 { id::TIM_STR } else { id::TIME_STR }
         },
         &FrameData::TIPL(ref frame) => {
             frame.write(&mut writable)?;
@@ -903,27 +1016,27 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::TIT1(ref frame) => {
             frame.write(&mut writable)?;
-            id::TIT1_STR
+            if version == 2 { id::TT1_STR } else { id::TIT1_STR }
         },
         &FrameData::TIT2(ref frame) => {
             frame.write(&mut writable)?;
-            id::TIT2_STR
+            if version == 2 { id::TT2_STR } else { id::TIT2_STR }
         },
         &FrameData::TIT3(ref frame) => {
             frame.write(&mut writable)?;
-            id::TIT3_STR
+            if version == 2 { id::TT3_STR } else { id::TIT3_STR }
         },
         &FrameData::TKEY(ref frame) => {
             frame.write(&mut writable)?;
-            id::TKEY_STR
+            if version == 2 { id::TKE_STR } else { id::TKEY_STR }
         },
         &FrameData::TLAN(ref frame) => {
             frame.write(&mut writable)?;
-            id::TLAN_STR
+            if version == 2 { id::TLA_STR } else { id::TLAN_STR }
         },
         &FrameData::TLEN(ref frame) => {
             frame.write(&mut writable)?;
-            id::TLEN_STR
+            if version == 2 { id::TLE_STR } else { id::TLEN_STR }
         },
         &FrameData::TMCL(ref frame) => {
             frame.write(&mut writable)?;
@@ -931,7 +1044,7 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::TMED(ref frame) => {
             frame.write(&mut writable)?;
-            id::TMED_STR
+            if version == 2 { id::TMT_STR } else { id::TMED_STR }
         },
         &FrameData::TMOO(ref frame) => {
             frame.write(&mut writable)?;
@@ -939,23 +1052,23 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::TOAL(ref frame) => {
             frame.write(&mut writable)?;
-            id::TOAL_STR
+            if version == 2 { id::TOT_STR } else { id::TOAL_STR }
         },
         &FrameData::TOFN(ref frame) => {
             frame.write(&mut writable)?;
-            id::TOFN_STR
+            if version == 2 { id::TOF_STR } else { id::TOFN_STR }
         },
         &FrameData::TOLY(ref frame) => {
             frame.write(&mut writable)?;
-            id::TOLY_STR
+            if version == 2 { id::TOL_STR } else { id::TOLY_STR }
         },
         &FrameData::TOPE(ref frame) => {
             frame.write(&mut writable)?;
-            id::TOPE_STR
+            if version == 2 { id::TOA_STR } else { id::TOPE_STR }
         },
         &FrameData::TORY(ref frame) => {
             frame.write(&mut writable)?;
-            id::TORY_STR
+            if version == 2 { id::TOR_STR } else { id::TORY_STR }
         },
         &FrameData::TOWN(ref frame) => {
             frame.write(&mut writable)?;
@@ -963,23 +1076,23 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::TPE1(ref frame) => {
             frame.write(&mut writable)?;
-            id::TPE1_STR
+            if version == 2 { id::TP1_STR } else { id::TPE1_STR }
         },
         &FrameData::TPE2(ref frame) => {
             frame.write(&mut writable)?;
-            id::TPE2_STR
+            if version == 2 { id::TP2_STR } else { id::TPE2_STR }
         },
         &FrameData::TPE3(ref frame) => {
             frame.write(&mut writable)?;
-            id::TPE3_STR
+            if version == 2 { id::TP3_STR } else { id::TPE3_STR }
         },
         &FrameData::TPE4(ref frame) => {
             frame.write(&mut writable)?;
-            id::TPE4_STR
+            if version == 2 { id::TP4_STR } else { id::TPE4_STR }
         },
         &FrameData::TPOS(ref frame) => {
             frame.write(&mut writable)?;
-            id::TPOS_STR
+            if version == 2 { id::TPA_STR } else { id::TPOS_STR }
         },
         &FrameData::TPRO(ref frame) => {
             frame.write(&mut writable)?;
@@ -987,15 +1100,15 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::TPUB(ref frame) => {
             frame.write(&mut writable)?;
-            id::TPUB_STR
+            if version == 2 { id::TPB_STR } else { id::TPUB_STR }
         },
         &FrameData::TRCK(ref frame) => {
             frame.write(&mut writable)?;
-            id::TRCK_STR
+            if version == 2 { id::TRK_STR } else { id::TRCK_STR }
         },
         &FrameData::TRDA(ref frame) => {
             frame.write(&mut writable)?;
-            id::TRDA_STR
+            if version == 2 { id::TRD_STR } else { id::TRDA_STR }
         },
         &FrameData::TRSN(ref frame) => {
             frame.write(&mut writable)?;
@@ -1007,7 +1120,7 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::TSIZ(ref frame) => {
             frame.write(&mut writable)?;
-            id::TSIZ_STR
+            if version == 2 { id::TSI_STR } else { id::TSIZ_STR }
         },
         &FrameData::TSOA(ref frame) => {
             frame.write(&mut writable)?;
@@ -1023,15 +1136,15 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::TSRC(ref frame) => {
             frame.write(&mut writable)?;
-            id::TSRC_STR
+            if version == 2 { id::TRC_STR } else { id::TSRC_STR }
         },
         &FrameData::TSSE(ref frame) => {
             frame.write(&mut writable)?;
-            id::TSSE_STR
+            if version == 2 { id::TSS_STR } else { id::TSSE_STR }
         },
         &FrameData::TYER(ref frame) => {
             frame.write(&mut writable)?;
-            id::TYER_STR
+            if version == 2 { id::TYE_STR } else { id::TYER_STR }
         },
         &FrameData::TSST(ref frame) => {
             frame.write(&mut writable)?;
@@ -1039,11 +1152,11 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::TXXX(ref frame) => {
             frame.write(&mut writable)?;
-            id::TXXX_STR
+            if version == 2 { id::TXX_STR } else { id::TXXX_STR }
         },
         &FrameData::UFID(ref frame) => {
             frame.write(&mut writable)?;
-            id::UFID_STR
+            if version == 2 { id::UFI_STR } else { id::UFID_STR }
         },
         &FrameData::USER(ref frame) => {
             frame.write(&mut writable)?;
@@ -1051,27 +1164,27 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::USLT(ref frame) => {
             frame.write(&mut writable)?;
-            id::USLT_STR
+            if version == 2 { id::ULT_STR } else { id::USLT_STR }
         },
         &FrameData::WCOM(ref frame) => {
             frame.write(&mut writable, version)?;
-            id::WCOM_STR
+            if version == 2 { id::WCM_STR } else { id::WCOM_STR }
         },
         &FrameData::WCOP(ref frame) => {
             frame.write(&mut writable, version)?;
-            id::WCOP_STR
+            if version == 2 { id::WCP_STR } else { id::WCOP_STR }
         },
         &FrameData::WOAF(ref frame) => {
             frame.write(&mut writable, version)?;
-            id::WOAF_STR
+            if version == 2 { id::WAF_STR } else { id::WOAF_STR }
         },
         &FrameData::WOAR(ref frame) => {
             frame.write(&mut writable, version)?;
-            id::WOAR_STR
+            if version == 2 { id::WAR_STR } else { id::WOAR_STR }
         },
         &FrameData::WOAS(ref frame) => {
             frame.write(&mut writable, version)?;
-            id::WOAS_STR
+            if version == 2 { id::WAS_STR } else { id::WOAS_STR }
         },
         &FrameData::WORS(ref frame) => {
             frame.write(&mut writable, version)?;
@@ -1083,17 +1196,17 @@ fn write_frame_data(frame_data: &FrameData, version: u8)
         },
         &FrameData::WPUB(ref frame) => {
             frame.write(&mut writable, version)?;
-            id::WPUB_STR
+            if version == 2 { id::WPB_STR } else { id::WPUB_STR }
         },
         &FrameData::WXXX(ref frame) => {
             frame.write(&mut writable)?;
-            id::WXXX_STR
+            if version == 2 { id::WXX_STR } else { id::WXXX_STR }
         },
         _ => ""
     };
 
     let mut buf = Vec::new();
-    writable.as_mut().read_to_end(&mut buf)?;
+    writable.copy(&mut buf)?;
 
     Ok((id, buf))
 }

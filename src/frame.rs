@@ -74,7 +74,7 @@ pub struct Head {
 
 // http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header
 impl Head {
-    pub fn read(mut readable: Readable) -> result::Result<Self, ParsingError> {
+    pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
         let tag_id = readable.string(3)?;
         let version = readable.u8()?;
         let minor_version = readable.u8()?;
@@ -164,7 +164,7 @@ impl FrameWriterDefault for Head {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Frame1 {
     pub title: String,
     pub artist: String,
@@ -248,14 +248,14 @@ impl FrameWriterDefault for Frame1 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum FrameHeader {
     V22(FrameHeaderV2),
     V23(FrameHeaderV3),
     V24(FrameHeaderV4)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FrameHeaderV2 {
     pub id: String,
     pub size: u32,
@@ -290,7 +290,7 @@ impl FrameWriterDefault for FrameHeaderV2 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FrameHeaderV3 {
     pub id: String,
     pub size: u32,
@@ -348,8 +348,18 @@ impl FlagAware<FrameHeaderFlag> for FrameHeaderV3 {
 
 impl FrameWriterDefault for FrameHeaderV3 {
     fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
+        let mut ext_size = 0;
+        if self.has_flag(FrameHeaderFlag::GroupIdentity) {
+            ext_size = 1;
+        }
+        if self.has_flag(FrameHeaderFlag::Encryption) {
+            ext_size = ext_size + 1;
+        }
+        if self.has_flag(FrameHeaderFlag::Compression) {
+            ext_size = ext_size + 4;
+        }
         writable.string(self.id.as_str())?;
-        writable.u32(self.size)?;
+        writable.u32(self.size + ext_size)?;
         writable.u8(self.status_flag)?;
         writable.u8(self.encoding_flag)?;
 
@@ -367,7 +377,7 @@ impl FrameWriterDefault for FrameHeaderV3 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FrameHeaderV4 {
     pub id: String,
     pub size: u32,
@@ -430,8 +440,19 @@ impl FlagAware<FrameHeaderFlag> for FrameHeaderV4 {
 
 impl FrameWriterDefault for FrameHeaderV4 {
     fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
+        let mut ext_size = 0;
+        if self.has_flag(FrameHeaderFlag::GroupIdentity) {
+            ext_size = 1;
+        }
+        if self.has_flag(FrameHeaderFlag::Encryption) {
+            ext_size = ext_size + 1;
+        }
+        if self.has_flag(FrameHeaderFlag::DataLength) {
+            ext_size = ext_size + 4;
+        }
+
         writable.string(self.id.as_str())?;
-        writable.u32(self.size)?;
+        writable.synchsafe(self.size + ext_size)?;
         writable.u8(self.status_flag)?;
         writable.u8(self.encoding_flag)?;
 
@@ -441,7 +462,7 @@ impl FrameWriterDefault for FrameHeaderV4 {
         if self.has_flag(FrameHeaderFlag::Encryption) {
             writable.u8(0)?;
         }
-        if self.has_flag(FrameHeaderFlag::Compression) {
+        if self.has_flag(FrameHeaderFlag::DataLength) {
             writable.u32(0)?;
         }
 
@@ -449,7 +470,7 @@ impl FrameWriterDefault for FrameHeaderV4 {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TextEncoding {
     ISO88591,
     UTF16LE,
@@ -457,7 +478,7 @@ pub enum TextEncoding {
     UTF8
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PictureType {
     Other,
     FileIcon,
@@ -482,7 +503,7 @@ pub enum PictureType {
     PublisherLogoType
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ReceivedAs {
     Other,
     StandardCDAlbum,
@@ -495,13 +516,13 @@ pub enum ReceivedAs {
     NonMusicalMerchandise
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum InterpolationMethod {
     Band,
     Linear
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ContentType {
     Other,
     Lyrics,
@@ -514,13 +535,13 @@ pub enum ContentType {
     UrlsToImages
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TimestampFormat {
     MpecFrames,
     Milliseconds
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum EventTimingCode {
     Padding(u32),
     EndOfInitialSilence(u32),
@@ -552,7 +573,7 @@ pub enum EventTimingCode {
     OneMoreByteOfEventsFollows(u32)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum FrameHeaderFlag {
     TagAlter,
     FileAlter,
@@ -566,7 +587,7 @@ pub enum FrameHeaderFlag {
     DataLength
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum HeadFlag {
     Unsynchronisation,
     Compression,
@@ -577,7 +598,7 @@ pub enum HeadFlag {
 
 // TODO not yet tested!
 // Recommended buffer size
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BUF {
     pub buffer_size: u32,
     pub embedded_info_flag: u8,
@@ -608,7 +629,7 @@ impl FrameWriterDefault for BUF {
 
 // TODO not yet tested!
 // Encrypted meta frame
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CRM {
     pub owner_identifier: String,
     pub content: String,
@@ -638,7 +659,7 @@ impl FrameWriterDefault for CRM {
 }
 
 // Attached picture
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PIC {
     pub text_encoding: TextEncoding,
     pub image_format: String,
@@ -676,7 +697,7 @@ impl FrameWriterDefault for PIC {
 }
 
 // Audio encryption
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AENC {
     pub owner_identifier: String,
     pub preview_start: u16,
@@ -711,7 +732,7 @@ impl FrameWriterDefault for AENC {
 
 // TODO not yet tested!
 // Attached picture
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct APIC {
     pub text_encoding: TextEncoding,
     pub mime_type: String,
@@ -749,7 +770,7 @@ impl FrameWriterDefault for APIC {
 
 // TODO not yet tested!
 // Audio seek point index
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ASPI {
     pub indexed_data_start: u32,
     pub indexed_data_length: u32,
@@ -787,7 +808,7 @@ impl FrameWriterDefault for ASPI {
 }
 
 // Comments
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct COMM {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -822,7 +843,7 @@ impl FrameWriterDefault for COMM {
 
 // TODO not yet tested!
 // Commercial frame
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct COMR {
     pub text_encoding: TextEncoding,
     pub price_string: String,
@@ -878,7 +899,7 @@ impl FrameWriterDefault for COMR {
 
 // TODO not yet tested!
 // Encryption method registration
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ENCR {
     pub owner_identifier: String,
     pub method_symbol: u8,
@@ -909,7 +930,7 @@ impl FrameWriterDefault for ENCR {
 
 // TODO not yet tested!
 // Equalisation
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EQUA {
     pub adjustment_bit: u8
 }
@@ -932,7 +953,7 @@ impl FrameWriterDefault for EQUA {
 
 // TODO not yet tested!
 // Equalisation (2)
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EQU2 {
     pub interpolation_method: InterpolationMethod,
     pub identification: String
@@ -958,7 +979,7 @@ impl FrameWriterDefault for EQU2 {
 }
 
 // Event timing codes
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ETCO {
     pub timestamp_format: TimestampFormat,
     pub event_timing_codes: Vec<EventTimingCode>
@@ -1004,7 +1025,7 @@ impl FrameWriterDefault for ETCO {
 }
 
 // General encapsulated object
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GEOB {
     pub text_encoding: TextEncoding,
     pub mime_type: String,
@@ -1043,7 +1064,7 @@ impl FrameWriterDefault for GEOB {
 
 // TODO not yet tested!
 // Group identification registration
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GRID {
     pub owner_identifier: String,
     pub group_symbol: u8,
@@ -1072,7 +1093,7 @@ impl FrameWriterDefault for GRID {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 // Involved people list
 pub struct IPLS {
     pub text_encoding: TextEncoding,
@@ -1099,7 +1120,7 @@ impl FrameWriterDefault for IPLS {
 }
 
 // Linked information
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LINK {
     pub frame_identifier: String,
     pub url: String,
@@ -1130,12 +1151,14 @@ impl FrameWriterVersionAware<LINK> for LINK {
             _ => writable.string(&self.frame_identifier[0..4])?
         }
         writable.string(self.url.as_str())?;
-        writable.string(self.additional_data.as_str())
+        writable.string(self.additional_data.as_str())?;
+
+        Ok(())
     }
 }
 
 // Music CD identifier
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MCDI {
     pub cd_toc: Vec<u8>
 }
@@ -1159,7 +1182,7 @@ impl FrameWriterDefault for MCDI {
 // TODO not yet tested!
 // TODO not yet implemented!
 // MPEG location lookup table
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MLLT {
     pub data: Vec<u8>
 }
@@ -1182,7 +1205,7 @@ impl FrameWriterDefault for MLLT {
 
 // TODO not yet tested!
 // Ownership frame
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OWNE {
     pub text_encoding: TextEncoding,
     pub price_paid: String,
@@ -1218,7 +1241,7 @@ impl FrameWriterDefault for OWNE {
 
 // TODO not yet tested!
 // Private frame
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PRIV {
     pub owner_identifier: String,
     pub private_data: Vec<u8>
@@ -1245,7 +1268,7 @@ impl FrameWriterDefault for PRIV {
 
 // NOTE it support that only the 32-bit unsigned integer type.
 // Play counter
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PCNT {
     pub counter: u32
 }
@@ -1268,7 +1291,7 @@ impl FrameWriterDefault for PCNT {
 
 // TODO not yet tested!
 // Popularimeter
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct POPM {
     pub email_to_user: String,
     pub rating: u8,
@@ -1300,7 +1323,7 @@ impl FrameWriterDefault for POPM {
 
 // TODO not yet tested!
 // Position synchronisation frame
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct POSS {
     pub timestamp_format: TimestampFormat,
     // TODO not yet implemented!
@@ -1328,7 +1351,7 @@ impl FrameWriterDefault for POSS {
 
 // TODO not yet tested!
 // Recommended buffer size
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RBUF {
     pub buffer_size: u32,
     pub embedded_info_flag: u8,
@@ -1360,7 +1383,7 @@ impl FrameWriterDefault for RBUF {
 // TODO not yet tested!
 // TODO not yet implemented!
 // Relative volume adjustment (2)
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RVA2 {
     pub data: Vec<u8>
 }
@@ -1383,7 +1406,7 @@ impl FrameWriterDefault for RVA2 {
 
 // TODO not yet tested!
 // Reverb
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RVRB {
     pub reverb_left: u16,
     pub reverb_right: u16,
@@ -1443,7 +1466,7 @@ impl FrameWriterDefault for RVRB {
 
 // TODO not yet tested!
 // Seek frame
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SEEK {
     pub next_tag: String
 }
@@ -1466,7 +1489,7 @@ impl FrameWriterDefault for SEEK {
 
 // TODO not yet tested!
 // Signature frame
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SIGN {
     pub group_symbol: u8,
     pub signature: Vec<u8>
@@ -1493,7 +1516,7 @@ impl FrameWriterDefault for SIGN {
 
 // TODO not yet tested!
 // Synchronised lyric/text
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SYLT {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -1532,7 +1555,7 @@ impl FrameWriterDefault for SYLT {
 
 // TODO not yet tested!
 // Synchronised tempo codes
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SYTC {
     pub timestamp_format: TimestampFormat,
     pub tempo_data: Vec<u8>
@@ -1559,7 +1582,7 @@ impl FrameWriterDefault for SYTC {
 
 // TODO not yet tested!
 // Unique file identifier
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UFID {
     pub owner_identifier: String,
     pub identifier: Vec<u8>
@@ -1586,7 +1609,7 @@ impl FrameWriterDefault for UFID {
 
 // TODO not yet tested!
 // Terms of use
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct USER {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -1617,7 +1640,7 @@ impl FrameWriterDefault for USER {
 
 // TODO not yet tested!
 // Unsynchronised lyric/text transcription
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct USLT {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -1650,7 +1673,7 @@ impl FrameWriterDefault for USLT {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TEXT {
     pub text_encoding: TextEncoding,
     pub text: String
@@ -1702,11 +1725,12 @@ impl FrameWriterDefault for TEXT {
             Err(msg) => return Err(Error::new(ErrorKind::InvalidInput, msg.to_owned().to_string()))
         };
 
+
         writable.write(&text)
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TXXX {
     pub text_encoding: TextEncoding,
     pub description: String,
@@ -1737,7 +1761,7 @@ impl FrameWriterDefault for TXXX {
 
 // TODO not yet tested!
 // User defined URL link frame
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WXXX {
     pub text_encoding: TextEncoding,
     pub description: String,
@@ -1766,7 +1790,7 @@ impl FrameWriterDefault for WXXX {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OBJECT {
     pub data: Vec<u8>
 }
@@ -1777,7 +1801,7 @@ impl FrameWriterDefault for OBJECT {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum FrameData {
     //2.2 only
     BUF(BUF),
@@ -1887,7 +1911,7 @@ pub enum FrameData {
     WPUB(LINK),
     WXXX(WXXX),
     OBJECT(OBJECT),
-    SKIP(String),
+    SKIP(String, Vec<u8>),
     INVALID(String)
 }
 

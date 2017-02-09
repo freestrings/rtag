@@ -1,10 +1,16 @@
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 extern crate env_logger;
+extern crate tempdir;
 
 extern crate rtag;
 
+use tempdir::TempDir;
+
+use std::fs;
 use std::io::Cursor;
 use std::vec::Vec;
+
 use rtag::frame::*;
 use rtag::metadata::*;
 use rtag::readable::{
@@ -266,7 +272,7 @@ fn metadata_header() {
         match m {
             Unit::Header(header) => {
                 let writer = MetadataWriter::new("").unwrap();
-                let bytes = writer.head_to_bytes(header.clone()).unwrap();
+                let bytes = writer.head(header.clone()).unwrap();
                 let mut readable = Readable::new(Cursor::new(bytes));
                 assert_eq!(header, Head::read(&mut readable).unwrap());
             },
@@ -278,7 +284,7 @@ fn metadata_header() {
         match m {
             Unit::Header(header) => {
                 let writer = MetadataWriter::new("").unwrap();
-                let bytes = writer.head_to_bytes(header.clone()).unwrap();
+                let bytes = writer.head(header.clone()).unwrap();
                 let mut readable = Readable::new(Cursor::new(bytes));
                 assert_eq!(header, Head::read(&mut readable).unwrap());
             },
@@ -309,7 +315,7 @@ fn metadata_frame_data() {
         for meta in MetadataReader::new(path).unwrap() {
             match meta {
                 Unit::FrameV2(head, frame) => {
-                    let frame_bytes = meta_writer.frame_to_bytes(
+                    let frame_bytes = meta_writer.frame(
                         (head.clone(), frame.clone())
                     ).unwrap();
                     let mut readable = Cursor::new(frame_bytes).to_readable();
@@ -355,7 +361,7 @@ fn metadata_frame_etco() {
                 }
 
                 let meta_writer = MetadataWriter::new("").unwrap();
-                let frame_bytes = meta_writer.frame_to_bytes(
+                let frame_bytes = meta_writer.frame(
                     (head.clone(), FrameData::ETCO(frame.clone()))
                 ).unwrap();
 
@@ -379,7 +385,7 @@ fn metadata_frame_pcnt() {
                 assert_eq!(256, frame.counter);
 
                 let meta_writer = MetadataWriter::new("").unwrap();
-                let frame_bytes = meta_writer.frame_to_bytes(
+                let frame_bytes = meta_writer.frame(
                     (head.clone(), FrameData::PCNT(frame.clone()))
                 ).unwrap();
 
@@ -403,7 +409,7 @@ fn metadata_frame_tbpm() {
                 assert_eq!("0", frame.text);
 
                 let meta_writer = MetadataWriter::new("").unwrap();
-                let frame_bytes = meta_writer.frame_to_bytes(
+                let frame_bytes = meta_writer.frame(
                     (head.clone(), FrameData::TBPM(frame.clone()))
                 ).unwrap();
 
@@ -435,7 +441,7 @@ fn metadata_encoding() {
                 assert_eq!("räksmörgås", frame.comment);
 
                 let meta_writer = MetadataWriter::new("").unwrap();
-                let frame_bytes = meta_writer.frame1_to_bytes(frame.clone()).unwrap();
+                let frame_bytes = meta_writer.frame1(frame.clone()).unwrap();
 
                 let mut readable = Cursor::new(frame_bytes).to_readable();
 
@@ -454,7 +460,7 @@ fn metadata_encoding() {
                 assert_eq!("rÃ¤ksmÃ¶rgÃ¥s", frame.comment);
 
                 let meta_writer = MetadataWriter::new("").unwrap();
-                let frame_bytes = meta_writer.frame1_to_bytes(frame.clone()).unwrap();
+                let frame_bytes = meta_writer.frame1(frame.clone()).unwrap();
 
                 let mut readable = Cursor::new(frame_bytes).to_readable();
 
@@ -470,7 +476,7 @@ fn metadata_encoding() {
                 assert_eq!("Ester Koèièková a Lubomír Nohavica", frame.text);
 
                 let meta_writer = MetadataWriter::new("").unwrap();
-                let frame_bytes = meta_writer.frame_to_bytes(
+                let frame_bytes = meta_writer.frame(
                     (head, FrameData::TPE1(frame.clone()))
                 ).unwrap();
 
@@ -484,7 +490,7 @@ fn metadata_encoding() {
                 assert_eq!("Ester Koèièková a Lubomír Nohavica s klavírem", frame.text);
 
                 let meta_writer = MetadataWriter::new("").unwrap();
-                let frame_bytes = meta_writer.frame_to_bytes(
+                let frame_bytes = meta_writer.frame(
                     (head, FrameData::TALB(frame.clone()))
                 ).unwrap();
 
@@ -498,7 +504,7 @@ fn metadata_encoding() {
                 assert_eq!("Tøem sestrám", frame.text);
 
                 let meta_writer = MetadataWriter::new("").unwrap();
-                let frame_bytes = meta_writer.frame_to_bytes(
+                let frame_bytes = meta_writer.frame(
                     (head, FrameData::TIT2(frame.clone()))
                 ).unwrap();
 
@@ -523,7 +529,7 @@ fn metadata_v220() {
                 comp_frame(FrameData::PIC(frame.clone()), &mut vec!["PNG:Other::61007"]);
 
                 let meta_writer = MetadataWriter::new("").unwrap();
-                let frame_bytes = meta_writer.frame_to_bytes(
+                let frame_bytes = meta_writer.frame(
                     (head.clone(), FrameData::PIC(frame.clone()))
                 ).unwrap();
 
@@ -558,7 +564,7 @@ fn metadata_compressed() {
 
         let frame_bytes = MetadataWriter::new("")
             .unwrap()
-            .frame_to_bytes(
+            .frame(
                 (origin_head.clone(), FrameData::TIT2(origin_frame.clone()))
             ).unwrap();
 
@@ -593,7 +599,7 @@ fn metadata_compressed() {
 
         let frame_bytes = MetadataWriter::new("")
             .unwrap()
-            .frame_to_bytes(
+            .frame(
                 (origin_frame_header.clone(), FrameData::TIT2(origin_frame.clone()))
             ).unwrap();
 
@@ -638,7 +644,7 @@ fn metadata_encrypted() {
             None
         };
 
-        let frame_bytes = MetadataWriter::new("").unwrap().frame3_to_bytes(
+        let frame_bytes = MetadataWriter::new("").unwrap().frame3(
             &mut frame_header.unwrap(), FrameData::OBJECT(OBJECT {
                 data: orig_frame.clone()
             })).unwrap();
@@ -675,7 +681,7 @@ fn metadata_encrypted() {
             None
         };
 
-        let frame_bytes = MetadataWriter::new("").unwrap().frame4_to_bytes(
+        let frame_bytes = MetadataWriter::new("").unwrap().frame4(
             &mut frame_header.unwrap(), FrameData::OBJECT(OBJECT {
                 data: orig_frame.clone()
             })).unwrap();
@@ -777,7 +783,7 @@ fn metadata_v230_link() {
 
                 let frame_bytes = MetadataWriter::new("")
                     .unwrap()
-                    .frame3_to_bytes(&mut frame_header.unwrap(), FrameData::LINK(orig_frame.clone()))
+                    .frame3(&mut frame_header.unwrap(), FrameData::LINK(orig_frame.clone()))
                     .unwrap();
 
                 let mut readable = Cursor::new(frame_bytes).to_readable();
@@ -810,7 +816,7 @@ fn metadata_v230_mcdi() {
 
                 let frame_bytes = MetadataWriter::new("")
                     .unwrap()
-                    .frame3_to_bytes(&mut frame_header.unwrap(), FrameData::MCDI(orig_frame.clone()))
+                    .frame3(&mut frame_header.unwrap(), FrameData::MCDI(orig_frame.clone()))
                     .unwrap();
 
                 let mut readable = Cursor::new(frame_bytes).to_readable();
@@ -852,7 +858,7 @@ fn metadata_v240_geob() {
 
         let frame_bytes = MetadataWriter::new("")
             .unwrap()
-            .frame4_to_bytes(&mut frame_header.unwrap(), FrameData::GEOB(orig_frame.clone()))
+            .frame4(&mut frame_header.unwrap(), FrameData::GEOB(orig_frame.clone()))
             .unwrap();
 
         let mut readable = Cursor::new(frame_bytes).to_readable();
@@ -878,7 +884,7 @@ fn metadata_v240_geob() {
 
         let frame_bytes = MetadataWriter::new("")
             .unwrap()
-            .frame4_to_bytes(&mut frame_header.unwrap(), FrameData::GEOB(orig_frame.clone()))
+            .frame4(&mut frame_header.unwrap(), FrameData::GEOB(orig_frame.clone()))
             .unwrap();
 
         let mut readable = Cursor::new(frame_bytes).to_readable();
@@ -896,42 +902,67 @@ fn metadata_v240_geob() {
 fn metadata_unsync() {
     let _ = env_logger::init();
 
-    let mut data = vec![
-    "ENG:Comment:http://www.mp3sugar.com/",
-    "Carbon Based Lifeforms",
-    "Carbon Based Lifeforms",
-    "Hydroponic Garden",
-    "Silent Running",
-    "4",
-    "2003",
-    "(26)"
-    ];
+    fn test(path: &str, mut data: Vec<&str>) {
+        let mut copied = data.clone();
 
-    let path = "./test-resources/v2.3-unsync.mp3";
-    for m in MetadataReader::new(path).unwrap() {
-        match m {
-            Unit::FrameV2(_, frame) => {
-                comp_frame(frame.clone(), &mut data);
-            },
-            _ => ()
+        for m in MetadataReader::new(path).unwrap() {
+            match m {
+                Unit::FrameV2(_, frame) => {
+                    comp_frame(frame.clone(), &mut data);
+                },
+                _ => ()
+            }
         }
+
+        assert_eq!(data.len(), 0);
+
+        let all_units = MetadataReader::new(path)
+            .unwrap()
+            .fold(Vec::new(), |mut vec, m| {
+                vec.push(m);
+                vec
+            });
+
+        let tmp_dir = TempDir::new("rtag").unwrap();
+        let tmp_path = tmp_dir.path().join("metadata_unsync.txt");
+        let _ = fs::remove_file(&tmp_path);
+        let _ = fs::File::create(tmp_path.as_path()).unwrap();
+
+        let path = tmp_path.to_str().unwrap();
+
+        MetadataWriter::new(path).unwrap().write(all_units).unwrap();
+
+        let mut i = MetadataReader::new(path).unwrap().filter(|m| match m {
+            &Unit::FrameV2(_, _) => true,
+            _ => false
+        });
+
+        while let Some(Unit::FrameV2(_, frame)) = i.next() {
+            comp_frame(frame.clone(), &mut copied);
+        }
+
+        assert_eq!(copied.len(), 0);
     }
 
-    let mut data = vec![
-    "2009",
-    "Album",
-    "Artist",
-    "Title",
-    "replaygain_track_gain:+0.00 dB\u{0}",
-    "replaygain_track_peak:0.000715\u{0}"
-    ];
+    test("./test-resources/v2.3-unsync.mp3",
+         vec![
+         "ENG:Comment:http://www.mp3sugar.com/",
+         "Carbon Based Lifeforms",
+         "Carbon Based Lifeforms",
+         "Hydroponic Garden",
+         "Silent Running",
+         "4",
+         "2003",
+         "(26)"
+         ]);
 
-    for m in MetadataReader::new("./test-resources/v2.4-unsync.mp3").unwrap() {
-        match m {
-            Unit::FrameV2(_, frame) => {
-                comp_frame(frame.clone(), &mut data);
-            },
-            _ => ()
-        }
-    }
+    test("./test-resources/v2.4-unsync.mp3",
+         vec![
+         "2009",
+         "Album",
+         "Artist",
+         "Title",
+         "replaygain_track_gain:+0.00 dB\u{0}",
+         "replaygain_track_peak:0.000715\u{0}"
+         ]);
 }

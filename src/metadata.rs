@@ -25,6 +25,7 @@ use std::fs::{
     OpenOptions
 };
 use std::io::{
+    self,
     Cursor,
     Read,
     Write
@@ -387,7 +388,7 @@ impl<'a> MetadataWriter<'a> {
         })
     }
 
-    pub fn head_to_bytes(&self, head: Head) -> result::Result<Vec<u8>, WriteError> {
+    pub fn head(&self, head: Head) -> result::Result<Vec<u8>, WriteError> {
         let mut writable = Writable::new(Cursor::new(vec![]));
         head.write(&mut writable)?;
 
@@ -397,8 +398,19 @@ impl<'a> MetadataWriter<'a> {
         Ok(buf)
     }
 
-    pub fn frame2_to_bytes(&self, frame_header: &mut FrameHeaderV2, frame_data: FrameData)
-                           -> result::Result<Vec<u8>, WriteError> {
+    pub fn frame1(&self, frame1: Frame1)
+                  -> result::Result<Vec<u8>, WriteError> {
+        let mut writable = Writable::new(Cursor::new(vec![]));
+        frame1.write(&mut writable)?;
+
+        let mut buf = Vec::new();
+        writable.copy(&mut buf)?;
+
+        Ok(buf)
+    }
+
+    pub fn frame2(&self, frame_header: &mut FrameHeaderV2, frame_data: FrameData)
+                  -> result::Result<Vec<u8>, WriteError> {
         let mut writable = Writable::new(Cursor::new(vec![]));
 
         if frame_header.has_flag(FrameHeaderFlag::Encryption) {
@@ -422,8 +434,8 @@ impl<'a> MetadataWriter<'a> {
         Ok(buf)
     }
 
-    pub fn frame3_to_bytes(&self, frame_header: &mut FrameHeaderV3, frame_data: FrameData)
-                           -> result::Result<Vec<u8>, WriteError> {
+    pub fn frame3(&self, frame_header: &mut FrameHeaderV3, frame_data: FrameData)
+                  -> result::Result<Vec<u8>, WriteError> {
         let mut writable = Writable::new(Cursor::new(vec![]));
 
         if frame_header.has_flag(FrameHeaderFlag::Encryption) {
@@ -462,8 +474,8 @@ impl<'a> MetadataWriter<'a> {
         Ok(buf)
     }
 
-    pub fn frame4_to_bytes(&self, frame_header: &mut FrameHeaderV4, frame_data: FrameData)
-                           -> result::Result<Vec<u8>, WriteError> {
+    pub fn frame4(&self, frame_header: &mut FrameHeaderV4, frame_data: FrameData)
+                  -> result::Result<Vec<u8>, WriteError> {
         let mut writable = Writable::new(Cursor::new(vec![]));
 
         if frame_header.has_flag(FrameHeaderFlag::Encryption) {
@@ -512,21 +524,21 @@ impl<'a> MetadataWriter<'a> {
         Ok(buf)
     }
 
-    pub fn frame_to_bytes(&self, frame: (FrameHeader, FrameData))
-                          -> result::Result<Vec<u8>, WriteError> {
+    pub fn frame(&self, frame: (FrameHeader, FrameData))
+                 -> result::Result<Vec<u8>, WriteError> {
         let mut writable = Writable::new(Cursor::new(vec![]));
 
         let (mut frame_header, frame_data) = frame;
 
         match frame_header {
             FrameHeader::V22(ref mut frame_header) => {
-                writable.write(&self.frame2_to_bytes(frame_header, frame_data)?)?;
+                writable.write(&self.frame2(frame_header, frame_data)?)?;
             },
             FrameHeader::V23(ref mut frame_header) => {
-                writable.write(&self.frame3_to_bytes(frame_header, frame_data)?)?;
+                writable.write(&self.frame3(frame_header, frame_data)?)?;
             },
             FrameHeader::V24(ref mut frame_header) => {
-                writable.write(&self.frame4_to_bytes(frame_header, frame_data)?)?;
+                writable.write(&self.frame4(frame_header, frame_data)?)?;
             }
         }
 
@@ -536,11 +548,11 @@ impl<'a> MetadataWriter<'a> {
         Ok(buf)
     }
 
-    pub fn frames_to_bytes(&self, frames: Vec<(FrameHeader, FrameData)>)
-                           -> result::Result<Vec<u8>, WriteError> {
+    pub fn frames(&self, frames: Vec<(FrameHeader, FrameData)>)
+                  -> result::Result<Vec<u8>, WriteError> {
         let mut writable = Writable::new(Cursor::new(vec![]));
         for frame in frames {
-            let _ = writable.write(&self.frame_to_bytes(frame)?);
+            let _ = writable.write(&self.frame(frame)?);
         }
 
         let mut buf = Vec::new();
@@ -549,19 +561,11 @@ impl<'a> MetadataWriter<'a> {
         Ok(buf)
     }
 
-    pub fn frame1_to_bytes(&self, frame1: Frame1)
-                           -> result::Result<Vec<u8>, WriteError> {
+    pub fn to_bytes(&self,
+                 units: Vec<Unit>)
+                 -> result::Result<(bool, u32, Vec<u8>), WriteError> {
         let mut writable = Writable::new(Cursor::new(vec![]));
-        frame1.write(&mut writable)?;
 
-        let mut buf = Vec::new();
-        writable.copy(&mut buf)?;
-
-        Ok(buf)
-    }
-
-    pub fn write_all(&mut self, units: Vec<Unit>)
-                     -> result::Result<(), WriteError> {
         let mut head_wrap = None;
         let mut frame1_wrap = None;
         let mut frames = Vec::new();
@@ -581,69 +585,85 @@ impl<'a> MetadataWriter<'a> {
             head_wrap.unwrap()
         };
 
-        let frame_bytes = if head.has_flag(HeadFlag::Unsynchronisation) {
-            util::to_unsynchronize(&self.frames_to_bytes(frames)?)
-        } else {
-            self.frames_to_bytes(frames)?
+        let mut frame_bytes = self.frames(frames)?;
+        if head.has_flag(HeadFlag::Unsynchronisation) {
+            frame_bytes = util::to_unsynchronize(&frame_bytes);
         };
         head.size = frame_bytes.len() as u32;
 
-        let frame1_bytes = if let Some(frame1) = frame1_wrap {
-            self.frame1_to_bytes(frame1)?
-        } else {
-            vec![0u8; 0]
-        };
+        let head_size = head.size;
 
-        let file_len = self.adjust_metadata_size(head.size)?;
-        let head_bytes = self.head_to_bytes(head)?;
-
-        let mut writable = OpenOptions::new().write(true).open(self.path)?.to_writable();
-        writable.write(&head_bytes)?;
+        writable.write(&self.head(head)?)?;
         writable.write(&frame_bytes)?;
 
-        if frame1_bytes.len() > 0 {
-            writable.position(file_len as usize - 128)?;
-            writable.write(&frame1_bytes)?;
+        let has_frame1 = if let Some(frame1) = frame1_wrap {
+            writable.write(&self.frame1(frame1)?)?;
+            true
+        } else {
+            false
+        };
+
+        let mut buf = Vec::new();
+        writable.copy(&mut buf)?;
+
+        Ok((has_frame1, head_size, buf))
+    }
+
+    pub fn write(&self, units: Vec<Unit>) -> result::Result<(), WriteError> {
+        let (has_frame1, head_len, all_bytes) = self.to_bytes(units)?;
+        let (orig_head_len, file_len) = self.metadata_length()?;
+
+        let mut writable = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(self.path)?
+            .to_writable();
+
+        let head_diff_len = orig_head_len as i32 - head_len as i32;
+
+        if head_diff_len > 0 && file_len > head_diff_len as u64 {
+            writable.unshift(head_diff_len as usize)?;
+
+            let len = file_len - head_diff_len as u64;
+            OpenOptions::new().write(true).open(self.path)?.set_len(len)?;
+        } else if head_diff_len < 0 && file_len > head_diff_len.abs() as u64 {
+            writable.shift(head_diff_len.abs() as usize)?;
         }
+
+        let (head_bytes, frames) = all_bytes.split_at(head_len as usize);
+
+        let (frame_bytes, frame1_bytes) = if has_frame1 {
+            frames.split_at(frames.len() - 128)
+        } else {
+            frames.split_at(frames.len())
+        };
+
+        writable.write(&head_bytes)?;
+        writable.write(&frame_bytes)?;
+        writable.write(&frame1_bytes)?;
 
         Ok(())
     }
 
-    fn adjust_metadata_size(&self, head_size: u32) -> result::Result<u64, WriteError> {
-        let metadata_length = self.metadata_length();
-        let file = OpenOptions::new().read(true).write(true).open(self.path)?;
-        let file_len = file.metadata()?.len();
-
-        let mut writable = file.to_writable();
-
-        if metadata_length > head_size {
-            let unshift_size = (metadata_length - head_size) as u64;
-
-            writable.unshift(unshift_size as usize)?;
-
-            let len = file_len - unshift_size;
-            OpenOptions::new().write(true).open(self.path)?.set_len(len)?;
-
-            Ok(len)
-        } else {
-            writable.shift((head_size - metadata_length) as usize)?;
-
-            Ok(file_len)
-        }
-    }
-
-    fn metadata_length(&self) -> u32 {
+    fn metadata_length(&self) -> io::Result<(u32, u64)> {
         match self::MetadataReader::new(self.path) {
-            Ok(meta) => {
-                for m in meta {
-                    match m {
-                        Unit::Header(header) => return header.size,
-                        _ => ()
-                    }
-                }
-                0
+            Ok(meta_reader) => {
+                let mut i = meta_reader.filter(|m| match m {
+                    &Unit::Header(_) => true,
+                    _ => false
+                });
+
+                let header_length = if let Some(Unit::Header(head)) = i.next() {
+                    head.size
+                } else {
+                    0
+                };
+
+                let file_len = File::open(self.path)?.metadata()?.len();
+
+                Ok((header_length, file_len))
             },
-            _ => 0
+            _ => Ok((0, 0))
         }
     }
 }

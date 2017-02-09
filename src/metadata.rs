@@ -63,6 +63,7 @@ pub struct MetadataReader {
 }
 
 impl MetadataReader {
+
     pub fn new(path: &str) -> result::Result<Self, ParsingError> {
         let file = File::open(path)?;
         let file_len = file.metadata()?.len();
@@ -163,7 +164,6 @@ impl MetadataReader {
         Frame1::read(&mut Cursor::new(readable.all_bytes()?).to_readable())
     }
 
-    // version 2.2
     pub fn frame2(&mut self,
                   readable: &mut Readable<Cursor<Vec<u8>>>)
                   -> result::Result<Unit, ParsingError> {
@@ -179,7 +179,6 @@ impl MetadataReader {
         Ok(Unit::FrameV2(FrameHeader::V22(frame_header), frame_body))
     }
 
-    // v2.3
     pub fn frame3(&mut self,
                   readable: &mut Readable<Cursor<Vec<u8>>>)
                   -> result::Result<Unit, ParsingError> {
@@ -223,7 +222,6 @@ impl MetadataReader {
         Ok(Unit::FrameV2(FrameHeader::V23(frame_header), frame_body))
     }
 
-    // v2.4
     pub fn frame4(&mut self,
                   readable: &mut Readable<Cursor<Vec<u8>>>)
                   -> result::Result<Unit, ParsingError> {

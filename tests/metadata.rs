@@ -751,13 +751,14 @@ fn metadata_v230_ext_header() {
 fn metadata_v230_invalid_aenc() {
     let _ = env_logger::init();
 
-    let iter = MetadataReader::new("./test-resources/v2.3-invalid-aenc.mp3").unwrap();
-    let i = iter.filter(|m| {
-        match m {
-            &Unit::FrameV2(_, FrameData::AENC(_)) => true,
-            _ => false
-        }
-    });
+    let i = MetadataReader::new("./test-resources/v2.3-invalid-aenc.mp3")
+        .unwrap()
+        .filter(|m| {
+            match m {
+                &Unit::FrameV2(_, FrameData::AENC(_)) => true,
+                _ => false
+            }
+        });
 
     assert!(i.count() == 0);
 }

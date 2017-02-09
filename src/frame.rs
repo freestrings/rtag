@@ -28,9 +28,10 @@ use std::vec::Vec;
 
 type Readable = ::readable::Readable<Cursor<Vec<u8>>>;
 
+// trim bom character
 fn trim(text: String) -> String {
-    // TODO const
-    let re = regex::Regex::new(r"(^[\x{0}|\x{feff}|\x{fffe}]*|[\x{0}|\x{feff}|\x{fffe}]*$)").unwrap();
+    let re = regex::Regex::new(r"(^[\x{0}|\x{feff}|\x{fffe}]*|[\x{0}|\x{feff}|\x{fffe}]*$)")
+        .unwrap();
     let text = text.trim();
     re.replace_all(text, "").into_owned()
 }
@@ -64,6 +65,12 @@ pub trait FlagAware<T> {
     fn set_flag(&mut self, flag: T);
 }
 
+///
+/// # ID3V2 Header
+///
+/// - [V2.3](http://id3.org/id3v2.3.0#ID3v2_header)
+/// - [V2.4](http://id3.org/id3v2.4.0-structure) > 3.1. ID3v2 header
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct Head {
     pub version: u8,
@@ -72,7 +79,6 @@ pub struct Head {
     pub size: u32
 }
 
-// http://id3.org/id3v2.4.0-structure > 3.1 id3v2 Header
 impl Head {
     pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
         let tag_id = readable.string(3)?;
@@ -94,10 +100,18 @@ impl Head {
     }
 }
 
+///
+/// # Frame Header Flags
+///
+/// - [V2.3](http://id3.org/id3v2.3.0#Frame_header_flags)
+/// - [V2.4](http://id3.org/id3v2.4.0-structure) > 3.1. ID3v2 header
+///
+/// ## Note
+///
+/// Head level 'Unsynchronisation' does not work on V2.4
+/// - Reference File: "<ROOT>/test-resources/v2.4-unsync.mp3"
+///
 impl FlagAware<HeadFlag> for Head {
-    // ./id3v2_summary.md/id3v2.md#id3v2 Header
-    //
-    // Head level 'Unsynchronisation' does not work on "./test-resources/v2.4-unsync.mp3".
     fn has_flag(&self, flag: HeadFlag) -> bool {
         match self.version {
             2 => match flag {
@@ -164,6 +178,11 @@ impl FrameWriterDefault for Head {
     }
 }
 
+///
+/// # Frame 1.0
+///
+/// [See](https://en.wikipedia.org/wiki/ID3#ID3v1)
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame1 {
     pub title: String,
@@ -248,6 +267,9 @@ impl FrameWriterDefault for Frame1 {
     }
 }
 
+///
+/// # Define Frame Header
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum FrameHeader {
     V22(FrameHeaderV2),
@@ -255,6 +277,11 @@ pub enum FrameHeader {
     V24(FrameHeaderV4)
 }
 
+///
+/// # Frame Header V2.2
+///
+/// [See](http://id3.org/id3v2-00) > 3.2. ID3v2 frames overview
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct FrameHeaderV2 {
     pub id: String,
@@ -273,8 +300,12 @@ impl FrameHeaderV2 {
     }
 }
 
+///
+/// # No flags
+///
+/// There is no flag for 2.2 frame.
+///
 impl FlagAware<FrameHeaderFlag> for FrameHeaderV2 {
-    // There is no flag for 2.2 frame.
     #[allow(unused_variables)]
     fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
         return false;
@@ -290,6 +321,11 @@ impl FrameWriterDefault for FrameHeaderV2 {
     }
 }
 
+///
+/// # Frame Header V2.3
+///
+/// [See](http://id3.org/id3v2.3.0#ID3v2_frame_overview)
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct FrameHeaderV3 {
     pub id: String,
@@ -314,6 +350,11 @@ impl FrameHeaderV3 {
     }
 }
 
+///
+/// # Frame header flags V2.3
+///
+/// [See](http://id3.org/id3v2.3.0#Frame_header_flags)
+///
 impl FlagAware<FrameHeaderFlag> for FrameHeaderV3 {
     fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
         match flag {
@@ -377,6 +418,11 @@ impl FrameWriterDefault for FrameHeaderV3 {
     }
 }
 
+///
+/// # Frame Header V2.4
+///
+/// [See](http://id3.org/id3v2.4.0-structure) > 4. ID3v2 frames overview
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct FrameHeaderV4 {
     pub id: String,
@@ -401,6 +447,11 @@ impl FrameHeaderV4 {
     }
 }
 
+///
+/// # Frame header flags V2.4
+///
+/// [See](http://id3.org/id3v2.4.0-structure) > 4.1 Frame header flags
+///
 impl FlagAware<FrameHeaderFlag> for FrameHeaderV4 {
     // http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
     fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
@@ -470,6 +521,11 @@ impl FrameWriterDefault for FrameHeaderV4 {
     }
 }
 
+///
+/// # Frame Encoding
+///
+/// [See](http://id3.org/id3v2.4.0-structure) > 4. ID3v2 frame overview
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum TextEncoding {
     ISO88591,
@@ -478,6 +534,13 @@ pub enum TextEncoding {
     UTF8
 }
 
+///
+/// # Picture Type
+///
+/// See: PIC, APIC
+///
+/// [See](http://id3.org/id3v2.3.0#Attached_picture)
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum PictureType {
     Other,
@@ -503,6 +566,13 @@ pub enum PictureType {
     PublisherLogoType
 }
 
+///
+/// # Commercial frame
+///
+/// See: COMR
+///
+/// [See](http://id3.org/id3v2.3.0#Commercial_frame)
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReceivedAs {
     Other,
@@ -516,12 +586,26 @@ pub enum ReceivedAs {
     NonMusicalMerchandise
 }
 
+///
+/// # Interpolation method
+///
+/// See: EQU2
+///
+/// [See](http://id3.org/id3v2.4.0-frames) > 4.12. Equalisation (2)
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterpolationMethod {
     Band,
     Linear
 }
 
+///
+/// # Content Type
+///
+/// See: SYLT
+///
+/// [See](http://id3.org/id3v2.4.0-frames) > 4.9. Synchronised lyrics/text
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContentType {
     Other,
@@ -535,12 +619,23 @@ pub enum ContentType {
     UrlsToImages
 }
 
+///
+/// # Timestamp format
+///
+/// See: ETCO, POSS, SYLT, SYTC
+///
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum TimestampFormat {
     MpecFrames,
     Milliseconds
 }
 
+///
+/// # Event Timing Code
+///
+/// See: ETCO
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum EventTimingCode {
     Padding(u32),
@@ -573,6 +668,15 @@ pub enum EventTimingCode {
     OneMoreByteOfEventsFollows(u32)
 }
 
+///
+/// # Frame header flag
+///
+/// [See](http://id3.org/id3v2.3.0#Frame_header_flags)
+///
+/// ## V2.4 only flags
+/// - Unsynchronisation
+/// - DataLength
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum FrameHeaderFlag {
     TagAlter,
@@ -587,6 +691,15 @@ pub enum FrameHeaderFlag {
     DataLength
 }
 
+///
+/// # Head flags
+///
+/// - [See](http://id3.org/id3v2.3.0#ID3v2_header)
+/// - [See](http://id3.org/id3v2.4.0-structure) > 3.1. ID3v2 header
+///
+/// ## V2.4 only flag
+/// - FooterPresent
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum HeadFlag {
     Unsynchronisation,
@@ -596,8 +709,11 @@ pub enum HeadFlag {
     FooterPresent
 }
 
-// TODO not yet tested!
-// Recommended buffer size
+///
+/// # Recommended buffer size
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct BUF {
     pub buffer_size: u32,
@@ -627,8 +743,11 @@ impl FrameWriterDefault for BUF {
     }
 }
 
-// TODO not yet tested!
-// Encrypted meta frame
+///
+/// # Encrypted meta frame
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct CRM {
     pub owner_identifier: String,
@@ -658,7 +777,9 @@ impl FrameWriterDefault for CRM {
     }
 }
 
-// Attached picture
+///
+/// # Attached picture
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct PIC {
     pub text_encoding: TextEncoding,
@@ -696,7 +817,9 @@ impl FrameWriterDefault for PIC {
     }
 }
 
-// Audio encryption
+///
+/// # Audio encryption
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct AENC {
     pub owner_identifier: String,
@@ -730,8 +853,11 @@ impl FrameWriterDefault for AENC {
     }
 }
 
-// TODO not yet tested!
-// Attached picture
+///
+/// # Attached picture
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct APIC {
     pub text_encoding: TextEncoding,
@@ -768,8 +894,11 @@ impl FrameWriterDefault for APIC {
     }
 }
 
-// TODO not yet tested!
-// Audio seek point index
+///
+/// # Audio seek point index
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct ASPI {
     pub indexed_data_start: u32,
@@ -807,7 +936,9 @@ impl FrameWriterDefault for ASPI {
     }
 }
 
-// Comments
+///
+/// # Comments
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct COMM {
     pub text_encoding: TextEncoding,
@@ -841,8 +972,11 @@ impl FrameWriterDefault for COMM {
     }
 }
 
-// TODO not yet tested!
-// Commercial frame
+///
+/// # Commercial frame
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct COMR {
     pub text_encoding: TextEncoding,
@@ -897,8 +1031,11 @@ impl FrameWriterDefault for COMR {
     }
 }
 
-// TODO not yet tested!
-// Encryption method registration
+///
+/// # Encryption method registration
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct ENCR {
     pub owner_identifier: String,
@@ -928,8 +1065,11 @@ impl FrameWriterDefault for ENCR {
     }
 }
 
-// TODO not yet tested!
-// Equalisation
+///
+/// # Equalisation
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct EQUA {
     pub adjustment_bit: u8
@@ -951,8 +1091,11 @@ impl FrameWriterDefault for EQUA {
     }
 }
 
-// TODO not yet tested!
-// Equalisation (2)
+///
+/// # Equalisation (2)
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct EQU2 {
     pub interpolation_method: InterpolationMethod,
@@ -978,7 +1121,9 @@ impl FrameWriterDefault for EQU2 {
     }
 }
 
-// Event timing codes
+///
+/// # Event timing codes
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct ETCO {
     pub timestamp_format: TimestampFormat,
@@ -1024,7 +1169,9 @@ impl FrameWriterDefault for ETCO {
     }
 }
 
-// General encapsulated object
+///
+/// # General encapsulated object
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct GEOB {
     pub text_encoding: TextEncoding,
@@ -1062,8 +1209,11 @@ impl FrameWriterDefault for GEOB {
     }
 }
 
-// TODO not yet tested!
-// Group identification registration
+///
+/// # Group identification registration
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct GRID {
     pub owner_identifier: String,
@@ -1093,8 +1243,10 @@ impl FrameWriterDefault for GRID {
     }
 }
 
+///
+/// # Involved people list
+///
 #[derive(Clone, Debug, PartialEq)]
-// Involved people list
 pub struct IPLS {
     pub text_encoding: TextEncoding,
     pub people_list_strings: String
@@ -1119,7 +1271,9 @@ impl FrameWriterDefault for IPLS {
     }
 }
 
-// Linked information
+///
+/// # Linked information
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct LINK {
     pub frame_identifier: String,
@@ -1157,7 +1311,9 @@ impl FrameWriterVersionAware<LINK> for LINK {
     }
 }
 
-// Music CD identifier
+///
+/// # Music CD identifier
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct MCDI {
     pub cd_toc: Vec<u8>
@@ -1179,9 +1335,12 @@ impl FrameWriterDefault for MCDI {
     }
 }
 
-// TODO not yet tested!
-// TODO not yet implemented!
-// MPEG location lookup table
+///
+/// # MPEG location lookup table
+///
+/// > Not yet tested!
+/// > Not yet implemented!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct MLLT {
     pub data: Vec<u8>
@@ -1203,8 +1362,11 @@ impl FrameWriterDefault for MLLT {
     }
 }
 
-// TODO not yet tested!
-// Ownership frame
+///
+/// # Ownership frame
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct OWNE {
     pub text_encoding: TextEncoding,
@@ -1239,8 +1401,11 @@ impl FrameWriterDefault for OWNE {
     }
 }
 
-// TODO not yet tested!
-// Private frame
+///
+/// # Private frame
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct PRIV {
     pub owner_identifier: String,
@@ -1266,8 +1431,11 @@ impl FrameWriterDefault for PRIV {
     }
 }
 
-// NOTE it support that only the 32-bit unsigned integer type.
-// Play counter
+///
+/// # Play counter
+///
+/// > It support that only the 32-bit unsigned integer type.
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct PCNT {
     pub counter: u32
@@ -1289,8 +1457,12 @@ impl FrameWriterDefault for PCNT {
     }
 }
 
-// TODO not yet tested!
-// Popularimeter
+///
+/// # Popularimeter
+///
+/// > Not yet tested!
+/// > 'counter': support that only the 32-bit unsigned integer type
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct POPM {
     pub email_to_user: String,
@@ -1321,8 +1493,11 @@ impl FrameWriterDefault for POPM {
     }
 }
 
-// TODO not yet tested!
-// Position synchronisation frame
+///
+/// # Position synchronisation frame
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct POSS {
     pub timestamp_format: TimestampFormat,
@@ -1349,8 +1524,11 @@ impl FrameWriterDefault for POSS {
     }
 }
 
-// TODO not yet tested!
-// Recommended buffer size
+///
+/// # Recommended buffer size
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct RBUF {
     pub buffer_size: u32,
@@ -1380,9 +1558,12 @@ impl FrameWriterDefault for RBUF {
     }
 }
 
-// TODO not yet tested!
-// TODO not yet implemented!
-// Relative volume adjustment (2)
+///
+/// # Relative volume adjustment (2)
+///
+/// > Not yet tested!
+/// > Not yet implemented!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct RVA2 {
     pub data: Vec<u8>
@@ -1404,8 +1585,11 @@ impl FrameWriterDefault for RVA2 {
     }
 }
 
-// TODO not yet tested!
-// Reverb
+///
+/// # Reverb
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct RVRB {
     pub reverb_left: u16,
@@ -1464,8 +1648,11 @@ impl FrameWriterDefault for RVRB {
 }
 
 
-// TODO not yet tested!
-// Seek frame
+///
+/// # Seek frame
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct SEEK {
     pub next_tag: String
@@ -1487,8 +1674,11 @@ impl FrameWriterDefault for SEEK {
     }
 }
 
-// TODO not yet tested!
-// Signature frame
+///
+/// # Signature frame
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct SIGN {
     pub group_symbol: u8,
@@ -1514,8 +1704,11 @@ impl FrameWriterDefault for SIGN {
     }
 }
 
-// TODO not yet tested!
-// Synchronised lyric/text
+///
+/// # Synchronised lyric/text
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct SYLT {
     pub text_encoding: TextEncoding,
@@ -1553,8 +1746,11 @@ impl FrameWriterDefault for SYLT {
     }
 }
 
-// TODO not yet tested!
-// Synchronised tempo codes
+///
+/// # Synchronised tempo codes
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct SYTC {
     pub timestamp_format: TimestampFormat,
@@ -1580,8 +1776,11 @@ impl FrameWriterDefault for SYTC {
     }
 }
 
-// TODO not yet tested!
-// Unique file identifier
+///
+/// #Unique file identifier
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct UFID {
     pub owner_identifier: String,
@@ -1607,8 +1806,11 @@ impl FrameWriterDefault for UFID {
     }
 }
 
-// TODO not yet tested!
-// Terms of use
+///
+/// # Terms of use
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct USER {
     pub text_encoding: TextEncoding,
@@ -1638,8 +1840,11 @@ impl FrameWriterDefault for USER {
     }
 }
 
-// TODO not yet tested!
-// Unsynchronised lyric/text transcription
+///
+/// # Unsynchronised lyric/text transcription
+///
+/// > Not yet tested!
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct USLT {
     pub text_encoding: TextEncoding,
@@ -1673,6 +1878,9 @@ impl FrameWriterDefault for USLT {
     }
 }
 
+///
+/// # For all the T*** types
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct TEXT {
     pub text_encoding: TextEncoding,
@@ -1730,6 +1938,9 @@ impl FrameWriterDefault for TEXT {
     }
 }
 
+///
+/// # User defined text information frame
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct TXXX {
     pub text_encoding: TextEncoding,
@@ -1759,8 +1970,11 @@ impl FrameWriterDefault for TXXX {
     }
 }
 
-// TODO not yet tested!
-// User defined URL link frame
+///
+/// # User defined URL link frame
+///
+/// > Not yet tested
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct WXXX {
     pub text_encoding: TextEncoding,
@@ -1790,6 +2004,11 @@ impl FrameWriterDefault for WXXX {
     }
 }
 
+///
+/// # Write anonymous bytes
+///
+/// It is used for 'Encyrypted frame' See ./tests/metadata.rs/metadata_encrypted
+///
 #[derive(Clone, Debug, PartialEq)]
 pub struct OBJECT {
     pub data: Vec<u8>
@@ -1801,6 +2020,9 @@ impl FrameWriterDefault for OBJECT {
     }
 }
 
+///
+/// # Frame types
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum FrameData {
     //2.2 only
@@ -1915,70 +2137,87 @@ pub enum FrameData {
     INVALID(String)
 }
 
-// 2.2 mapping
-// BUF
-// CNT - PCNT
-// COM - COMM
-// CRA - AENC
-// CRM -
-// ETC - ETCO
-// EQU - EQUA
-// GEO - GEOB
-// IPL - IPLS
-// LNK - LINK
-// MCI - MCDI
-// MLL - MLLT
-// PIC
-// POP - POPM
-// REV - RVRB
-// RVA - RVAD
-// SLT - SYLT
-// STC - SYTC
-// TAL - TALB
-// TBP - TBPM
-// TCM - TCOM
-// TCO - TCON
-// TCR - TCOP
-// TDA - TDAT
-// TDY - TDLY
-// TEN - TENC
-// TFT - TFLT
-// TIM - TIME
-// TKE - TKEY
-// TLA - TLAN
-// TLE - TLEN
-// TMT - TMED
-// TOA - TOPE
-// TOF - TOFN
-// TOL - TOLY
-// TOR - TORY
-// TOT - TOAL
-// TP1 - TPE1
-// TP2 - TPE2
-// TP3 - TPE3
-// TP4 - TPE4
-// TPA - TPOS
-// TPB - TPUB
-// TRC - TSRC
-// TRD - TRDA
-// TRK - TRCK
-// TSI - TSIZ
-// TSS - TSSE
-// TT1 - TIT1
-// TT2 - TIT2
-// TT3 - TIT1
-// TXT - TEXT
-// TXX - TXXX
-// TYE - TYER
-// UFI - UFID
-// ULT - USLT
-// WAF - WOAF
-// WAR - WOAR
-// WAS - WOAS
-// WCM - WCOM
-// WCP - WCOP
-// WPB - WPUB
-// WXX - WXXX
+///
+/// # Frame id
+///
+/// ## V2.2
+/// - All of 3 characters
+///
+/// ## V2.3 only
+///
+/// - EQUA
+/// - IPLS
+/// - RVAD
+/// - TDAT
+/// - TIME
+/// - TSIZ
+/// - TYER
+///
+/// ## V2.2 vs 2.3|2.4 mapping
+///
+/// - BUF - ?
+/// - CNT - PCNT
+/// - COM - COMM
+/// - CRA - AENC
+/// - CRM - ?
+/// - ETC - ETCO
+/// - EQU - EQUA
+/// - GEO - GEOB
+/// - IPL - IPLS
+/// - LNK - LINK
+/// - MCI - MCDI
+/// - MLL - MLLT
+/// - PIC - ?
+/// - POP - POPM
+/// - REV - RVRB
+/// - RVA - RVAD
+/// - SLT - SYLT
+/// - STC - SYTC
+/// - TAL - TALB
+/// - TBP - TBPM
+/// - TCM - TCOM
+/// - TCO - TCON
+/// - TCR - TCOP
+/// - TDA - TDAT
+/// - TDY - TDLY
+/// - TEN - TENC
+/// - TFT - TFLT
+/// - TIM - TIME
+/// - TKE - TKEY
+/// - TLA - TLAN
+/// - TLE - TLEN
+/// - TMT - TMED
+/// - TOA - TOPE
+/// - TOF - TOFN
+/// - TOL - TOLY
+/// - TOR - TORY
+/// - TOT - TOAL
+/// - TP1 - TPE1
+/// - TP2 - TPE2
+/// - TP3 - TPE3
+/// - TP4 - TPE4
+/// - TPA - TPOS
+/// - TPB - TPUB
+/// - TRC - TSRC
+/// - TRD - TRDA
+/// - TRK - TRCK
+/// - TSI - TSIZ
+/// - TSS - TSSE
+/// - TT1 - TIT1
+/// - TT2 - TIT2
+/// - TT3 - TIT1
+/// - TXT - TEXT
+/// - TXX - TXXX
+/// - TYE - TYER
+/// - UFI - UFID
+/// - ULT - USLT
+/// - WAF - WOAF
+/// - WAR - WOAR
+/// - WAS - WOAS
+/// - WCM - WCOM
+/// - WCP - WCOP
+/// - WPB - WPUB
+/// - WXX - WXXX
 pub mod id {
     //
     // 2.2

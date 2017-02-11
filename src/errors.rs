@@ -1,22 +1,17 @@
-use std::{
-    error,
-    io,
-    fmt,
-    mem
-};
+use std::{error, io, fmt, mem};
 
 #[derive(Debug)]
 pub enum ParsingErrorKind {
     InvalidV1FrameId,
     InvalidV2FrameId,
     InvalidFrameLength,
-    EncodingError
+    EncodingError,
 }
 
 #[derive(Debug)]
 pub enum ParsingError {
     BadData(ParsingErrorKind),
-    IoError(io::Error)
+    IoError(io::Error),
 }
 
 impl From<ParsingErrorKind> for ParsingError {
@@ -37,7 +32,7 @@ impl fmt::Display for ParsingErrorKind {
             ParsingErrorKind::InvalidV1FrameId => write!(f, "Only 'TAG' is allowed)"),
             ParsingErrorKind::InvalidV2FrameId => write!(f, "Only 'ID3' is allowed)"),
             ParsingErrorKind::InvalidFrameLength => write!(f, "Invalid frame length"),
-            ParsingErrorKind::EncodingError => write!(f, "Invalid text encoding")
+            ParsingErrorKind::EncodingError => write!(f, "Invalid text encoding"),
         }
     }
 }
@@ -46,7 +41,7 @@ impl fmt::Display for ParsingError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             ParsingError::BadData(ref kind) => fmt::Display::fmt(kind, f),
-            ParsingError::IoError(ref err) => fmt::Display::fmt(err, f)
+            ParsingError::IoError(ref err) => fmt::Display::fmt(err, f),
         }
     }
 }
@@ -57,7 +52,7 @@ impl error::Error for ParsingError {
             ParsingError::BadData(ref kind) => unsafe {
                 mem::transmute(&format!("{:?}", kind) as &str)
             },
-            ParsingError::IoError(ref err) => err.description()
+            ParsingError::IoError(ref err) => err.description(),
         }
     }
 
@@ -72,7 +67,7 @@ impl error::Error for ParsingError {
 #[derive(Debug)]
 pub enum WriteError {
     BadInput(String),
-    IoError(io::Error)
+    IoError(io::Error),
 }
 
 impl From<String> for WriteError {
@@ -91,7 +86,7 @@ impl fmt::Display for WriteError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             WriteError::BadInput(ref msg) => fmt::Display::fmt(msg, f),
-            WriteError::IoError(ref err) => fmt::Display::fmt(err, f)
+            WriteError::IoError(ref err) => fmt::Display::fmt(err, f),
         }
     }
 }
@@ -100,7 +95,7 @@ impl error::Error for WriteError {
     fn description(&self) -> &str {
         match *self {
             WriteError::BadInput(ref msg) => &*msg,
-            WriteError::IoError(ref err) => err.description()
+            WriteError::IoError(ref err) => err.description(),
         }
     }
 

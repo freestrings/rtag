@@ -1,25 +1,23 @@
 use std::cmp;
-use std::io::{
-    Seek,
-    SeekFrom,
-    Result,
-    Read,
-    Write
-};
+use std::io::{Seek, SeekFrom, Result, Read, Write};
 
 const DEFAULT_BUF_SIZE: usize = 1024;
 
 #[derive(Debug)]
-pub struct Writable<I> where I: Read + Write + Seek {
+pub struct Writable<I>
+    where I: Read + Write + Seek
+{
     input: I,
-    total: i64
+    total: i64,
 }
 
-impl<I> Writable<I> where I: Read + Write + Seek {
+impl<I> Writable<I>
+    where I: Read + Write + Seek
+{
     pub fn new(input: I) -> Self {
         Writable {
             input: input,
-            total: 0
+            total: 0,
         }
     }
 
@@ -77,6 +75,7 @@ impl<I> Writable<I> where I: Read + Write + Seek {
 
     pub fn string(&mut self, v: &str) -> Result<()> {
         let b = v.as_bytes();
+        println!("{}", ::util::to_hex(&b.to_vec()));
         self.write(&b)
     }
 
@@ -100,7 +99,7 @@ impl<I> Writable<I> where I: Read + Write + Seek {
 
     pub fn unshift(&mut self, amount: usize) -> Result<()> {
         if amount == 0 {
-            return Ok(())
+            return Ok(());
         }
         // remember current position
         let curr_pos = self.input.seek(SeekFrom::Current(0))?;
@@ -140,7 +139,7 @@ impl<I> Writable<I> where I: Read + Write + Seek {
     // it need that a 'read' file permission.
     pub fn shift(&mut self, amount: usize) -> Result<()> {
         if amount == 0 {
-            return Ok(())
+            return Ok(());
         }
 
         // remember current position
@@ -207,13 +206,17 @@ impl<I> Writable<I> where I: Read + Write + Seek {
     }
 }
 
-impl<T> AsMut<T> for Writable<T> where T: Read + Write + Seek {
+impl<T> AsMut<T> for Writable<T>
+    where T: Read + Write + Seek
+{
     fn as_mut(&mut self) -> &mut T {
         &mut self.input
     }
 }
 
-pub trait WritableFactory<T> where T: Read + Write + Seek {
+pub trait WritableFactory<T>
+    where T: Read + Write + Seek
+{
     fn to_writable(self) -> Writable<T>;
 }
 

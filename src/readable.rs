@@ -1,33 +1,30 @@
-use std::io::{
-    Cursor,
-    Error,
-    ErrorKind,
-    Read,
-    Seek,
-    SeekFrom,
-    Result
-};
+use std::io::{Cursor, Error, ErrorKind, Read, Seek, SeekFrom, Result};
 use std::vec::Vec;
 
 const DEFAULT_BUF_SIZE: usize = 1024;
 
 #[derive(Debug)]
-pub struct Readable<I> where I: Read + Seek {
+pub struct Readable<I>
+    where I: Read + Seek
+{
     input: I,
-    total: i64
+    total: i64,
 }
 
-impl<I> Readable<I> where I: Read + Seek {
+impl<I> Readable<I>
+    where I: Read + Seek
+{
     pub fn new(input: I) -> Self {
         Readable {
             input: input,
-            total: 0
+            total: 0,
         }
     }
 
     pub fn all_bytes(&mut self) -> Result<Vec<u8>> {
         let mut buf = vec![];
         let read = self.input.read_to_end(&mut buf)?;
+        println!("all bytes {}, {}", self.total, read);
         self.total = self.total + read as i64;
 
         Ok(buf)
@@ -54,8 +51,7 @@ impl<I> Readable<I> where I: Read + Seek {
 
             if read <= 0 {
                 return Err(Error::new(ErrorKind::Other,
-                                      format!("read try: {}, but read zero.",
-                                              amount)));
+                                      format!("read try: {}, but read zero.", amount)));
             }
             ret.append(&mut buf);
             total_read = total_read + read;
@@ -97,6 +93,7 @@ impl<I> Readable<I> where I: Read + Seek {
 
         let len = ret.len();
         self.total = self.total + len as i64;
+        self.total = self.total + 2;
 
         Ok(ret)
     }
@@ -127,6 +124,7 @@ impl<I> Readable<I> where I: Read + Seek {
 
         let len = ret.len();
         self.total = self.total + len as i64;
+        self.total = self.total + 1;
 
         Ok(ret)
     }
@@ -256,7 +254,9 @@ impl<I> Readable<I> where I: Read + Seek {
     }
 }
 
-pub trait ReadableFactory<T> where T: Read + Seek {
+pub trait ReadableFactory<T>
+    where T: Read + Seek
+{
     fn to_readable(self) -> Readable<T>;
 }
 

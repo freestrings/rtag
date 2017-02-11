@@ -1,28 +1,14 @@
 extern crate encoding;
 extern crate regex;
 
-use self::encoding::{
-    Encoding,
-    DecoderTrap,
-    EncoderTrap
-};
-use self::encoding::all::{
-    ISO_8859_1,
-    UTF_16LE,
-    UTF_16BE,
-    UTF_8
-};
+use self::encoding::{Encoding, DecoderTrap, EncoderTrap};
+use self::encoding::all::{ISO_8859_1, UTF_16LE, UTF_16BE, UTF_8};
 
 use errors::*;
 use util;
 use writable::Writable;
 
-use std::io::{
-    Cursor,
-    Result,
-    Error,
-    ErrorKind
-};
+use std::io::{Cursor, Result, Error, ErrorKind};
 use std::result;
 use std::vec::Vec;
 
@@ -76,7 +62,7 @@ pub struct Head {
     pub version: u8,
     pub minor_version: u8,
     pub flag: u8,
-    pub size: u32
+    pub size: u32,
 }
 
 impl Head {
@@ -95,7 +81,7 @@ impl Head {
             version: version,
             minor_version: minor_version,
             flag: flag,
-            size: size
+            size: size,
         })
     }
 }
@@ -114,25 +100,31 @@ impl Head {
 impl FlagAware<HeadFlag> for Head {
     fn has_flag(&self, flag: HeadFlag) -> bool {
         match self.version {
-            2 => match flag {
-                HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
-                HeadFlag::Compression => self.flag & util::BIT6 != 0,
-                _ => false
-            },
-            3 => match flag {
-                HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
-                HeadFlag::ExtendedHeader => self.flag & util::BIT6 != 0,
-                HeadFlag::ExperimentalIndicator => self.flag & util::BIT5 != 0,
-                _ => false
-            },
-            4 => match flag {
-                //
-                // HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
-                HeadFlag::ExtendedHeader => self.flag & util::BIT6 != 0,
-                HeadFlag::ExperimentalIndicator => self.flag & util::BIT5 != 0,
-                HeadFlag::FooterPresent => self.flag & util::BIT4 != 0,
-                _ => false
-            },
+            2 => {
+                match flag {
+                    HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
+                    HeadFlag::Compression => self.flag & util::BIT6 != 0,
+                    _ => false,
+                }
+            }
+            3 => {
+                match flag {
+                    HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
+                    HeadFlag::ExtendedHeader => self.flag & util::BIT6 != 0,
+                    HeadFlag::ExperimentalIndicator => self.flag & util::BIT5 != 0,
+                    _ => false,
+                }
+            }
+            4 => {
+                match flag {
+                    //
+                    // HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
+                    HeadFlag::ExtendedHeader => self.flag & util::BIT6 != 0,
+                    HeadFlag::ExperimentalIndicator => self.flag & util::BIT5 != 0,
+                    HeadFlag::FooterPresent => self.flag & util::BIT4 != 0,
+                    _ => false,
+                }
+            }
             _ => {
                 warn!("Header.has_flag=> Unknown version!");
                 false
@@ -142,25 +134,31 @@ impl FlagAware<HeadFlag> for Head {
 
     fn set_flag(&mut self, flag: HeadFlag) {
         match self.version {
-            2 => match flag {
-                HeadFlag::Unsynchronisation => self.flag = self.flag | util::BIT7,
-                HeadFlag::Compression => self.flag = self.flag | util::BIT6,
-                _ => ()
-            },
-            3 => match flag {
-                HeadFlag::Unsynchronisation => self.flag = self.flag | util::BIT7,
-                HeadFlag::ExtendedHeader => self.flag = self.flag | util::BIT6,
-                HeadFlag::ExperimentalIndicator => self.flag = self.flag | util::BIT5,
-                _ => ()
-            },
-            4 => match flag {
-                //
-                // HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
-                HeadFlag::ExtendedHeader => self.flag = self.flag | util::BIT6,
-                HeadFlag::ExperimentalIndicator => self.flag = self.flag | util::BIT5,
-                HeadFlag::FooterPresent => self.flag = self.flag | util::BIT4,
-                _ => ()
-            },
+            2 => {
+                match flag {
+                    HeadFlag::Unsynchronisation => self.flag = self.flag | util::BIT7,
+                    HeadFlag::Compression => self.flag = self.flag | util::BIT6,
+                    _ => (),
+                }
+            }
+            3 => {
+                match flag {
+                    HeadFlag::Unsynchronisation => self.flag = self.flag | util::BIT7,
+                    HeadFlag::ExtendedHeader => self.flag = self.flag | util::BIT6,
+                    HeadFlag::ExperimentalIndicator => self.flag = self.flag | util::BIT5,
+                    _ => (),
+                }
+            }
+            4 => {
+                match flag {
+                    //
+                    // HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
+                    HeadFlag::ExtendedHeader => self.flag = self.flag | util::BIT6,
+                    HeadFlag::ExperimentalIndicator => self.flag = self.flag | util::BIT5,
+                    HeadFlag::FooterPresent => self.flag = self.flag | util::BIT4,
+                    _ => (),
+                }
+            }
             _ => {
                 warn!("Header.has_flag=> Unknown version!");
             }
@@ -191,7 +189,7 @@ pub struct Frame1 {
     pub year: String,
     pub comment: String,
     pub track: String,
-    pub genre: String
+    pub genre: String,
 }
 
 impl Frame1 {
@@ -218,19 +216,14 @@ impl Frame1 {
         readable.skip(-31)?;
 
         let (comment, track) = if track_marker != 0 {
-            (
-                util::to_iso8859_1(&readable.bytes(30)?).trim().to_string(),
-                String::new()
-            )
+            (util::to_iso8859_1(&readable.bytes(30)?).trim().to_string(), String::new())
         } else {
-            (
-                util::to_iso8859_1(&readable.bytes(28)?).trim().to_string(),
-                if _track == 0 {
-                    String::new()
-                } else {
-                    _track.to_string()
-                }
-            )
+            (util::to_iso8859_1(&readable.bytes(28)?).trim().to_string(),
+             if _track == 0 {
+                 String::new()
+             } else {
+                 _track.to_string()
+             })
         };
 
         Ok(Frame1 {
@@ -240,7 +233,7 @@ impl Frame1 {
             year: year,
             comment: comment,
             track: track,
-            genre: genre
+            genre: genre,
         })
     }
 }
@@ -253,7 +246,7 @@ impl FrameWriterDefault for Frame1 {
         writable.write(&util::from_iso8859_1(&self.album, 30))?;
         writable.write(&util::from_iso8859_1(&self.year, 4))?;
         writable.write(&util::from_iso8859_1(&self.comment, 28))?;
-        writable.u8(0)?;//track marker
+        writable.u8(0)?; //track marker
         match self.track.as_str().parse::<u8>() {
             Ok(v) => writable.u8(v)?,
             Err(_) => writable.u8(0)?,
@@ -274,7 +267,7 @@ impl FrameWriterDefault for Frame1 {
 pub enum FrameHeader {
     V22(FrameHeaderV2),
     V23(FrameHeaderV3),
-    V24(FrameHeaderV4)
+    V24(FrameHeaderV4),
 }
 
 ///
@@ -295,7 +288,7 @@ impl FrameHeaderV2 {
 
         Ok(FrameHeaderV2 {
             id: id,
-            size: size
+            size: size,
         })
     }
 }
@@ -331,7 +324,7 @@ pub struct FrameHeaderV3 {
     pub id: String,
     pub size: u32,
     pub status_flag: u8,
-    pub encoding_flag: u8
+    pub encoding_flag: u8,
 }
 
 impl FrameHeaderV3 {
@@ -345,7 +338,7 @@ impl FrameHeaderV3 {
             id: id,
             size: size,
             status_flag: status_flag,
-            encoding_flag: encoding_flag
+            encoding_flag: encoding_flag,
         })
     }
 }
@@ -364,25 +357,19 @@ impl FlagAware<FrameHeaderFlag> for FrameHeaderV3 {
             FrameHeaderFlag::Compression => self.encoding_flag & util::BIT7 != 0,
             FrameHeaderFlag::Encryption => self.encoding_flag & util::BIT6 != 0,
             FrameHeaderFlag::GroupIdentity => self.encoding_flag & util::BIT5 != 0,
-            _ => false
+            _ => false,
         }
     }
 
     fn set_flag(&mut self, flag: FrameHeaderFlag) {
         match flag {
-            FrameHeaderFlag::TagAlter =>
-                self.status_flag = self.status_flag | util::BIT7,
-            FrameHeaderFlag::FileAlter =>
-                self.status_flag = self.status_flag | util::BIT6,
-            FrameHeaderFlag::ReadOnly =>
-                self.status_flag = self.status_flag | util::BIT5,
-            FrameHeaderFlag::Compression =>
-                self.encoding_flag = self.encoding_flag | util::BIT7,
-            FrameHeaderFlag::Encryption =>
-                self.encoding_flag = self.encoding_flag | util::BIT6,
-            FrameHeaderFlag::GroupIdentity =>
-                self.encoding_flag = self.encoding_flag | util::BIT5,
-            _ => ()
+            FrameHeaderFlag::TagAlter => self.status_flag = self.status_flag | util::BIT7,
+            FrameHeaderFlag::FileAlter => self.status_flag = self.status_flag | util::BIT6,
+            FrameHeaderFlag::ReadOnly => self.status_flag = self.status_flag | util::BIT5,
+            FrameHeaderFlag::Compression => self.encoding_flag = self.encoding_flag | util::BIT7,
+            FrameHeaderFlag::Encryption => self.encoding_flag = self.encoding_flag | util::BIT6,
+            FrameHeaderFlag::GroupIdentity => self.encoding_flag = self.encoding_flag | util::BIT5,
+            _ => (),
         }
     }
 }
@@ -428,7 +415,7 @@ pub struct FrameHeaderV4 {
     pub id: String,
     pub size: u32,
     pub status_flag: u8,
-    pub encoding_flag: u8
+    pub encoding_flag: u8,
 }
 
 impl FrameHeaderV4 {
@@ -442,7 +429,7 @@ impl FrameHeaderV4 {
             id: id,
             size: size,
             status_flag: status_flag,
-            encoding_flag: encoding_flag
+            encoding_flag: encoding_flag,
         })
     }
 }
@@ -463,28 +450,22 @@ impl FlagAware<FrameHeaderFlag> for FrameHeaderV4 {
             FrameHeaderFlag::Compression => self.encoding_flag & util::BIT3 != 0,
             FrameHeaderFlag::Encryption => self.encoding_flag & util::BIT2 != 0,
             FrameHeaderFlag::Unsynchronisation => self.encoding_flag & util::BIT1 != 0,
-            FrameHeaderFlag::DataLength => self.encoding_flag & util::BIT0 != 0
+            FrameHeaderFlag::DataLength => self.encoding_flag & util::BIT0 != 0,
         }
     }
 
     fn set_flag(&mut self, flag: FrameHeaderFlag) {
         match flag {
-            FrameHeaderFlag::TagAlter =>
-                self.status_flag = self.status_flag | util::BIT6,
-            FrameHeaderFlag::FileAlter =>
-                self.status_flag = self.status_flag | util::BIT5,
-            FrameHeaderFlag::ReadOnly =>
-                self.status_flag = self.status_flag | util::BIT4,
-            FrameHeaderFlag::GroupIdentity =>
-                self.encoding_flag = self.encoding_flag | util::BIT6,
-            FrameHeaderFlag::Compression =>
-                self.encoding_flag = self.encoding_flag | util::BIT3,
-            FrameHeaderFlag::Encryption =>
-                self.encoding_flag = self.encoding_flag | util::BIT2,
-            FrameHeaderFlag::Unsynchronisation =>
-                self.encoding_flag = self.encoding_flag | util::BIT1,
-            FrameHeaderFlag::DataLength =>
-                self.encoding_flag = self.encoding_flag | util::BIT0
+            FrameHeaderFlag::TagAlter => self.status_flag = self.status_flag | util::BIT6,
+            FrameHeaderFlag::FileAlter => self.status_flag = self.status_flag | util::BIT5,
+            FrameHeaderFlag::ReadOnly => self.status_flag = self.status_flag | util::BIT4,
+            FrameHeaderFlag::GroupIdentity => self.encoding_flag = self.encoding_flag | util::BIT6,
+            FrameHeaderFlag::Compression => self.encoding_flag = self.encoding_flag | util::BIT3,
+            FrameHeaderFlag::Encryption => self.encoding_flag = self.encoding_flag | util::BIT2,
+            FrameHeaderFlag::Unsynchronisation => {
+                self.encoding_flag = self.encoding_flag | util::BIT1
+            }
+            FrameHeaderFlag::DataLength => self.encoding_flag = self.encoding_flag | util::BIT0,
         }
     }
 }
@@ -531,7 +512,7 @@ pub enum TextEncoding {
     ISO88591,
     UTF16LE,
     UTF16BE,
-    UTF8
+    UTF8,
 }
 
 ///
@@ -563,7 +544,7 @@ pub enum PictureType {
     BrightColouredFish,
     Illustration,
     BandLogotype,
-    PublisherLogoType
+    PublisherLogoType,
 }
 
 ///
@@ -583,7 +564,7 @@ pub enum ReceivedAs {
     AsNoteSheets,
     AsNoteSheetsInBook,
     MusicOnMedia,
-    NonMusicalMerchandise
+    NonMusicalMerchandise,
 }
 
 ///
@@ -596,7 +577,7 @@ pub enum ReceivedAs {
 #[derive(Clone, Debug, PartialEq)]
 pub enum InterpolationMethod {
     Band,
-    Linear
+    Linear,
 }
 
 ///
@@ -616,7 +597,7 @@ pub enum ContentType {
     Chord,
     Trivia,
     UrlsToWebpages,
-    UrlsToImages
+    UrlsToImages,
 }
 
 ///
@@ -628,7 +609,7 @@ pub enum ContentType {
 #[derive(Clone, Debug, PartialEq)]
 pub enum TimestampFormat {
     MpecFrames,
-    Milliseconds
+    Milliseconds,
 }
 
 ///
@@ -665,7 +646,7 @@ pub enum EventTimingCode {
     NotPredefinedSynch(u32, u8),
     AudioEnd(u32),
     AudioFileEnds(u32),
-    OneMoreByteOfEventsFollows(u32)
+    OneMoreByteOfEventsFollows(u32),
 }
 
 ///
@@ -688,7 +669,7 @@ pub enum FrameHeaderFlag {
     //2.4 only
     Unsynchronisation,
     //2.4 only
-    DataLength
+    DataLength,
 }
 
 ///
@@ -706,7 +687,7 @@ pub enum HeadFlag {
     Compression,
     ExtendedHeader,
     ExperimentalIndicator,
-    FooterPresent
+    FooterPresent,
 }
 
 ///
@@ -718,7 +699,7 @@ pub enum HeadFlag {
 pub struct BUF {
     pub buffer_size: u32,
     pub embedded_info_flag: u8,
-    pub offset_to_next_tag: u32
+    pub offset_to_next_tag: u32,
 }
 
 impl FrameReaderDefault<BUF> for BUF {
@@ -730,7 +711,7 @@ impl FrameReaderDefault<BUF> for BUF {
         Ok(BUF {
             buffer_size: buffer_size,
             embedded_info_flag: embedded_info_flag,
-            offset_to_next_tag: offset_to_next_tag
+            offset_to_next_tag: offset_to_next_tag,
         })
     }
 }
@@ -752,7 +733,7 @@ impl FrameWriterDefault for BUF {
 pub struct CRM {
     pub owner_identifier: String,
     pub content: String,
-    pub encrypted_datablock: Vec<u8>
+    pub encrypted_datablock: Vec<u8>,
 }
 
 impl FrameReaderDefault<CRM> for CRM {
@@ -764,7 +745,7 @@ impl FrameReaderDefault<CRM> for CRM {
         Ok(CRM {
             owner_identifier: owner_identifier,
             content: content,
-            encrypted_datablock: encrypted_datablock
+            encrypted_datablock: encrypted_datablock,
         })
     }
 }
@@ -786,7 +767,7 @@ pub struct PIC {
     pub image_format: String,
     pub picture_type: PictureType,
     pub description: String,
-    pub picture_data: Vec<u8>
+    pub picture_data: Vec<u8>,
 }
 
 impl FrameReaderDefault<PIC> for PIC {
@@ -802,7 +783,7 @@ impl FrameReaderDefault<PIC> for PIC {
             image_format: image_format,
             picture_type: picture_type,
             description: description,
-            picture_data: picture_data
+            picture_data: picture_data,
         })
     }
 }
@@ -825,7 +806,7 @@ pub struct AENC {
     pub owner_identifier: String,
     pub preview_start: u16,
     pub preview_end: u16,
-    pub encryption_info: Vec<u8>
+    pub encryption_info: Vec<u8>,
 }
 
 impl FrameReaderDefault<AENC> for AENC {
@@ -839,7 +820,7 @@ impl FrameReaderDefault<AENC> for AENC {
             owner_identifier: owner_identifier,
             preview_start: preview_start,
             preview_end: preview_end,
-            encryption_info: encryption_info
+            encryption_info: encryption_info,
         })
     }
 }
@@ -864,7 +845,7 @@ pub struct APIC {
     pub mime_type: String,
     pub picture_type: PictureType,
     pub description: String,
-    pub picture_data: Vec<u8>
+    pub picture_data: Vec<u8>,
 }
 
 impl FrameReaderDefault<APIC> for APIC {
@@ -880,7 +861,7 @@ impl FrameReaderDefault<APIC> for APIC {
             mime_type: mine_type,
             picture_type: picture_type,
             description: description,
-            picture_data: picture_data
+            picture_data: picture_data,
         })
     }
 }
@@ -888,8 +869,9 @@ impl FrameReaderDefault<APIC> for APIC {
 impl FrameWriterDefault for APIC {
     fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
         writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.string(self.mime_type.as_str())?;
+        writable.non_utf16_string(self.mime_type.as_str())?;
         writable.u8(util::from_picture_type(&self.picture_type))?;
+        util::write_null_terminated(&self.text_encoding, self.description.as_str(), writable)?;
         writable.write(&self.picture_data)
     }
 }
@@ -905,7 +887,7 @@ pub struct ASPI {
     pub indexed_data_length: u32,
     pub number_of_index_points: u16,
     pub bit_per_index_point: u8,
-    pub fraction_at_index: u8
+    pub fraction_at_index: u8,
 }
 
 impl FrameReaderDefault<ASPI> for ASPI {
@@ -921,7 +903,7 @@ impl FrameReaderDefault<ASPI> for ASPI {
             indexed_data_length: indexed_data_length,
             number_of_index_points: number_of_index_points,
             bit_per_index_point: bit_per_index_point,
-            fraction_at_index: fraction_at_index
+            fraction_at_index: fraction_at_index,
         })
     }
 }
@@ -944,7 +926,7 @@ pub struct COMM {
     pub text_encoding: TextEncoding,
     pub language: String,
     pub short_description: String,
-    pub actual_text: String
+    pub actual_text: String,
 }
 
 impl FrameReaderDefault<COMM> for COMM {
@@ -958,7 +940,7 @@ impl FrameReaderDefault<COMM> for COMM {
             text_encoding: text_encoding,
             language: language,
             short_description: short_description,
-            actual_text: actual_text
+            actual_text: actual_text,
         })
     }
 }
@@ -967,7 +949,9 @@ impl FrameWriterDefault for COMM {
     fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
         writable.u8(util::from_encoding(&self.text_encoding))?;
         writable.string(&self.language[0..3])?;
-        util::write_null_terminated(&self.text_encoding, self.short_description.as_str(), writable)?;
+        util::write_null_terminated(&self.text_encoding,
+                                    self.short_description.as_str(),
+                                    writable)?;
         writable.string(self.actual_text.as_str())
     }
 }
@@ -988,7 +972,7 @@ pub struct COMR {
     pub name_of_seller: String,
     pub description: String,
     pub picture_mime_type: String,
-    pub seller_logo: Vec<u8>
+    pub seller_logo: Vec<u8>,
 }
 
 impl FrameReaderDefault<COMR> for COMR {
@@ -1012,7 +996,7 @@ impl FrameReaderDefault<COMR> for COMR {
             name_of_seller: name_of_seller,
             description: description,
             picture_mime_type: picture_mime_type,
-            seller_logo: seller_logo
+            seller_logo: seller_logo,
         })
     }
 }
@@ -1040,7 +1024,7 @@ impl FrameWriterDefault for COMR {
 pub struct ENCR {
     pub owner_identifier: String,
     pub method_symbol: u8,
-    pub encryption_data: Vec<u8>
+    pub encryption_data: Vec<u8>,
 }
 
 impl FrameReaderDefault<ENCR> for ENCR {
@@ -1052,7 +1036,7 @@ impl FrameReaderDefault<ENCR> for ENCR {
         Ok(ENCR {
             owner_identifier: owner_identifier,
             method_symbol: method_symbol,
-            encryption_data: encryption_data
+            encryption_data: encryption_data,
         })
     }
 }
@@ -1072,16 +1056,14 @@ impl FrameWriterDefault for ENCR {
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct EQUA {
-    pub adjustment_bit: u8
+    pub adjustment_bit: u8,
 }
 
 impl FrameReaderDefault<EQUA> for EQUA {
     fn read(readable: &mut Readable) -> Result<EQUA> {
         let adjustment_bit = readable.u8()?;
 
-        Ok(EQUA {
-            adjustment_bit: adjustment_bit
-        })
+        Ok(EQUA { adjustment_bit: adjustment_bit })
     }
 }
 
@@ -1099,7 +1081,7 @@ impl FrameWriterDefault for EQUA {
 #[derive(Clone, Debug, PartialEq)]
 pub struct EQU2 {
     pub interpolation_method: InterpolationMethod,
-    pub identification: String
+    pub identification: String,
 }
 
 impl FrameReaderDefault<EQU2> for EQU2 {
@@ -1109,7 +1091,7 @@ impl FrameReaderDefault<EQU2> for EQU2 {
 
         Ok(EQU2 {
             interpolation_method: interpolation_method,
-            identification: identification
+            identification: identification,
         })
     }
 }
@@ -1127,7 +1109,7 @@ impl FrameWriterDefault for EQU2 {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ETCO {
     pub timestamp_format: TimestampFormat,
-    pub event_timing_codes: Vec<EventTimingCode>
+    pub event_timing_codes: Vec<EventTimingCode>,
 }
 
 impl FrameReaderDefault<ETCO> for ETCO {
@@ -1151,7 +1133,7 @@ impl FrameReaderDefault<ETCO> for ETCO {
 
         Ok(ETCO {
             timestamp_format: timestamp_format,
-            event_timing_codes: event_timing_codes
+            event_timing_codes: event_timing_codes,
         })
     }
 }
@@ -1178,7 +1160,7 @@ pub struct GEOB {
     pub mime_type: String,
     pub filename: String,
     pub content_description: String,
-    pub encapsulation_object: Vec<u8>
+    pub encapsulation_object: Vec<u8>,
 }
 
 impl FrameReaderDefault<GEOB> for GEOB {
@@ -1194,7 +1176,7 @@ impl FrameReaderDefault<GEOB> for GEOB {
             mime_type: mime_type,
             filename: filename,
             content_description: content_description,
-            encapsulation_object: encapsulation_object
+            encapsulation_object: encapsulation_object,
         })
     }
 }
@@ -1204,7 +1186,9 @@ impl FrameWriterDefault for GEOB {
         writable.u8(util::from_encoding(&self.text_encoding))?;
         writable.non_utf16_string(self.mime_type.as_str())?;
         util::write_null_terminated(&self.text_encoding, self.filename.as_str(), writable)?;
-        util::write_null_terminated(&self.text_encoding, self.content_description.as_str(), writable)?;
+        util::write_null_terminated(&self.text_encoding,
+                                    self.content_description.as_str(),
+                                    writable)?;
         writable.write(&self.encapsulation_object)
     }
 }
@@ -1218,7 +1202,7 @@ impl FrameWriterDefault for GEOB {
 pub struct GRID {
     pub owner_identifier: String,
     pub group_symbol: u8,
-    pub group_dependent_data: Vec<u8>
+    pub group_dependent_data: Vec<u8>,
 }
 
 impl FrameReaderDefault<GRID> for GRID {
@@ -1230,7 +1214,7 @@ impl FrameReaderDefault<GRID> for GRID {
         Ok(GRID {
             owner_identifier: owner_identifier,
             group_symbol: group_symbol,
-            group_dependent_data: group_dependent_data
+            group_dependent_data: group_dependent_data,
         })
     }
 }
@@ -1249,7 +1233,7 @@ impl FrameWriterDefault for GRID {
 #[derive(Clone, Debug, PartialEq)]
 pub struct IPLS {
     pub text_encoding: TextEncoding,
-    pub people_list_strings: String
+    pub people_list_strings: String,
 }
 
 impl FrameReaderDefault<IPLS> for IPLS {
@@ -1259,7 +1243,7 @@ impl FrameReaderDefault<IPLS> for IPLS {
 
         Ok(IPLS {
             text_encoding: text_encoding,
-            people_list_strings: people_list_strings
+            people_list_strings: people_list_strings,
         })
     }
 }
@@ -1278,14 +1262,14 @@ impl FrameWriterDefault for IPLS {
 pub struct LINK {
     pub frame_identifier: String,
     pub url: String,
-    pub additional_data: String
+    pub additional_data: String,
 }
 
 impl FrameReaderVersionAware<LINK> for LINK {
     fn read(readable: &mut Readable, version: u8) -> Result<LINK> {
         let frame_id = match version {
             2 | 3 => readable.string(3)?,
-            _ => readable.string(4)?
+            _ => readable.string(4)?,
         };
         let url = readable.non_utf16_string()?;
         let additional_data = readable.all_string()?;
@@ -1293,7 +1277,7 @@ impl FrameReaderVersionAware<LINK> for LINK {
         Ok(LINK {
             frame_identifier: frame_id,
             url: url,
-            additional_data: additional_data
+            additional_data: additional_data,
         })
     }
 }
@@ -1302,7 +1286,7 @@ impl FrameWriterVersionAware<LINK> for LINK {
     fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>, version: u8) -> Result<()> {
         match version {
             2 | 3 => writable.string(&self.frame_identifier[0..3])?,
-            _ => writable.string(&self.frame_identifier[0..4])?
+            _ => writable.string(&self.frame_identifier[0..4])?,
         }
         writable.string(self.url.as_str())?;
         writable.string(self.additional_data.as_str())?;
@@ -1316,16 +1300,14 @@ impl FrameWriterVersionAware<LINK> for LINK {
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct MCDI {
-    pub cd_toc: Vec<u8>
+    pub cd_toc: Vec<u8>,
 }
 
 impl FrameReaderDefault<MCDI> for MCDI {
     fn read(readable: &mut Readable) -> Result<MCDI> {
         let cd_toc = readable.all_bytes()?;
 
-        Ok(MCDI {
-            cd_toc: cd_toc
-        })
+        Ok(MCDI { cd_toc: cd_toc })
     }
 }
 
@@ -1343,16 +1325,14 @@ impl FrameWriterDefault for MCDI {
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct MLLT {
-    pub data: Vec<u8>
+    pub data: Vec<u8>,
 }
 
 impl FrameReaderDefault<MLLT> for MLLT {
     fn read(readable: &mut Readable) -> Result<MLLT> {
         let data = readable.all_bytes()?;
 
-        Ok(MLLT {
-            data: data
-        })
+        Ok(MLLT { data: data })
     }
 }
 
@@ -1373,7 +1353,7 @@ pub struct OWNE {
     pub price_paid: String,
     // 8 bit long
     pub date_of_purch: String,
-    pub seller: String
+    pub seller: String,
 }
 
 impl FrameReaderDefault<OWNE> for OWNE {
@@ -1387,7 +1367,7 @@ impl FrameReaderDefault<OWNE> for OWNE {
             text_encoding: text_encoding,
             price_paid: price_paid,
             date_of_purch: date_of_purch,
-            seller: seller
+            seller: seller,
         })
     }
 }
@@ -1409,7 +1389,7 @@ impl FrameWriterDefault for OWNE {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PRIV {
     pub owner_identifier: String,
-    pub private_data: Vec<u8>
+    pub private_data: Vec<u8>,
 }
 
 impl FrameReaderDefault<PRIV> for PRIV {
@@ -1419,7 +1399,7 @@ impl FrameReaderDefault<PRIV> for PRIV {
 
         Ok(PRIV {
             owner_identifier: owner_identifier,
-            private_data: private_data
+            private_data: private_data,
         })
     }
 }
@@ -1438,16 +1418,14 @@ impl FrameWriterDefault for PRIV {
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct PCNT {
-    pub counter: u32
+    pub counter: u32,
 }
 
 impl FrameReaderDefault<PCNT> for PCNT {
     fn read(readable: &mut Readable) -> Result<PCNT> {
         let counter = readable.u32()?;
 
-        Ok(PCNT {
-            counter: counter
-        })
+        Ok(PCNT { counter: counter })
     }
 }
 
@@ -1468,7 +1446,7 @@ pub struct POPM {
     pub email_to_user: String,
     pub rating: u8,
     // NOTE it support that only the 32-bit unsigned integer type.
-    pub counter: u32
+    pub counter: u32,
 }
 
 impl FrameReaderDefault<POPM> for POPM {
@@ -1480,7 +1458,7 @@ impl FrameReaderDefault<POPM> for POPM {
         Ok(POPM {
             email_to_user: email_to_user,
             rating: rating,
-            counter: counter
+            counter: counter,
         })
     }
 }
@@ -1502,7 +1480,7 @@ impl FrameWriterDefault for POPM {
 pub struct POSS {
     pub timestamp_format: TimestampFormat,
     // TODO not yet implemented!
-    pub position: Vec<u8>
+    pub position: Vec<u8>,
 }
 
 impl FrameReaderDefault<POSS> for POSS {
@@ -1512,7 +1490,7 @@ impl FrameReaderDefault<POSS> for POSS {
 
         Ok(POSS {
             timestamp_format: timestamp_format,
-            position: position
+            position: position,
         })
     }
 }
@@ -1533,7 +1511,7 @@ impl FrameWriterDefault for POSS {
 pub struct RBUF {
     pub buffer_size: u32,
     pub embedded_info_flag: u8,
-    pub offset_to_next_tag: u32
+    pub offset_to_next_tag: u32,
 }
 
 impl FrameReaderDefault<RBUF> for RBUF {
@@ -1545,7 +1523,7 @@ impl FrameReaderDefault<RBUF> for RBUF {
         Ok(RBUF {
             buffer_size: buffer_size,
             embedded_info_flag: embedded_info_flag,
-            offset_to_next_tag: offset_to_next_tag
+            offset_to_next_tag: offset_to_next_tag,
         })
     }
 }
@@ -1566,16 +1544,14 @@ impl FrameWriterDefault for RBUF {
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct RVA2 {
-    pub data: Vec<u8>
+    pub data: Vec<u8>,
 }
 
 impl FrameReaderDefault<RVA2> for RVA2 {
     fn read(readable: &mut Readable) -> Result<RVA2> {
         let data = readable.all_bytes()?;
 
-        Ok(RVA2 {
-            data: data
-        })
+        Ok(RVA2 { data: data })
     }
 }
 
@@ -1601,7 +1577,7 @@ pub struct RVRB {
     pub reverb_feedback_right_to_right: u8,
     pub reverb_feedback_right_to_left: u8,
     pub premix_left_to_right: u8,
-    pub premix_right_to_left: u8
+    pub premix_right_to_left: u8,
 }
 
 impl FrameReaderDefault<RVRB> for RVRB {
@@ -1627,7 +1603,7 @@ impl FrameReaderDefault<RVRB> for RVRB {
             reverb_feedback_right_to_right: reverb_feedback_right_to_right,
             reverb_feedback_right_to_left: reverb_feedback_right_to_left,
             premix_left_to_right: premix_left_to_right,
-            premix_right_to_left: premix_right_to_left
+            premix_right_to_left: premix_right_to_left,
         })
     }
 }
@@ -1655,16 +1631,14 @@ impl FrameWriterDefault for RVRB {
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct SEEK {
-    pub next_tag: String
+    pub next_tag: String,
 }
 
 impl FrameReaderDefault<SEEK> for SEEK {
     fn read(readable: &mut Readable) -> Result<SEEK> {
         let next_tag = readable.all_string()?;
 
-        Ok(SEEK {
-            next_tag: next_tag
-        })
+        Ok(SEEK { next_tag: next_tag })
     }
 }
 
@@ -1682,7 +1656,7 @@ impl FrameWriterDefault for SEEK {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SIGN {
     pub group_symbol: u8,
-    pub signature: Vec<u8>
+    pub signature: Vec<u8>,
 }
 
 impl FrameReaderDefault<SIGN> for SIGN {
@@ -1692,7 +1666,7 @@ impl FrameReaderDefault<SIGN> for SIGN {
 
         Ok(SIGN {
             group_symbol: group_symbol,
-            signature: signature
+            signature: signature,
         })
     }
 }
@@ -1715,7 +1689,7 @@ pub struct SYLT {
     pub language: String,
     pub timestamp_format: TimestampFormat,
     pub content_type: ContentType,
-    pub content_descriptor: String
+    pub content_descriptor: String,
 }
 
 impl FrameReaderDefault<SYLT> for SYLT {
@@ -1731,7 +1705,7 @@ impl FrameReaderDefault<SYLT> for SYLT {
             language: language,
             timestamp_format: timestamp_format,
             content_type: content_type,
-            content_descriptor: content_descriptor
+            content_descriptor: content_descriptor,
         })
     }
 }
@@ -1742,7 +1716,9 @@ impl FrameWriterDefault for SYLT {
         writable.string(&self.language[0..3])?;
         writable.u8(util::from_timestamp_format(&self.timestamp_format))?;
         writable.u8(util::from_content_type(&self.content_type))?;
-        util::write_null_terminated(&self.text_encoding, self.content_descriptor.as_str(), writable)
+        util::write_null_terminated(&self.text_encoding,
+                                    self.content_descriptor.as_str(),
+                                    writable)
     }
 }
 
@@ -1754,7 +1730,7 @@ impl FrameWriterDefault for SYLT {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SYTC {
     pub timestamp_format: TimestampFormat,
-    pub tempo_data: Vec<u8>
+    pub tempo_data: Vec<u8>,
 }
 
 impl FrameReaderDefault<SYTC> for SYTC {
@@ -1764,7 +1740,7 @@ impl FrameReaderDefault<SYTC> for SYTC {
 
         Ok(SYTC {
             timestamp_format: timestamp_format,
-            tempo_data: tempo_data
+            tempo_data: tempo_data,
         })
     }
 }
@@ -1784,7 +1760,7 @@ impl FrameWriterDefault for SYTC {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UFID {
     pub owner_identifier: String,
-    pub identifier: Vec<u8>
+    pub identifier: Vec<u8>,
 }
 
 impl FrameReaderDefault<UFID> for UFID {
@@ -1794,7 +1770,7 @@ impl FrameReaderDefault<UFID> for UFID {
 
         Ok(UFID {
             owner_identifier: owner_identifier,
-            identifier: identifier
+            identifier: identifier,
         })
     }
 }
@@ -1815,7 +1791,7 @@ impl FrameWriterDefault for UFID {
 pub struct USER {
     pub text_encoding: TextEncoding,
     pub language: String,
-    pub actual_text: String
+    pub actual_text: String,
 }
 
 impl FrameReaderDefault<USER> for USER {
@@ -1827,7 +1803,7 @@ impl FrameReaderDefault<USER> for USER {
         Ok(USER {
             text_encoding: text_encoding,
             language: language,
-            actual_text: actual_text
+            actual_text: actual_text,
         })
     }
 }
@@ -1850,7 +1826,7 @@ pub struct USLT {
     pub text_encoding: TextEncoding,
     pub language: String,
     pub content_descriptor: String,
-    pub lyrics: String
+    pub lyrics: String,
 }
 
 impl FrameReaderDefault<USLT> for USLT {
@@ -1864,7 +1840,7 @@ impl FrameReaderDefault<USLT> for USLT {
             text_encoding: text_encoding,
             language: language,
             content_descriptor: content_descriptor,
-            lyrics: lyrics
+            lyrics: lyrics,
         })
     }
 }
@@ -1873,7 +1849,9 @@ impl FrameWriterDefault for USLT {
     fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
         writable.u8(util::from_encoding(&self.text_encoding))?;
         writable.string(&self.language[0..3])?;
-        util::write_null_terminated(&self.text_encoding, self.content_descriptor.as_str(), writable)?;
+        util::write_null_terminated(&self.text_encoding,
+                                    self.content_descriptor.as_str(),
+                                    writable)?;
         util::write_null_terminated(&self.text_encoding, self.lyrics.as_str(), writable)
     }
 }
@@ -1884,12 +1862,13 @@ impl FrameWriterDefault for USLT {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TEXT {
     pub text_encoding: TextEncoding,
-    pub text: String
+    pub text: String,
 }
 
 impl FrameReaderIdAware<TEXT> for TEXT {
     fn read(readable: &mut Readable, id: &str) -> Result<TEXT> {
-        fn _default(id: &str, decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>)
+        fn _default(id: &str,
+                    decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>)
                     -> String {
             match decode {
                 Ok(text) => text,
@@ -1910,12 +1889,12 @@ impl FrameReaderIdAware<TEXT> for TEXT {
             TextEncoding::ISO88591 => _default(id, ISO_8859_1.decode(&data, DecoderTrap::Strict)),
             TextEncoding::UTF16LE => _default(id, UTF_16LE.decode(&data, DecoderTrap::Strict)),
             TextEncoding::UTF16BE => _default(id, UTF_16BE.decode(&data, DecoderTrap::Strict)),
-            TextEncoding::UTF8 => _default(id, UTF_8.decode(&data, DecoderTrap::Strict))
+            TextEncoding::UTF8 => _default(id, UTF_8.decode(&data, DecoderTrap::Strict)),
         };
 
         Ok(TEXT {
             text_encoding: text_encoding,
-            text: self::trim(text)
+            text: self::trim(text),
         })
     }
 }
@@ -1927,14 +1906,31 @@ impl FrameWriterDefault for TEXT {
             TextEncoding::ISO88591 => ISO_8859_1.encode(self.text.as_str(), EncoderTrap::Strict),
             TextEncoding::UTF16LE => UTF_16LE.encode(self.text.as_str(), EncoderTrap::Strict),
             TextEncoding::UTF16BE => UTF_16BE.encode(self.text.as_str(), EncoderTrap::Strict),
-            TextEncoding::UTF8 => UTF_8.encode(self.text.as_str(), EncoderTrap::Strict)
+            TextEncoding::UTF8 => UTF_8.encode(self.text.as_str(), EncoderTrap::Strict),
         } {
             Ok(text) => text,
-            Err(msg) => return Err(Error::new(ErrorKind::InvalidInput, msg.to_owned().to_string()))
+            Err(msg) => return Err(Error::new(ErrorKind::InvalidInput, msg.to_owned().to_string())),
         };
 
+        match self.text_encoding {
+            TextEncoding::UTF16LE => {
+                writable.u8(0xff)?;
+                writable.u8(0xfe)?;
+            }
+            _ => (),
+        }
 
-        writable.write(&text)
+        writable.write(&text)?;
+
+        match self.text_encoding {
+            TextEncoding::UTF16BE => {
+                writable.u8(0xfe)?;
+                writable.u8(0xff)?;
+            }
+            _ => (),
+        }
+
+        Ok(())
     }
 }
 
@@ -1945,7 +1941,7 @@ impl FrameWriterDefault for TEXT {
 pub struct TXXX {
     pub text_encoding: TextEncoding,
     pub description: String,
-    pub value: String
+    pub value: String,
 }
 
 impl FrameReaderDefault<TXXX> for TXXX {
@@ -1957,7 +1953,7 @@ impl FrameReaderDefault<TXXX> for TXXX {
         Ok(TXXX {
             text_encoding: text_encoding,
             description: description,
-            value: value
+            value: value,
         })
     }
 }
@@ -1979,7 +1975,7 @@ impl FrameWriterDefault for TXXX {
 pub struct WXXX {
     pub text_encoding: TextEncoding,
     pub description: String,
-    pub url: String
+    pub url: String,
 }
 
 impl FrameReaderDefault<WXXX> for WXXX {
@@ -1991,7 +1987,7 @@ impl FrameReaderDefault<WXXX> for WXXX {
         Ok(WXXX {
             text_encoding: text_encoding,
             description: description,
-            url: url
+            url: url,
         })
     }
 }
@@ -2011,7 +2007,7 @@ impl FrameWriterDefault for WXXX {
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct OBJECT {
-    pub data: Vec<u8>
+    pub data: Vec<u8>,
 }
 
 impl FrameWriterDefault for OBJECT {
@@ -2024,117 +2020,312 @@ impl FrameWriterDefault for OBJECT {
 /// # Frame types
 ///
 #[derive(Clone, Debug, PartialEq)]
-pub enum FrameData {
-    //2.2 only
+pub enum FrameBody {
+    /// 2.2 only
+    /// Recommended buffer size
     BUF(BUF),
-    //2.2 only
+
+    /// 2.2 only
+    /// Encrypted meta frame
     CRM(CRM),
-    //2.2 only
+
+    /// 2.2 only
+    ///Attached picture
     PIC(PIC),
 
+    /// Audio encryption
     AENC(AENC),
+
+    /// Attached picture
     APIC(APIC),
+
+    /// Audio seek point index
     ASPI(ASPI),
+
+    /// Comments
     COMM(COMM),
+
+    /// Commercial frame
     COMR(COMR),
+
+    /// Encryption method registration
     ENCR(ENCR),
-    // 2.3 only
+
+    /// 2.3 only
+    /// Equalisation
     EQUA(EQUA),
+
+    /// Equalisation (2)
     EQU2(EQU2),
+
+    /// Event timing codes
     ETCO(ETCO),
+
+    /// General encapsulated object
     GEOB(GEOB),
+
+    /// Group identification registration
     GRID(GRID),
-    // 2.3 only
+
+    /// 2.3 only
+    /// Involved people list
     IPLS(IPLS),
+
+    /// Linked information
     LINK(LINK),
+
+    /// Music CD identifier
     MCDI(MCDI),
+
+    /// MPEG location lookup table
     MLLT(MLLT),
+
+    /// Ownership frame
     OWNE(OWNE),
+
+    /// Private frame
     PRIV(PRIV),
+
+    /// Play counter
     PCNT(PCNT),
+
+    /// Popularimeter
     POPM(POPM),
+
+    /// Position synchronisation frame
     POSS(POSS),
+
+    /// Recommended buffer size
     RBUF(RBUF),
-    // 2.3 only
+
+    /// 2.3 only
+    /// Relative volume adjustment
     RVAD(RVA2),
+
+    /// Relative volume adjustment (2)
     RVA2(RVA2),
+
+    /// Reverb
     RVRB(RVRB),
+
+    /// Seek frame
     SEEK(SEEK),
+
+    /// Signature frame
     SIGN(SIGN),
+
+    /// Synchronised lyric/text
     SYLT(SYLT),
+
+    /// Synchronised tempo codes
     SYTC(SYTC),
+
+    /// Album/Movie/Show title
     TALB(TEXT),
+
+    /// BPM (beats per minute)
     TBPM(TEXT),
+
+    /// Composer
     TCOM(TEXT),
+
+    /// Content type
     TCON(TEXT),
+
+    /// Copyright message
     TCOP(TEXT),
-    // 2.3 only
+
+    /// 2.3 only
+    /// Date
     TDAT(TEXT),
+
+    /// Encoding time
     TDEN(TEXT),
+
+    /// Playlist delay
     TDLY(TEXT),
+
+    /// Original release time
     TDOR(TEXT),
+
+    /// Recording time
     TDRC(TEXT),
+
+    /// Release time
     TDRL(TEXT),
+
+    /// Tagging time
     TDTG(TEXT),
+
+    /// Encoded by
     TENC(TEXT),
+
+    /// Lyricist/Text writer
     TEXT(TEXT),
+
+    /// File type
     TFLT(TEXT),
-    // 2.3 only
+
+    /// 2.3 only
+    /// Time
     TIME(TEXT),
+
+    /// Involved people list
     TIPL(TEXT),
+
+    /// Content group description
     TIT1(TEXT),
+
+    /// Title/songname/content description
     TIT2(TEXT),
+
+    /// Subtitle/Description refinement
     TIT3(TEXT),
+
+    /// Initial key
     TKEY(TEXT),
+
+    /// Language(s)
     TLAN(TEXT),
+
+    /// Length
     TLEN(TEXT),
+
+    /// Musician credits list
     TMCL(TEXT),
+
+    /// Media type
     TMED(TEXT),
+
+    /// Mood
     TMOO(TEXT),
+
+    /// Original album/movie/show title
     TOAL(TEXT),
+
+    /// Original filename
     TOFN(TEXT),
+
+    /// Original lyricist(s)/text writer(s)
     TOLY(TEXT),
+
+    /// Original artist(s)/performer(s)
     TOPE(TEXT),
+
+    /// 2.3 only
+    /// Original release year
     TORY(TEXT),
+
+    /// File owner/licensee
     TOWN(TEXT),
+
+    /// Lead performer(s)/Soloist(s)
     TPE1(TEXT),
+
+    /// Band/orchestra/accompaniment
     TPE2(TEXT),
+
+    /// Conductor/performer refinement
     TPE3(TEXT),
+
+    /// Interpreted, remixed, or otherwise modified by
     TPE4(TEXT),
+
+    /// Part of a set
     TPOS(TEXT),
+
+    /// Produced notice
     TPRO(TEXT),
+
+    /// Publisher
     TPUB(TEXT),
+
+    /// Track number/Position in set
     TRCK(TEXT),
-    // 2.3 only
+
+    /// 2.3 only
+    /// Recording dates
     TRDA(TEXT),
+
+    /// Internet radio station name
     TRSN(TEXT),
+
+    /// Internet radio station owner
     TRSO(TEXT),
-    // 2.3 only
+
+    /// 2.3 only
+    /// Size
     TSIZ(TEXT),
+
+    /// Album sort order
     TSOA(TEXT),
+
+    /// Performer sort order
     TSOP(TEXT),
+
+    /// Title sort order
     TSOT(TEXT),
+
+    /// ISRC (international standard recording code)
     TSRC(TEXT),
+
+    /// Software/Hardware and settings used for encoding
     TSSE(TEXT),
-    // 2.3 only
+
+    /// 2.3 only
+    /// Year
     TYER(TEXT),
+
+    /// Software/Hardware and settings used for encoding
     TSST(TEXT),
+
+    /// User defined text information frame
     TXXX(TXXX),
+
+    /// Unique file identifier
     UFID(UFID),
+
+    /// Terms of use
     USER(USER),
+
+    /// Unsychronized lyric/text transcription
     USLT(USLT),
+
+    /// Commercial information
     WCOM(LINK),
+
+    /// Copyright/Legal information
     WCOP(LINK),
+
+    /// Official audio file webpage
     WOAF(LINK),
+
+    /// Official artist/performer webpage
     WOAR(LINK),
+
+    /// Official audio source webpage
     WOAS(LINK),
+
+    /// Official internet radio station homepage
     WORS(LINK),
+
+    /// Payment
     WPAY(LINK),
+
+    /// Publishers official webpage
     WPUB(LINK),
+
+    /// User defined URL link frame
     WXXX(WXXX),
+
+    /// It only use to write a encrypted bytes directly
     OBJECT(OBJECT),
+
+    /// It is used for unknown frame when to parse
     SKIP(String, Vec<u8>),
-    INVALID(String)
+
+    /// Invalid frame
+    INVALID(String),
 }
 
 ///

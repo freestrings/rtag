@@ -1,28 +1,14 @@
 extern crate encoding;
 
 use self::encoding::all::ISO_8859_1;
-use self::encoding::{
-    Encoding,
-    DecoderTrap,
-    EncoderTrap
-};
+use self::encoding::{Encoding, DecoderTrap, EncoderTrap};
 
-use frame::{
-    PictureType,
-    ReceivedAs,
-    InterpolationMethod,
-    ContentType,
-    TimestampFormat,
-    EventTimingCode,
-    TextEncoding
-};
+use frame::{PictureType, ReceivedAs, InterpolationMethod, ContentType, TimestampFormat,
+            EventTimingCode, TextEncoding};
 use readable::Readable;
 use writable::Writable;
 
-use std::io::{
-    Cursor,
-    Result
-};
+use std::io::{Cursor, Result};
 use std::vec::Vec;
 
 pub const BIT7: u8 = 0x80;
@@ -57,7 +43,7 @@ pub fn to_picture_type(t: u8) -> PictureType {
         0x12 => PictureType::Illustration,
         0x13 => PictureType::BandLogotype,
         0x14 => PictureType::PublisherLogoType,
-        _ => PictureType::Other
+        _ => PictureType::Other,
     }
 }
 
@@ -83,7 +69,7 @@ pub fn from_picture_type(t: &PictureType) -> u8 {
         &PictureType::BrightColouredFish => 0x11,
         &PictureType::Illustration => 0x12,
         &PictureType::BandLogotype => 0x13,
-        &PictureType::PublisherLogoType => 0x14
+        &PictureType::PublisherLogoType => 0x14,
     }
 }
 
@@ -98,7 +84,7 @@ pub fn to_received_as(t: u8) -> ReceivedAs {
         0x06 => ReceivedAs::AsNoteSheetsInBook,
         0x07 => ReceivedAs::MusicOnMedia,
         0x08 => ReceivedAs::NonMusicalMerchandise,
-        _ => ReceivedAs::Other
+        _ => ReceivedAs::Other,
     }
 }
 
@@ -112,7 +98,7 @@ pub fn from_received_as(t: &ReceivedAs) -> u8 {
         &ReceivedAs::AsNoteSheets => 0x05,
         &ReceivedAs::AsNoteSheetsInBook => 0x06,
         &ReceivedAs::MusicOnMedia => 0x07,
-        &ReceivedAs::NonMusicalMerchandise => 0x08
+        &ReceivedAs::NonMusicalMerchandise => 0x08,
     }
 }
 
@@ -120,14 +106,14 @@ pub fn to_interpolation_method(t: u8) -> InterpolationMethod {
     match t {
         0x00 => InterpolationMethod::Band,
         0x01 => InterpolationMethod::Linear,
-        _ => InterpolationMethod::Band
+        _ => InterpolationMethod::Band,
     }
 }
 
 pub fn from_interpolation_method(t: &InterpolationMethod) -> u8 {
     match t {
         &InterpolationMethod::Band => 0x00,
-        &InterpolationMethod::Linear => 0x01
+        &InterpolationMethod::Linear => 0x01,
     }
 }
 
@@ -135,14 +121,14 @@ pub fn to_timestamp_format(t: u8) -> TimestampFormat {
     match t {
         0x01 => TimestampFormat::MpecFrames,
         0x02 => TimestampFormat::Milliseconds,
-        _ => TimestampFormat::MpecFrames
+        _ => TimestampFormat::MpecFrames,
     }
 }
 
 pub fn from_timestamp_format(t: &TimestampFormat) -> u8 {
     match t {
         &TimestampFormat::MpecFrames => 0x01,
-        &TimestampFormat::Milliseconds => 0x02
+        &TimestampFormat::Milliseconds => 0x02,
     }
 }
 
@@ -171,13 +157,13 @@ pub fn to_event_timing_code(t: u8, timestamp: u32) -> EventTimingCode {
         0x14 => EventTimingCode::ThemeEnd(timestamp),
         0x15 => EventTimingCode::Profanity(timestamp),
         0x16 => EventTimingCode::ProfanityEnd(timestamp),
-        0x17 ... 0xdf => EventTimingCode::ReservedForFutureUse(timestamp, t),
-        0xe0 ... 0xef => EventTimingCode::NotPredefinedSynch(timestamp, t),
-        0xf0 ... 0xfc => EventTimingCode::ReservedForFutureUse(timestamp, t),
+        0x17...0xdf => EventTimingCode::ReservedForFutureUse(timestamp, t),
+        0xe0...0xef => EventTimingCode::NotPredefinedSynch(timestamp, t),
+        0xf0...0xfc => EventTimingCode::ReservedForFutureUse(timestamp, t),
         0xfd => EventTimingCode::AudioEnd(timestamp),
         0xfe => EventTimingCode::AudioFileEnds(timestamp),
         0xff => EventTimingCode::OneMoreByteOfEventsFollows(timestamp),
-        _ => EventTimingCode::Padding(timestamp)
+        _ => EventTimingCode::Padding(timestamp),
     }
 }
 
@@ -212,14 +198,14 @@ pub fn from_event_timing_code(e: &EventTimingCode) -> (u8, u32) {
             } else {
                 (0x17, timestamp)
             }
-        },
+        }
         &EventTimingCode::NotPredefinedSynch(timestamp, t) => {
             if 0xe0 <= t && t < 0xef {
                 (t, timestamp)
             } else {
                 (0xe0, timestamp)
             }
-        },
+        }
         &EventTimingCode::AudioEnd(timestamp) => (0xfd, timestamp),
         &EventTimingCode::AudioFileEnds(timestamp) => (0xfe, timestamp),
         &EventTimingCode::OneMoreByteOfEventsFollows(timestamp) => (0xff, timestamp),
@@ -230,9 +216,9 @@ pub fn read_null_terminated(text_encoding: &TextEncoding,
                             readable: &mut Readable<Cursor<Vec<u8>>>)
                             -> Result<String> {
     Ok(match text_encoding {
-        &TextEncoding::ISO88591 | &TextEncoding::UTF8 =>
-            readable.non_utf16_string()?,
-        _ => readable.utf16_string()?
+        &TextEncoding::ISO88591 |
+        &TextEncoding::UTF8 => readable.non_utf16_string()?,
+        _ => readable.utf16_string()?,
     })
 }
 
@@ -241,9 +227,9 @@ pub fn write_null_terminated(text_encoding: &TextEncoding,
                              writable: &mut Writable<Cursor<Vec<u8>>>)
                              -> Result<()> {
     Ok(match text_encoding {
-        &TextEncoding::ISO88591 | &TextEncoding::UTF8 =>
-            writable.non_utf16_string(text)?,
-        _ => writable.utf16_string(text)?
+        &TextEncoding::ISO88591 |
+        &TextEncoding::UTF8 => writable.non_utf16_string(text)?,
+        _ => writable.utf16_string(text)?,
     })
 }
 
@@ -258,7 +244,7 @@ pub fn to_content_type(t: u8) -> ContentType {
         0x06 => ContentType::Trivia,
         0x07 => ContentType::UrlsToWebpages,
         0x08 => ContentType::UrlsToImages,
-        _ => ContentType::Other
+        _ => ContentType::Other,
     }
 }
 
@@ -272,7 +258,7 @@ pub fn from_content_type(t: &ContentType) -> u8 {
         &ContentType::Chord => 0x05,
         &ContentType::Trivia => 0x06,
         &ContentType::UrlsToWebpages => 0x07,
-        &ContentType::UrlsToImages => 0x08
+        &ContentType::UrlsToImages => 0x08,
     }
 }
 
@@ -282,7 +268,7 @@ pub fn to_encoding(encoding: u8) -> TextEncoding {
         1 => TextEncoding::UTF16LE,
         2 => TextEncoding::UTF16BE,
         3 => TextEncoding::UTF8,
-        _ => TextEncoding::ISO88591
+        _ => TextEncoding::ISO88591,
     }
 }
 
@@ -291,7 +277,7 @@ pub fn from_encoding(encoding: &TextEncoding) -> u8 {
         &TextEncoding::ISO88591 => 0,
         &TextEncoding::UTF16LE => 1,
         &TextEncoding::UTF16BE => 2,
-        &TextEncoding::UTF8 => 3
+        &TextEncoding::UTF8 => 3,
     }
 }
 
@@ -315,8 +301,7 @@ pub fn to_unsynchronize(bytes: &Vec<u8>) -> Vec<u8> {
         let mut count = 0;
         let len = bytes.len();
         for i in 0..len - 1 {
-            if bytes[i] & 0xff == 0xff &&
-                (bytes[i + 1] & 0xe0 == 0xe0 || bytes[i + 1] == 0) {
+            if bytes[i] & 0xff == 0xff && (bytes[i + 1] & 0xe0 == 0xe0 || bytes[i + 1] == 0) {
                 count = count + 1;
             }
         }
@@ -328,7 +313,7 @@ pub fn to_unsynchronize(bytes: &Vec<u8>) -> Vec<u8> {
 
     let count = require_unsync(bytes);
     if count == 0 {
-        return bytes.clone()
+        return bytes.clone();
     }
 
     let len = bytes.len();
@@ -337,8 +322,7 @@ pub fn to_unsynchronize(bytes: &Vec<u8>) -> Vec<u8> {
     for i in 0..len - 1 {
         out[j] = bytes[i];
         j = j + 1;
-        if bytes[i] & 0xff == 0xff &&
-            (bytes[i + 1] & 0xe0 == 0xe0 || bytes[i + 1] == 0) {
+        if bytes[i] & 0xff == 0xff && (bytes[i + 1] & 0xe0 == 0xe0 || bytes[i + 1] == 0) {
             out[j] = 0;
             j = j + 1;
         }
@@ -355,22 +339,22 @@ pub fn to_unsynchronize(bytes: &Vec<u8>) -> Vec<u8> {
 #[allow(dead_code)]
 pub fn to_hex(bytes: &Vec<u8>) -> String {
     let strs: Vec<String> = bytes.iter()
-                                 .map(|b| format!("{:02x}", b))
-                                 .collect();
+        .map(|b| format!("{:02x}", b))
+        .collect();
     strs.join(" ")
 }
 
 pub fn to_iso8859_1(bytes: &Vec<u8>) -> String {
     match ISO_8859_1.decode(&bytes, DecoderTrap::Strict) {
         Ok(value) => value.to_string(),
-        _ => "".to_string()
+        _ => "".to_string(),
     }
 }
 
 pub fn from_iso8859_1(v: &String, len: usize) -> Vec<u8> {
     let mut v = match ISO_8859_1.encode(&v, EncoderTrap::Strict) {
         Ok(value) => value,
-        _ => vec![0u8; len]
+        _ => vec![0u8; len],
     };
 
     for i in v.len()..len {

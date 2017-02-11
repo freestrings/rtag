@@ -167,8 +167,6 @@ impl MetadataReader {
                   -> result::Result<Unit, ParsingError> {
         let frame_header = FrameHeaderV3::read(readable)?;
 
-        println!("frame header {:?}", frame_header);
-
         let mut extra_size: u32 = 0;
         if frame_header.has_flag(FrameHeaderFlag::GroupIdentity) {
             let _ = readable.u8()?;
@@ -625,12 +623,6 @@ impl<'a> MetadataWriter<'a> {
             .to_writable();
 
         let head_diff_len = orig_head_len as i32 - head_len as i32;
-
-        println!("has_frame1: {}", has_frame1);
-        println!("head_len: {}", head_len);
-        println!("orig_head_len: {}", orig_head_len);
-        println!("file_len: {}", file_len);
-        println!("head_diff_len: {}", head_diff_len);
 
         if head_diff_len > 0 && file_len > head_diff_len as u64 {
             writable.unshift(head_diff_len as usize)?;

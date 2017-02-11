@@ -24,7 +24,6 @@ impl<I> Readable<I>
     pub fn all_bytes(&mut self) -> Result<Vec<u8>> {
         let mut buf = vec![];
         let read = self.input.read_to_end(&mut buf)?;
-        println!("all bytes {}, {}", self.total, read);
         self.total = self.total + read as i64;
 
         Ok(buf)

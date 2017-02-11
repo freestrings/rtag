@@ -75,7 +75,6 @@ impl<I> Writable<I>
 
     pub fn string(&mut self, v: &str) -> Result<()> {
         let b = v.as_bytes();
-        println!("{}", ::util::to_hex(&b.to_vec()));
         self.write(&b)
     }
 

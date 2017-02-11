@@ -56,36 +56,40 @@
 //!```
 //!
 //! # Example: modify tag
-//! 
+//!
 //!```rust
+//! use std::fs;
 //! use rtag::frame::*;
 //! use rtag::metadata::Unit;
 //! use rtag::metadata::MetadataReader;
 //! use rtag::metadata::MetadataWriter;
 //!
-//! let path = "./test-resources/240.mp3";
+//! let path = "./test-resources/240.test.mp3";
+//! fs::copy("./test-resources/240.mp3", path).unwrap();
+//!
 //! let new_data = MetadataReader::new(path)
-//!         .unwrap()
-//!         .fold(Vec::new(), |mut vec, unit| {
-//!             if let Unit::FrameV2(frame_head, frame_data) = unit {
-//!                 let new_frame_data = if let FrameBody::TALB(ref frame) = frame_data {
-//!                     let mut new_frame = frame.clone();
-//!                     new_frame.text = "Album!".to_string();
-//!                     FrameBody::TALB(new_frame)
-//!                 } else {
-//!                     frame_data.clone()
-//!                 };
-//! 
-//!                 vec.push(Unit::FrameV2(frame_head, new_frame_data));
+//!     .unwrap()
+//!     .fold(Vec::new(), |mut vec, unit| {
+//!         if let Unit::FrameV2(frame_head, frame_data) = unit {
+//!             let new_frame_data = if let FrameBody::TALB(ref frame) = frame_data {
+//!                 let mut new_frame = frame.clone();
+//!                 new_frame.text = "Album!".to_string();
+//!                 FrameBody::TALB(new_frame)
 //!             } else {
-//!                 vec.push(unit);
-//!             }
-//! 
-//!             vec
-//!         });
-//! 
-//!     let writer = MetadataWriter::new(path).unwrap();
-//!     let _ = writer.write(new_data);
+//!                 frame_data.clone()
+//!             };
+//!
+//!             vec.push(Unit::FrameV2(frame_head, new_frame_data));
+//!         } else {
+//!             vec.push(unit);
+//!         }
+//!
+//!         vec
+//!     });
+//!
+//! let writer = MetadataWriter::new(path).unwrap();
+//! let _ = writer.write(new_data);
+//! let _ = fs::remove_file(path).unwrap();
 //!```
 #[macro_use]
 extern crate log;

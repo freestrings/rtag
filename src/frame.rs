@@ -799,7 +799,7 @@ impl FrameWriterDefault for PIC {
 }
 
 ///
-/// # Audio encryption
+/// Audio encryption
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct AENC {
@@ -835,9 +835,9 @@ impl FrameWriterDefault for AENC {
 }
 
 ///
-/// # Attached picture
+/// Attached picture
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct APIC {
@@ -877,9 +877,9 @@ impl FrameWriterDefault for APIC {
 }
 
 ///
-/// # Audio seek point index
+/// Audio seek point index
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct ASPI {
@@ -919,7 +919,7 @@ impl FrameWriterDefault for ASPI {
 }
 
 ///
-/// # Comments
+/// Comments
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct COMM {
@@ -957,9 +957,9 @@ impl FrameWriterDefault for COMM {
 }
 
 ///
-/// # Commercial frame
+/// Commercial frame
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct COMR {
@@ -1016,9 +1016,9 @@ impl FrameWriterDefault for COMR {
 }
 
 ///
-/// # Encryption method registration
+/// Encryption method registration
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct ENCR {
@@ -1050,33 +1050,34 @@ impl FrameWriterDefault for ENCR {
 }
 
 ///
-/// # Equalisation
+/// Equalisation
 ///
-/// > Not yet tested!
+///**Not yet tested!**
+///**Not yet implemented!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct EQUA {
-    pub adjustment_bit: u8,
+    pub data: Vec<u8>
 }
 
 impl FrameReaderDefault<EQUA> for EQUA {
     fn read(readable: &mut Readable) -> Result<EQUA> {
-        let adjustment_bit = readable.u8()?;
+        let data = readable.all_bytes()?;
 
-        Ok(EQUA { adjustment_bit: adjustment_bit })
+        Ok(EQUA { data: data })
     }
 }
 
 impl FrameWriterDefault for EQUA {
     fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(self.adjustment_bit)
+        writable.write(&self.data)
     }
 }
 
 ///
-/// # Equalisation (2)
+/// Equalisation (2)
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct EQU2 {
@@ -1104,7 +1105,7 @@ impl FrameWriterDefault for EQU2 {
 }
 
 ///
-/// # Event timing codes
+/// Event timing codes
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct ETCO {
@@ -1152,7 +1153,7 @@ impl FrameWriterDefault for ETCO {
 }
 
 ///
-/// # General encapsulated object
+/// General encapsulated object
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct GEOB {
@@ -1194,9 +1195,9 @@ impl FrameWriterDefault for GEOB {
 }
 
 ///
-/// # Group identification registration
+/// Group identification registration
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct GRID {
@@ -1228,7 +1229,7 @@ impl FrameWriterDefault for GRID {
 }
 
 ///
-/// # Involved people list
+/// Involved people list
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct IPLS {
@@ -1256,7 +1257,7 @@ impl FrameWriterDefault for IPLS {
 }
 
 ///
-/// # Linked information
+/// Linked information
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct LINK {
@@ -1296,7 +1297,7 @@ impl FrameWriterVersionAware<LINK> for LINK {
 }
 
 ///
-/// # Music CD identifier
+/// Music CD identifier
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct MCDI {
@@ -1343,9 +1344,9 @@ impl FrameWriterDefault for MLLT {
 }
 
 ///
-/// # Ownership frame
+/// Ownership frame
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct OWNE {
@@ -1382,9 +1383,9 @@ impl FrameWriterDefault for OWNE {
 }
 
 ///
-/// # Private frame
+/// Private frame
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct PRIV {
@@ -1412,9 +1413,9 @@ impl FrameWriterDefault for PRIV {
 }
 
 ///
-/// # Play counter
+/// Play counter
 ///
-/// > It support that only the 32-bit unsigned integer type.
+///**It support that only the 32-bit unsigned integer type**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct PCNT {
@@ -1436,10 +1437,10 @@ impl FrameWriterDefault for PCNT {
 }
 
 ///
-/// # Popularimeter
+/// Popularimeter
 ///
-/// > Not yet tested!
-/// > 'counter': support that only the 32-bit unsigned integer type
+///**Not yet tested!**
+///`counter`: support that only the 32-bit unsigned integer type
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct POPM {
@@ -1472,9 +1473,9 @@ impl FrameWriterDefault for POPM {
 }
 
 ///
-/// # Position synchronisation frame
+/// Position synchronisation frame
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct POSS {
@@ -1503,9 +1504,9 @@ impl FrameWriterDefault for POSS {
 }
 
 ///
-/// # Recommended buffer size
+/// Recommended buffer size
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct RBUF {
@@ -1537,10 +1538,10 @@ impl FrameWriterDefault for RBUF {
 }
 
 ///
-/// # Relative volume adjustment (2)
+/// Relative volume adjustment (2)
 ///
-/// > Not yet tested!
-/// > Not yet implemented!
+///**Not yet tested!**
+///**Not yet implemented!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct RVA2 {
@@ -1562,9 +1563,9 @@ impl FrameWriterDefault for RVA2 {
 }
 
 ///
-/// # Reverb
+/// Reverb
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct RVRB {
@@ -1625,9 +1626,9 @@ impl FrameWriterDefault for RVRB {
 
 
 ///
-/// # Seek frame
+/// Seek frame
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct SEEK {
@@ -1649,9 +1650,9 @@ impl FrameWriterDefault for SEEK {
 }
 
 ///
-/// # Signature frame
+/// Signature frame
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct SIGN {
@@ -1679,9 +1680,9 @@ impl FrameWriterDefault for SIGN {
 }
 
 ///
-/// # Synchronised lyric/text
+/// Synchronised lyric/text
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct SYLT {
@@ -1723,9 +1724,9 @@ impl FrameWriterDefault for SYLT {
 }
 
 ///
-/// # Synchronised tempo codes
+/// Synchronised tempo codes
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct SYTC {
@@ -1753,9 +1754,9 @@ impl FrameWriterDefault for SYTC {
 }
 
 ///
-/// #Unique file identifier
+/// Unique file identifier
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct UFID {
@@ -1783,9 +1784,9 @@ impl FrameWriterDefault for UFID {
 }
 
 ///
-/// # Terms of use
+/// Terms of use
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct USER {
@@ -1817,9 +1818,9 @@ impl FrameWriterDefault for USER {
 }
 
 ///
-/// # Unsynchronised lyric/text transcription
+/// Unsynchronised lyric/text transcription
 ///
-/// > Not yet tested!
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct USLT {
@@ -1857,7 +1858,7 @@ impl FrameWriterDefault for USLT {
 }
 
 ///
-/// # For all the T*** types
+/// For all the T??? types
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct TEXT {
@@ -1935,7 +1936,7 @@ impl FrameWriterDefault for TEXT {
 }
 
 ///
-/// # User defined text information frame
+/// User defined text information frame
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct TXXX {
@@ -1967,9 +1968,9 @@ impl FrameWriterDefault for TXXX {
 }
 
 ///
-/// # User defined URL link frame
+/// User defined URL link frame
 ///
-/// > Not yet tested
+///**Not yet tested!**
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct WXXX {
@@ -2001,9 +2002,7 @@ impl FrameWriterDefault for WXXX {
 }
 
 ///
-/// # Write anonymous bytes
-///
-/// It is used for 'Encyrypted frame' See ./tests/metadata.rs/metadata_encrypted
+/// Write anonymous bytes
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct OBJECT {
@@ -2017,13 +2016,12 @@ impl FrameWriterDefault for OBJECT {
 }
 
 ///
-/// # Frame types
+/// Frame types
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub enum FrameBody {
-    /// 2.2 only
     /// Recommended buffer size
-    BUF(BUF),
+    BUF(RBUF),
 
     /// 2.2 only
     /// Encrypted meta frame
@@ -2346,7 +2344,7 @@ pub enum FrameBody {
 ///
 /// ## V2.2 vs 2.3|2.4 mapping
 ///
-/// - BUF - ?
+/// - BUF - RBUF
 /// - CNT - PCNT
 /// - COM - COMM
 /// - CRA - AENC

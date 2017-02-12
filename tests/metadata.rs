@@ -154,7 +154,7 @@ fn metadata_header() {
 }
 
 #[test]
-fn metadata_frame_data() {
+fn metadata_frame_body() {
     let _ = env_logger::init();
 
     fn test(path: &str, mut data: Vec<&str>) {
@@ -456,13 +456,13 @@ fn metadata_compressed() {
 
         let mut readable = Cursor::new(frame_bytes).to_readable();
 
-        if let Unit::FrameV2(new_frame_header, new_frame_data) =
+        if let Unit::FrameV2(new_frame_header, new_frame_body) =
             MetadataReader::new(path)
                 .unwrap()
                 .frame3(&mut readable)
                 .unwrap() {
             assert_eq!(origin_head, new_frame_header);
-            assert_eq!(FrameBody::TIT2(origin_frame), new_frame_data);
+            assert_eq!(FrameBody::TIT2(origin_frame), new_frame_body);
         } else {
             assert!(false);
         }
@@ -489,13 +489,13 @@ fn metadata_compressed() {
 
         let mut readable = Cursor::new(frame_bytes).to_readable();
 
-        if let Unit::FrameV2(new_frame_header, new_frame_data) =
+        if let Unit::FrameV2(new_frame_header, new_frame_body) =
             MetadataReader::new(path)
                 .unwrap()
                 .frame4(&mut readable)
                 .unwrap() {
             assert_eq!(origin_frame_header, new_frame_header);
-            assert_eq!(FrameBody::TIT2(origin_frame), new_frame_data);
+            assert_eq!(FrameBody::TIT2(origin_frame), new_frame_body);
         } else {
             assert!(false);
         }
@@ -801,7 +801,7 @@ fn metadata_unsync() {
 
         MetadataWriter::new(path)
             .unwrap()
-            .write(meta_reader)
+            .write(meta_reader, false)
             .unwrap();
 
         let mut i = MetadataReader::new(path).unwrap().filter(|m| match m {
@@ -848,16 +848,16 @@ fn metadata_writer() {
     let new_data = MetadataReader::new(path)
         .unwrap()
         .fold(Vec::new(), |mut vec, unit| {
-            if let Unit::FrameV2(frame_head, frame_data) = unit {
-                let new_frame_data = if let FrameBody::TALB(ref frame) = frame_data {
+            if let Unit::FrameV2(frame_head, frame_body) = unit {
+                let new_frame_body = if let FrameBody::TALB(ref frame) = frame_body {
                     let mut new_frame = frame.clone();
                     new_frame.text = "Album!".to_string();
                     FrameBody::TALB(new_frame)
                 } else {
-                    frame_data.clone()
+                    frame_body.clone()
                 };
 
-                vec.push(Unit::FrameV2(frame_head, new_frame_data));
+                vec.push(Unit::FrameV2(frame_head, new_frame_body));
             } else {
                 vec.push(unit);
             }
@@ -866,7 +866,7 @@ fn metadata_writer() {
         });
 
     let writer = MetadataWriter::new(path).unwrap();
-    let _ = writer.write(new_data);
+    let _ = writer.write(new_data, false);
 
     let mut i = MetadataReader::new(path)
         .unwrap()
@@ -882,11 +882,37 @@ fn metadata_writer() {
 
     assert!(i.next().is_none());
 
+    let tmp_path = tmp_dir.path().join("220.mp3");
+    let path = tmp_path.to_str().unwrap();
+    fs::copy("./test-resources/v2.2.mp3", path).unwrap();
+
+    let frames2_2 = MetadataReader::new(path).unwrap().collect::<Vec<Unit>>();
+    let _ = MetadataWriter::new(path).unwrap().write(frames2_2, true);
+    let i = MetadataReader::new(path)
+        .unwrap()
+        .filter(|unit| match unit {
+            &Unit::FrameV2(FrameHeader::V22(_), _) => true,
+            _ => false,
+        });
+
+    assert_eq!(i.count(), 0);
+
+    let mut data = vec!["Test v2.2.0", "Pudge", "2", "(37)", "eng::All Rights Reserved"];
+
+    for unit in MetadataReader::new(path).unwrap() {
+        match unit {
+            Unit::FrameV2(FrameHeader::V24(_), frame_body) => compare_frame(frame_body, &mut data),
+            _ => (),
+        }
+    }
+
+    assert_eq!(data.len(), 0);
+
 }
 
-fn compare_frame(frame_data: FrameBody, data: &mut Vec<&str>) {
+fn compare_frame(frame_body: FrameBody, data: &mut Vec<&str>) {
     data.reverse();
-    match frame_data {
+    match frame_body {
         FrameBody::COMM(frame) => {
             assert_eq!(data.pop().unwrap(),
                        format!("{}:{}:{}",
@@ -971,9 +997,9 @@ fn compare_frame(frame_data: FrameBody, data: &mut Vec<&str>) {
 }
 
 fn compare_frame_bytes(readable: &mut Readable<Cursor<Vec<u8>>>,
-                       frame_data: FrameBody,
+                       frame_body: FrameBody,
                        data: &mut Vec<&str>) {
-    match frame_data {
+    match frame_body {
         FrameBody::COMM(_) => compare_frame(FrameBody::COMM(COMM::read(readable).unwrap()), data),
         FrameBody::PIC(_) => compare_frame(FrameBody::PIC(PIC::read(readable).unwrap()), data),
         FrameBody::APIC(_) => compare_frame(FrameBody::APIC(APIC::read(readable).unwrap()), data),

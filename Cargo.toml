@@ -2,15 +2,16 @@
 name = "rtag"
 version = "0.2.0"
 authors = ["Mark Han <freestrings@gmail.com>"]
-description = "Library for reading and writing a audio metadata"
+description = "Library for reading and writing a id3 metadata"
 repository = "https://github.com/freestrings/rtag"
 license = "MIT"
-keywords = ["library", "id3", "music", "flag", "mp3"]
+keywords = ["library", "id3", "music", "mp3"]
 
 [dependencies]
 log = "0.3"
 regex = "0.2"
 encoding = "0.2"
+lazy_static = "0.2"
 flate2 = { version = "0.2", features = ["zlib"], default-features = false }
 
 [dev-dependencies]

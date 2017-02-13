@@ -6,10 +6,12 @@ To learn rust!
 
 This is `ID3` read and write library.
 
-- Add dependency
-- Reding: How to read `ID3` information
-- Writing: How to write `ID3` information
-- Rewrite: How to rewrite all `ID3` information to version 4
+- [Add dependency](#add-dependency)
+- [Reding: How to read `ID3` information](#reding-how-to-read-id3-information)
+- [Writing: How to write `ID3` information](#writing-how-to-write-id3-information)
+- [Rewrite: How to rewrite all `ID3` information to version 4](#rewrite-how-to-rewrite-a-id3-information-to-version-4)
+
+other usecases [See tests](./tests/metadata.rs).
 
 ## Add dependency
 
@@ -28,7 +30,9 @@ extern crate rtag;
 ## Reding: How to read `ID3` information
 
 To read a `ID3` metadata, you use a [MetadataReader](./src/metadata.rs#L50) and a [Unit](./src/metadata.rs#L36) enum. 
-because the `MetadataReader` is implementing the [std::iter::Iterator](https://doc.rust-lang.org/std/iter/trait.Iterator.html) trait, 
+
+
+and the `MetadataReader` is implementing the [std::iter::Iterator](https://doc.rust-lang.org/std/iter/trait.Iterator.html) trait, 
 you can use [filter](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.filter), [map](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map), [fold](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.fold).. and so on.
 
 ### Example

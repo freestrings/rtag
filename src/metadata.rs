@@ -32,7 +32,7 @@ enum Status {
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Unit {
     Header(Head),
     // TODO not yet implemented

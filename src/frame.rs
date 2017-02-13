@@ -57,7 +57,7 @@ pub trait FlagAware<T> {
 /// - [V2.3](http://id3.org/id3v2.3.0#ID3v2_header)
 /// - [V2.4](http://id3.org/id3v2.4.0-structure) > 3.1. ID3v2 header
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Head {
     pub version: u8,
     pub minor_version: u8,
@@ -181,7 +181,7 @@ impl FrameWriterDefault for Head {
 ///
 /// [See](https://en.wikipedia.org/wiki/ID3#ID3v1)
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Frame1 {
     pub title: String,
     pub artist: String,
@@ -263,7 +263,7 @@ impl FrameWriterDefault for Frame1 {
 ///
 /// # Define Frame Header
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum FrameHeader {
     V22(FrameHeaderV2),
     V23(FrameHeaderV3),
@@ -275,7 +275,7 @@ pub enum FrameHeader {
 ///
 /// [See](http://id3.org/id3v2-00) > 3.2. ID3v2 frames overview
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FrameHeaderV2 {
     pub id: String,
     pub size: u32,
@@ -319,7 +319,7 @@ impl FrameWriterDefault for FrameHeaderV2 {
 ///
 /// [See](http://id3.org/id3v2.3.0#ID3v2_frame_overview)
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FrameHeaderV3 {
     pub id: String,
     pub size: u32,
@@ -410,7 +410,7 @@ impl FrameWriterDefault for FrameHeaderV3 {
 ///
 /// [See](http://id3.org/id3v2.4.0-structure) > 4. ID3v2 frames overview
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FrameHeaderV4 {
     pub id: String,
     pub size: u32,
@@ -507,7 +507,7 @@ impl FrameWriterDefault for FrameHeaderV4 {
 ///
 /// [See](http://id3.org/id3v2.4.0-structure) > 4. ID3v2 frame overview
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TextEncoding {
     ISO88591,
     UTF16LE,
@@ -522,7 +522,7 @@ pub enum TextEncoding {
 ///
 /// [See](http://id3.org/id3v2.3.0#Attached_picture)
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PictureType {
     Other,
     FileIcon,
@@ -554,7 +554,7 @@ pub enum PictureType {
 ///
 /// [See](http://id3.org/id3v2.3.0#Commercial_frame)
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ReceivedAs {
     Other,
     StandardCDAlbum,
@@ -574,7 +574,7 @@ pub enum ReceivedAs {
 ///
 /// [See](http://id3.org/id3v2.4.0-frames) > 4.12. Equalisation (2)
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum InterpolationMethod {
     Band,
     Linear,
@@ -587,7 +587,7 @@ pub enum InterpolationMethod {
 ///
 /// [See](http://id3.org/id3v2.4.0-frames) > 4.9. Synchronised lyrics/text
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ContentType {
     Other,
     Lyrics,
@@ -606,7 +606,7 @@ pub enum ContentType {
 /// See: ETCO, POSS, SYLT, SYTC
 ///
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TimestampFormat {
     MpecFrames,
     Milliseconds,
@@ -617,7 +617,7 @@ pub enum TimestampFormat {
 ///
 /// See: ETCO
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum EventTimingCode {
     Padding(u32),
     EndOfInitialSilence(u32),
@@ -658,7 +658,7 @@ pub enum EventTimingCode {
 /// - Unsynchronisation
 /// - DataLength
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum FrameHeaderFlag {
     TagAlter,
     FileAlter,
@@ -681,7 +681,7 @@ pub enum FrameHeaderFlag {
 /// ## V2.4 only flag
 /// - FooterPresent
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum HeadFlag {
     Unsynchronisation,
     Compression,
@@ -695,7 +695,7 @@ pub enum HeadFlag {
 ///
 /// > Not yet tested!
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BUF {
     pub buffer_size: u32,
     pub embedded_info_flag: u8,
@@ -729,7 +729,7 @@ impl FrameWriterDefault for BUF {
 ///
 /// > Not yet tested!
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CRM {
     pub owner_identifier: String,
     pub content: String,
@@ -761,7 +761,7 @@ impl FrameWriterDefault for CRM {
 ///
 /// # Attached picture
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PIC {
     pub text_encoding: TextEncoding,
     pub image_format: String,
@@ -801,7 +801,7 @@ impl FrameWriterDefault for PIC {
 ///
 /// Audio encryption
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AENC {
     pub owner_identifier: String,
     pub preview_start: u16,
@@ -839,7 +839,7 @@ impl FrameWriterDefault for AENC {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct APIC {
     pub text_encoding: TextEncoding,
     pub mime_type: String,
@@ -881,7 +881,7 @@ impl FrameWriterDefault for APIC {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ASPI {
     pub indexed_data_start: u32,
     pub indexed_data_length: u32,
@@ -921,7 +921,7 @@ impl FrameWriterDefault for ASPI {
 ///
 /// Comments
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct COMM {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -961,7 +961,7 @@ impl FrameWriterDefault for COMM {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct COMR {
     pub text_encoding: TextEncoding,
     pub price_string: String,
@@ -1020,7 +1020,7 @@ impl FrameWriterDefault for COMR {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ENCR {
     pub owner_identifier: String,
     pub method_symbol: u8,
@@ -1055,9 +1055,9 @@ impl FrameWriterDefault for ENCR {
 ///**Not yet tested!**
 ///**Not yet implemented!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EQUA {
-    pub data: Vec<u8>
+    pub data: Vec<u8>,
 }
 
 impl FrameReaderDefault<EQUA> for EQUA {
@@ -1079,7 +1079,7 @@ impl FrameWriterDefault for EQUA {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EQU2 {
     pub interpolation_method: InterpolationMethod,
     pub identification: String,
@@ -1107,7 +1107,7 @@ impl FrameWriterDefault for EQU2 {
 ///
 /// Event timing codes
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ETCO {
     pub timestamp_format: TimestampFormat,
     pub event_timing_codes: Vec<EventTimingCode>,
@@ -1155,7 +1155,7 @@ impl FrameWriterDefault for ETCO {
 ///
 /// General encapsulated object
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GEOB {
     pub text_encoding: TextEncoding,
     pub mime_type: String,
@@ -1199,7 +1199,7 @@ impl FrameWriterDefault for GEOB {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GRID {
     pub owner_identifier: String,
     pub group_symbol: u8,
@@ -1231,7 +1231,7 @@ impl FrameWriterDefault for GRID {
 ///
 /// Involved people list
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IPLS {
     pub text_encoding: TextEncoding,
     pub people_list_strings: String,
@@ -1259,7 +1259,7 @@ impl FrameWriterDefault for IPLS {
 ///
 /// Linked information
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LINK {
     pub frame_identifier: String,
     pub url: String,
@@ -1299,7 +1299,7 @@ impl FrameWriterVersionAware<LINK> for LINK {
 ///
 /// Music CD identifier
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MCDI {
     pub cd_toc: Vec<u8>,
 }
@@ -1324,7 +1324,7 @@ impl FrameWriterDefault for MCDI {
 /// > Not yet tested!
 /// > Not yet implemented!
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MLLT {
     pub data: Vec<u8>,
 }
@@ -1348,7 +1348,7 @@ impl FrameWriterDefault for MLLT {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OWNE {
     pub text_encoding: TextEncoding,
     pub price_paid: String,
@@ -1387,7 +1387,7 @@ impl FrameWriterDefault for OWNE {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PRIV {
     pub owner_identifier: String,
     pub private_data: Vec<u8>,
@@ -1417,7 +1417,7 @@ impl FrameWriterDefault for PRIV {
 ///
 ///**It support that only the 32-bit unsigned integer type**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PCNT {
     pub counter: u32,
 }
@@ -1442,7 +1442,7 @@ impl FrameWriterDefault for PCNT {
 ///**Not yet tested!**
 ///`counter`: support that only the 32-bit unsigned integer type
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct POPM {
     pub email_to_user: String,
     pub rating: u8,
@@ -1477,7 +1477,7 @@ impl FrameWriterDefault for POPM {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct POSS {
     pub timestamp_format: TimestampFormat,
     // TODO not yet implemented!
@@ -1508,7 +1508,7 @@ impl FrameWriterDefault for POSS {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RBUF {
     pub buffer_size: u32,
     pub embedded_info_flag: u8,
@@ -1543,7 +1543,7 @@ impl FrameWriterDefault for RBUF {
 ///**Not yet tested!**
 ///**Not yet implemented!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RVA2 {
     pub data: Vec<u8>,
 }
@@ -1567,7 +1567,7 @@ impl FrameWriterDefault for RVA2 {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RVRB {
     pub reverb_left: u16,
     pub reverb_right: u16,
@@ -1630,7 +1630,7 @@ impl FrameWriterDefault for RVRB {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SEEK {
     pub next_tag: String,
 }
@@ -1654,7 +1654,7 @@ impl FrameWriterDefault for SEEK {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SIGN {
     pub group_symbol: u8,
     pub signature: Vec<u8>,
@@ -1684,7 +1684,7 @@ impl FrameWriterDefault for SIGN {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SYLT {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -1728,7 +1728,7 @@ impl FrameWriterDefault for SYLT {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SYTC {
     pub timestamp_format: TimestampFormat,
     pub tempo_data: Vec<u8>,
@@ -1758,7 +1758,7 @@ impl FrameWriterDefault for SYTC {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UFID {
     pub owner_identifier: String,
     pub identifier: Vec<u8>,
@@ -1788,7 +1788,7 @@ impl FrameWriterDefault for UFID {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct USER {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -1822,7 +1822,7 @@ impl FrameWriterDefault for USER {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct USLT {
     pub text_encoding: TextEncoding,
     pub language: String,
@@ -1860,7 +1860,7 @@ impl FrameWriterDefault for USLT {
 ///
 /// For all the T??? types
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TEXT {
     pub text_encoding: TextEncoding,
     pub text: String,
@@ -1938,7 +1938,7 @@ impl FrameWriterDefault for TEXT {
 ///
 /// User defined text information frame
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TXXX {
     pub text_encoding: TextEncoding,
     pub description: String,
@@ -1972,7 +1972,7 @@ impl FrameWriterDefault for TXXX {
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WXXX {
     pub text_encoding: TextEncoding,
     pub description: String,
@@ -2004,7 +2004,7 @@ impl FrameWriterDefault for WXXX {
 ///
 /// Write anonymous bytes
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OBJECT {
     pub data: Vec<u8>,
 }
@@ -2018,7 +2018,7 @@ impl FrameWriterDefault for OBJECT {
 ///
 /// Frame types
 ///
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum FrameBody {
     /// Recommended buffer size
     BUF(RBUF),

@@ -1,6 +1,6 @@
 [package]
 name = "rtag"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Changseok Han <freestrings@gmail.com>"]
 description = "Library for reading and writing a id3 metadata"
 repository = "https://github.com/freestrings/rtag"
@@ -8,11 +8,14 @@ license = "MIT"
 keywords = ["library", "id3", "music", "mp3"]
 
 [dependencies]
+encoding = "0.2"
+flate2 = { version = "0.2", features = ["zlib"], default-features = false }
+lazy_static = "0.2"
 log = "0.3"
 regex = "0.2"
-encoding = "0.2"
-lazy_static = "0.2"
-flate2 = { version = "0.2", features = ["zlib"], default-features = false }
+serde = "0.9"
+serde_derive = "0.9"
+serde_json = "0.9"
 
 [dev-dependencies]
 env_logger = "0.3"

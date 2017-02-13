@@ -910,6 +910,52 @@ fn metadata_writer() {
 
 }
 
+#[test]
+fn json_test() {
+    extern crate serde_json;
+    
+    let iter = MetadataReader::new("./test-resources/v2.3-unsync.mp3")
+        .unwrap()
+        .filter(|unit| match unit {
+            &Unit::FrameV2(_, _) => true,
+            _ => false,
+        });
+
+    let mut data = vec!["{\"FrameV2\":[{\"V23\":{\"id\":\"COMM\",\"size\":36,\"status_flag\":0,\
+                         \"encoding_flag\":0}},{\"COMM\":{\"text_encoding\":\"ISO88591\",\
+                         \"language\":\"ENG\",\"short_description\":\"Comment\",\"actual_text\":\
+                         \"http://www.mp3sugar.com/\"}}]}",
+                        "{\"FrameV2\":[{\"V23\":{\"id\":\"TPE2\",\"size\":47,\"status_flag\":0,\
+                         \"encoding_flag\":0}},{\"TPE2\":{\"text_encoding\":\"UTF16LE\",\"text\":\
+                         \"Carbon Based Lifeforms\"}}]}",
+                        "{\"FrameV2\":[{\"V23\":{\"id\":\"TPE1\",\"size\":23,\"status_flag\":0,\
+                         \"encoding_flag\":0}},{\"TPE1\":{\"text_encoding\":\"ISO88591\",\
+                         \"text\":\"Carbon Based Lifeforms\"}}]}",
+                        "{\"FrameV2\":[{\"V23\":{\"id\":\"TALB\",\"size\":18,\"status_flag\":0,\
+                         \"encoding_flag\":0}},{\"TALB\":{\"text_encoding\":\"ISO88591\",\
+                         \"text\":\"Hydroponic Garden\"}}]}",
+                        "{\"FrameV2\":[{\"V23\":{\"id\":\"TIT2\",\"size\":15,\"status_flag\":0,\
+                         \"encoding_flag\":0}},{\"TIT2\":{\"text_encoding\":\"ISO88591\",\
+                         \"text\":\"Silent Running\"}}]}",
+                        "{\"FrameV2\":[{\"V23\":{\"id\":\"TRCK\",\"size\":2,\"status_flag\":0,\
+                         \"encoding_flag\":0}},{\"TRCK\":{\"text_encoding\":\"ISO88591\",\
+                         \"text\":\"4\"}}]}",
+                        "{\"FrameV2\":[{\"V23\":{\"id\":\"TYER\",\"size\":5,\"status_flag\":0,\
+                         \"encoding_flag\":0}},{\"TYER\":{\"text_encoding\":\"ISO88591\",\
+                         \"text\":\"2003\"}}]}",
+                        "{\"FrameV2\":[{\"V23\":{\"id\":\"TCON\",\"size\":5,\"status_flag\":0,\
+                         \"encoding_flag\":0}},{\"TCON\":{\"text_encoding\":\"ISO88591\",\
+                         \"text\":\"(26)\"}}]}"];
+
+    data.reverse();
+                         
+    for m in iter {
+        let j = serde_json::to_string(&m).unwrap();
+        assert_eq!(j, data.pop().unwrap());
+    }
+    assert_eq!(0, data.len());
+}
+
 fn compare_frame(frame_body: FrameBody, data: &mut Vec<&str>) {
     data.reverse();
     match frame_body {

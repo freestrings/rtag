@@ -459,6 +459,11 @@ pub trait FlagAware<T> {
     fn set_flag(&mut self, flag: T);
 }
 
+pub trait FrameHeaderDefault {
+    fn id(&self) -> String;
+    fn size(&self) -> u32;
+}
+
 pub trait Look {
     fn to_map(&self) -> Result<HashMap<&str, String>>;
     fn inside<T>(&self, callback: T) where T: Fn(&str, String) -> bool;
@@ -866,6 +871,24 @@ pub enum FrameHeader {
     V22(FrameHeaderV2),
     V23(FrameHeaderV3),
     V24(FrameHeaderV4),
+}
+
+impl FrameHeaderDefault for FrameHeader {
+    fn id(&self) -> String {
+        match self {
+            &FrameHeader::V22(ref header) => header.id.to_string(),
+            &FrameHeader::V23(ref header) => header.id.to_string(),
+            &FrameHeader::V24(ref header) => header.id.to_string(),
+        }
+    }
+
+    fn size(&self) -> u32 {
+        match self {
+            &FrameHeader::V22(ref header) => header.size,
+            &FrameHeader::V23(ref header) => header.size,
+            &FrameHeader::V24(ref header) => header.size,
+        }
+    }
 }
 
 impl FlagAware<FrameHeaderFlag> for FrameHeader {

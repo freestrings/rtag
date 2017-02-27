@@ -1075,6 +1075,17 @@ fn frame_scan_test() {
     });
 }
 
+#[test]
+fn frame_header_default() {
+    let header = FrameHeader::V22(FrameHeaderV2 {
+        id: "ABC".to_string(),
+        size: 1
+    });
+
+    assert_eq!("ABC".to_string(), header.id());
+    assert_eq!(1, header.size());
+}
+
 macro_rules! define_compare_frame {
     (
         $( $id:ident ),*

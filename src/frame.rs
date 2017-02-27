@@ -37,6 +37,29 @@ macro_rules! real_type {
     (ContentType) => { ContentType };
 }
 
+macro_rules! convert_to_string {
+    (String, $value:expr) => { $value };
+    (VersionString, $value:expr) => { $value };
+    (EncodedString, $value:expr) => { $value };
+    (NonUtf16String, $value:expr) => { $value };
+    (Utf16String, $value:expr) => { $value };
+
+    (Unsigned8, $value:expr) => { $value.to_string() };
+    (Unsigned16, $value:expr) => { $value.to_string() };
+    (Unsigned24, $value:expr) => { $value.to_string() };
+    (Unsigned32, $value:expr) => { $value.to_string() };
+    (Synchsafe, $value:expr) => { $value.to_string() };
+
+    (Bytes, $value:expr) => { String::new() };
+
+    (TextEncoding, $value:expr) => { format!("{:?}", $value) };
+    (PictureType, $value:expr) => { format!("{:?}", $value) };
+    (ReceivedAs, $value:expr) => { format!("{:?}", $value) };
+    (InterpolationMethod, $value:expr) => { format!("{:?}", $value) };
+    (TimestampFormat, $value:expr) => { format!("{:?}", $value) };
+    (ContentType, $value:expr) => { format!("{:?}", $value) };
+}
+
 //
 // It read a frame bytes by logical type.
 //
@@ -384,13 +407,40 @@ macro_rules! id3 {
 
             pub fn write(&self, writable: &mut Writable, version: u8) -> Result<()> {
 
-                $( 
-                    let _ = $value;
+                $(
                     frame_write!($attr_type, self, $attr_name, $value, writable, version) 
                 );*
 
                 ;
                 Ok(())
+            }
+        }
+
+        impl Look for $name {
+            fn to_map(&self) -> Result<HashMap<&str, String>> {
+
+                let mut map = HashMap::new();
+
+                $(
+                    let key = stringify!($attr_name);
+                    let value = convert_to_string!($attr_type, &self.$attr_name);
+                    map.insert(key, value.to_string());
+                );*
+
+                ;
+                Ok(map)
+            }
+
+            fn inside<T>(&self, callback: T) where T: Fn(&str, String) -> bool {
+
+                $(
+                    let key = stringify!($attr_name);
+                    let value = convert_to_string!($attr_type, &self.$attr_name);
+
+                    if callback(key, value.to_string()) == false {
+                        return;
+                    }
+                );*
             }
         }
     );
@@ -402,6 +452,16 @@ macro_rules! id3 {
     ) => (
         id3!( $name { $( $attr_name : $attr_type = $value ),+ } );
     );
+}
+
+pub trait FlagAware<T> {
+    fn has_flag(&self, flag: T) -> bool;
+    fn set_flag(&mut self, flag: T);
+}
+
+pub trait Look {
+    fn to_map(&self) -> Result<HashMap<&str, String>>;
+    fn inside<T>(&self, callback: T) where T: Fn(&str, String) -> bool;
 }
 
 ///
@@ -1191,6 +1251,184 @@ id3!(WXXX {
 ///
 id3!(OBJECT { data: Bytes = 0 });
 
+///
+/// Event timing codes
+///
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ETCO {
+    pub timestamp_format: TimestampFormat,
+    pub event_timing_codes: Vec<EventTimingCode>,
+}
+
+impl ETCO {
+    pub fn read(readable: &mut Readable, version: u8, id: &str) -> Result<ETCO> {
+        let _ = version;
+        let _ = id;
+        let timestamp_format = types::to_timestamp_format(readable.read_u8()?);
+        let mut event_timing_codes: Vec<EventTimingCode> = Vec::new();
+
+        loop {
+            let mut is_break = true;
+
+            if let Ok(code_type) = readable.read_u8() {
+                if let Ok(timestamp) = readable.read_u32() {
+                    let event_timing_code = types::to_event_timing_code(code_type, timestamp);
+                    event_timing_codes.push(event_timing_code);
+                    is_break = false;
+                }
+            }
+
+            if is_break {
+                break;
+            }
+        }
+
+        Ok(ETCO {
+            timestamp_format: timestamp_format,
+            event_timing_codes: event_timing_codes,
+        })
+    }
+
+    pub fn write(&self, writable: &mut Writable, version: u8) -> Result<()> {
+        let _ = version;
+
+        writable.write_u8(types::from_timestamp_format(&self.timestamp_format))?;
+        for e in &self.event_timing_codes {
+            let (code, timestamp) = types::from_event_timing_code(&e);
+            writable.write_u8(code)?;
+            writable.write_u32(timestamp)?;
+        }
+
+        Ok((()))
+    }
+}
+
+impl Look for ETCO {
+    fn to_map(&self) -> Result<HashMap<&str, String>> {
+        let mut map = HashMap::new();
+
+        map.insert("timestamp_format", format!("{:?}", self.timestamp_format));
+        map.insert("event_timing_codes", String::new());
+
+        Ok(map)
+    }
+
+    fn inside<T>(&self, callback: T) where T: Fn(&str, String) -> bool {
+        if callback("timestamp_format", format!("{:?}", self.timestamp_format)) == false {
+            return;
+        }
+
+        callback("event_timing_codes", String::new());
+    }
+}
+
+///
+/// For all the T??? types
+///
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TEXT {
+    pub text_encoding: TextEncoding,
+    pub text: String,
+}
+
+impl TEXT {
+    pub fn read(readable: &mut Readable, version: u8, id: &str) -> Result<TEXT> {
+        fn _default(id: &str,
+                    decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>)
+                    -> String {
+            match decode {
+                Ok(text) => text,
+                Err(e) => {
+                    debug!("TEXT Error {}, {:?}", id, e);
+                    if id == id::TBPM || id == id::TBP {
+                        "0".to_string()
+                    } else {
+                        "".to_string()
+                    }
+                }
+            }
+        }
+
+        // trim bom character
+        fn trim(text: String) -> String {
+            let re =
+                regex::Regex::new(r"(^[\x{0}|\x{feff}|\x{fffe}]*|[\x{0}|\x{feff}|\x{fffe}]*$)")
+                    .unwrap();
+            let text = text.trim();
+            re.replace_all(text, "").into_owned()
+        }
+
+        let _ = version;
+        let text_encoding = types::to_encoding(readable.read_u8()?);
+        let data = readable.all_bytes()?;
+        let text = match text_encoding {
+            TextEncoding::ISO88591 => _default(id, ISO_8859_1.decode(&data, DecoderTrap::Strict)),
+            TextEncoding::UTF16LE => _default(id, UTF_16LE.decode(&data, DecoderTrap::Strict)),
+            TextEncoding::UTF16BE => _default(id, UTF_16BE.decode(&data, DecoderTrap::Strict)),
+            TextEncoding::UTF8 => _default(id, UTF_8.decode(&data, DecoderTrap::Strict)),
+        };
+
+        Ok(TEXT {
+            text_encoding: text_encoding,
+            text: trim(text),
+        })
+    }
+
+    pub fn write(&self, writable: &mut Writable, version: u8) -> Result<()> {
+        let _ = version;
+
+        writable.write_u8(types::from_encoding(&self.text_encoding))?;
+        let text = match match self.text_encoding {
+            TextEncoding::ISO88591 => ISO_8859_1.encode(self.text.as_str(), EncoderTrap::Strict),
+            TextEncoding::UTF16LE => UTF_16LE.encode(self.text.as_str(), EncoderTrap::Strict),
+            TextEncoding::UTF16BE => UTF_16BE.encode(self.text.as_str(), EncoderTrap::Strict),
+            TextEncoding::UTF8 => UTF_8.encode(self.text.as_str(), EncoderTrap::Strict),
+        } {
+            Ok(text) => text,
+            Err(msg) => return Err(Error::new(ErrorKind::InvalidInput, msg.to_owned().to_string())),
+        };
+
+        match self.text_encoding {
+            TextEncoding::UTF16LE => {
+                writable.write_u8(0xff)?;
+                writable.write_u8(0xfe)?;
+            }
+            _ => (),
+        }
+
+        writable.write(&text)?;
+
+        match self.text_encoding {
+            TextEncoding::UTF16BE => {
+                writable.write_u8(0xfe)?;
+                writable.write_u8(0xff)?;
+            }
+            _ => (),
+        }
+
+        Ok(())
+    }
+}
+
+impl Look for TEXT {
+    fn to_map(&self) -> Result<HashMap<&str, String>> {
+        let mut map = HashMap::new();
+
+        map.insert("text_encoding", format!("{:?}", self.text_encoding));
+        map.insert("text", self.text.clone());
+
+        Ok(map)
+    }
+
+    fn inside<T>(&self, callback: T) where T: Fn(&str, String) -> bool {
+        if callback("text_encoding", format!("{:?}", self.text_encoding)) == false {
+            return;
+        }
+
+        callback("text", String::new());
+    }
+}
+
 pub mod types {
     pub const BIT7: u8 = 0x80;
     pub const BIT6: u8 = 0x40;
@@ -1654,151 +1892,6 @@ pub mod types {
 
 }
 
-pub trait FlagAware<T> {
-    fn has_flag(&self, flag: T) -> bool;
-    fn set_flag(&mut self, flag: T);
-}
-
-///
-/// Event timing codes
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ETCO {
-    pub timestamp_format: TimestampFormat,
-    pub event_timing_codes: Vec<EventTimingCode>,
-}
-
-impl ETCO {
-    pub fn read(readable: &mut Readable, version: u8, id: &str) -> Result<ETCO> {
-        let _ = version;
-        let _ = id;
-        let timestamp_format = types::to_timestamp_format(readable.read_u8()?);
-        let mut event_timing_codes: Vec<EventTimingCode> = Vec::new();
-
-        loop {
-            let mut is_break = true;
-
-            if let Ok(code_type) = readable.read_u8() {
-                if let Ok(timestamp) = readable.read_u32() {
-                    let event_timing_code = types::to_event_timing_code(code_type, timestamp);
-                    event_timing_codes.push(event_timing_code);
-                    is_break = false;
-                }
-            }
-
-            if is_break {
-                break;
-            }
-        }
-
-        Ok(ETCO {
-            timestamp_format: timestamp_format,
-            event_timing_codes: event_timing_codes,
-        })
-    }
-
-    pub fn write(&self, writable: &mut Writable, version: u8) -> Result<()> {
-        let _ = version;
-
-        writable.write_u8(types::from_timestamp_format(&self.timestamp_format))?;
-        for e in &self.event_timing_codes {
-            let (code, timestamp) = types::from_event_timing_code(&e);
-            writable.write_u8(code)?;
-            writable.write_u32(timestamp)?;
-        }
-
-        Ok((()))
-    }
-}
-
-///
-/// For all the T??? types
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct TEXT {
-    pub text_encoding: TextEncoding,
-    pub text: String,
-}
-
-impl TEXT {
-    pub fn read(readable: &mut Readable, version: u8, id: &str) -> Result<TEXT> {
-        fn _default(id: &str,
-                    decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>)
-                    -> String {
-            match decode {
-                Ok(text) => text,
-                Err(e) => {
-                    debug!("TEXT Error {}, {:?}", id, e);
-                    if id == id::TBPM || id == id::TBP {
-                        "0".to_string()
-                    } else {
-                        "".to_string()
-                    }
-                }
-            }
-        }
-
-        // trim bom character
-        fn trim(text: String) -> String {
-            let re =
-                regex::Regex::new(r"(^[\x{0}|\x{feff}|\x{fffe}]*|[\x{0}|\x{feff}|\x{fffe}]*$)")
-                    .unwrap();
-            let text = text.trim();
-            re.replace_all(text, "").into_owned()
-        }
-
-        let _ = version;
-        let text_encoding = types::to_encoding(readable.read_u8()?);
-        let data = readable.all_bytes()?;
-        let text = match text_encoding {
-            TextEncoding::ISO88591 => _default(id, ISO_8859_1.decode(&data, DecoderTrap::Strict)),
-            TextEncoding::UTF16LE => _default(id, UTF_16LE.decode(&data, DecoderTrap::Strict)),
-            TextEncoding::UTF16BE => _default(id, UTF_16BE.decode(&data, DecoderTrap::Strict)),
-            TextEncoding::UTF8 => _default(id, UTF_8.decode(&data, DecoderTrap::Strict)),
-        };
-
-        Ok(TEXT {
-            text_encoding: text_encoding,
-            text: trim(text),
-        })
-    }
-
-    pub fn write(&self, writable: &mut Writable, version: u8) -> Result<()> {
-        let _ = version;
-
-        writable.write_u8(types::from_encoding(&self.text_encoding))?;
-        let text = match match self.text_encoding {
-            TextEncoding::ISO88591 => ISO_8859_1.encode(self.text.as_str(), EncoderTrap::Strict),
-            TextEncoding::UTF16LE => UTF_16LE.encode(self.text.as_str(), EncoderTrap::Strict),
-            TextEncoding::UTF16BE => UTF_16BE.encode(self.text.as_str(), EncoderTrap::Strict),
-            TextEncoding::UTF8 => UTF_8.encode(self.text.as_str(), EncoderTrap::Strict),
-        } {
-            Ok(text) => text,
-            Err(msg) => return Err(Error::new(ErrorKind::InvalidInput, msg.to_owned().to_string())),
-        };
-
-        match self.text_encoding {
-            TextEncoding::UTF16LE => {
-                writable.write_u8(0xff)?;
-                writable.write_u8(0xfe)?;
-            }
-            _ => (),
-        }
-
-        writable.write(&text)?;
-
-        match self.text_encoding {
-            TextEncoding::UTF16BE => {
-                writable.write_u8(0xfe)?;
-                writable.write_u8(0xff)?;
-            }
-            _ => (),
-        }
-
-        Ok(())
-    }
-}
-
 macro_rules! define_id_str {
     (
         $( $id:ident ),*
@@ -1912,6 +2005,28 @@ macro_rules! define_framebody {
 
             /// Invalid frame
             INVALID(String)
+        }
+
+        impl Look for FrameBody {
+            fn to_map(&self) -> Result<HashMap<&str, String>> {
+                match self {
+                    $(
+                        &FrameBody::$id(ref frame) => frame.to_map()
+                    ),*
+                    ,
+                    _ => Ok(HashMap::new())
+                }
+            }
+
+            fn inside<T>(&self, callback: T) where T: Fn(&str, String) -> bool {
+                match self {
+                    $(
+                        &FrameBody::$id(ref frame) => frame.inside(callback)
+                    ),*
+                    ,
+                    _ => {}
+                }
+            }
         }
 
         pub fn framebody_as_bytes(frame_body: &FrameBody, version: u8) -> Result<(&str, Vec<u8>)> {

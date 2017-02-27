@@ -7,6 +7,7 @@ extern crate rtag;
 
 use tempdir::TempDir;
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
 use std::vec::Vec;
@@ -1018,6 +1019,62 @@ fn json_test() {
     assert_eq!(0, data.len());
 }
 
+#[test]
+fn frame_to_map_test() {
+
+    let frame = ENCR {
+        owner_identifier: "owner_identifier".to_string(),
+        method_symbol: 1,
+        encryption_data: vec![1, 2, 3],
+    };
+
+    let mut map = HashMap::new();
+    map.insert("owner_identifier", "owner_identifier".to_string());
+    map.insert("method_symbol", "1".to_string());
+    map.insert("encryption_data", "".to_string());
+
+    assert_eq!(frame.to_map().unwrap(), map);
+
+    let frame_body = FrameBody::TIT2(TEXT {
+        text_encoding: TextEncoding::ISO88591,
+        text: "text".to_string()
+    });
+
+    let mut map = HashMap::new();
+    map.insert("text_encoding", "ISO88591".to_string());
+    map.insert("text", "text".to_string());
+
+    assert_eq!(frame_body.to_map().unwrap(), map);
+}
+
+#[test]
+fn frame_scan_test() {
+    let frame = ENCR {
+        owner_identifier: "owner_identifier".to_string(),
+        method_symbol: 1,
+        encryption_data: vec![1, 2, 3],
+    };
+
+    frame.inside(|key, value| {
+        assert_eq!(key, "owner_identifier");
+        assert_eq!(value, "owner_identifier".to_string());
+
+        false
+    });
+
+    let frame_body = FrameBody::TIT2(TEXT {
+        text_encoding: TextEncoding::ISO88591,
+        text: "text".to_string()
+    });
+
+    frame_body.inside(|key, value| {
+        assert_eq!(key, "text_encoding");
+        assert_eq!(value, "ISO88591".to_string());
+
+        false
+    });
+}
+
 macro_rules! define_compare_frame {
     (
         $( $id:ident ),*
@@ -1103,10 +1160,10 @@ macro_rules! define_compare_frame {
 }
 
 define_compare_frame!(
-    TALB, TBPM, TCOM, TCON, TCOP, TDAT, TDEN, TDLY, TDOR,
-    TDRC, TDRL, TDTG, TENC, TEXT, TIME, TFLT, TIPL, TIT1,
-    TIT2, TIT3, TKEY, TLAN, TLEN, TMCL, TMED, TMOO, TOAL,
-    TOFN, TOLY, TOPE, TORY, TOWN, TPE1, TPE2, TPE3, TPE4,
-    TPOS, TPRO, TPUB, TRCK, TRDA, TRSN, TSIZ, TRSO, TSOA,
-    TSOP, TSOT, TSRC, TSSE, TYER, TSST
+    TALB, TBPM, TCOM, TCON, TCOP, TDAT, TDEN, TDLY, TDOR, TDRC,
+    TDRL, TDTG, TENC, TEXT, TIME, TFLT, TIPL, TIT1, TIT2, TIT3,
+    TKEY, TLAN, TLEN, TMCL, TMED, TMOO, TOAL, TOFN, TOLY, TOPE,
+    TORY, TOWN, TPE1, TPE2, TPE3, TPE4, TPOS, TPRO, TPUB, TRCK,
+    TRDA, TRSN, TSIZ, TRSO, TSOA, TSOP, TSOT, TSRC, TSSE, TYER,
+    TSST
 );

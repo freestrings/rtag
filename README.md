@@ -10,6 +10,7 @@ This is `ID3` read and write library.
 - [Reding: How to read `ID3` information](#reding-how-to-read-id3-information)
 - [Writing: How to write `ID3` information](#writing-how-to-write-id3-information)
 - [Rewrite: How to rewrite all `ID3` information to version 4](#rewrite-how-to-rewrite-a-id3-information-to-version-4)
+- [Getting information of a frame body without property name.](#getting-information-of-a-frame-body-without-property-name)
 
 other usecases [See tests](./tests/metadata.rs).
 
@@ -19,7 +20,7 @@ This can be used by adding `rtag` to your dependencies in your project's `Cargo.
 
 ```toml
 [dependencies]
-rtag = "0.2.2"
+rtag = "0.3"
 ```
 and this to your crate root:
 
@@ -120,6 +121,38 @@ for unit in MetadataReader::new(path).unwrap() {
     match unit {
         Unit::FrameV2(FrameHeader::V24(head), frame_body) => {
             ...
+        },
+        _ => (),
+    }
+}
+```
+
+## Getting information of a frame body without property name.
+
+To read value of frame without property name, FrameBody support `to_map` and `inside`.
+
+### Example
+
+```rust
+for unit in MetadataReader::new(path).unwrap() {
+    match unit {
+        Unit::FrameV2(_, ref frame_body) => {
+            
+            // 1. using to_map();
+            let map = frame_body.to_map();
+            //{
+            //    <key1:&str>: <value1:String>
+            //    ...
+            //}
+
+            // 2. using inside
+            frame_body.inside(|key, value| {
+                // key<&str>, value<String>
+                ...
+
+                true // if true, look inside next.
+            })
+
         },
         _ => (),
     }

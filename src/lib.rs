@@ -5,7 +5,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rtag = "0.2.2"
+//! rtag = "0.3"
 //! ```
 //!
 //! and this to your crate root:
@@ -124,6 +124,30 @@
 //!
 //! assert_eq!(i.count(), 5);
 //! let _ = fs::remove_file(path).unwrap();
+//!```
+//! 
+//! # Example: Looking into frame without property name of frame.
+//! 
+//!```rust
+//!use rtag::frame::*;
+//!use rtag::metadata::{Unit, MetadataReader};
+//!
+//!for m in MetadataReader::new("./test-resources/240.mp3").unwrap() {
+//!    match m {
+//!        Unit::FrameV2(_, ref frame) => {
+//!
+//!            let _ = frame.to_map(); // frame to map
+//!
+//!            frame.inside(|key, value| {
+//!                println!("{}: {}", key, value);
+//!                
+//!                true // continue or not
+//!            });
+//!        },
+//!        _ => {}
+//!    }
+//!}
+//!
 //!```
 #[macro_use]
 extern crate log;

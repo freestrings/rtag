@@ -10,7 +10,6 @@ keywords = ["library", "id3", "music", "mp3"]
 [dependencies]
 encoding = "0.2"
 flate2 = { version = "0.2", features = ["zlib"], default-features = false }
-lazy_static = "0.2"
 log = "0.3"
 regex = "0.2"
 serde = "0.9"

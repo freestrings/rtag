@@ -5,7 +5,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rtag = "0.2"
+//! rtag = "0.2.2"
 //! ```
 //!
 //! and this to your crate root:
@@ -103,7 +103,7 @@
 //!
 //! let path = "./test-resources/v2.2.test.mp3";
 //! fs::copy("./test-resources/v2.2.mp3", path).unwrap();
-//! 
+//!
 //! let frames2_2 = MetadataReader::new(path).unwrap().collect::<Vec<Unit>>();
 //! let _ = MetadataWriter::new(path).unwrap().write(frames2_2, true);
 //! let i = MetadataReader::new(path)
@@ -112,30 +112,25 @@
 //!         &Unit::FrameV2(FrameHeader::V22(_), _) => true,
 //!         _ => false,
 //!     });
-//! 
+//!
 //! assert_eq!(i.count(), 0);
-//! 
+//!
 //! let i = MetadataReader::new(path)
 //!     .unwrap()
 //!     .filter(|unit| match unit {
 //!         &Unit::FrameV2(FrameHeader::V24(_), _) => true,
 //!         _ => false,
 //!     });
-//! 
+//!
 //! assert_eq!(i.count(), 5);
 //! let _ = fs::remove_file(path).unwrap();
 //!```
 #[macro_use]
 extern crate log;
 #[macro_use]
-extern crate lazy_static;
-#[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
 
-pub mod errors;
+pub mod rw;
 pub mod frame;
 pub mod metadata;
-pub mod readable;
-pub mod writable;
-mod util;

@@ -12,8 +12,9 @@ use std::io::Cursor;
 use std::vec::Vec;
 
 use rtag::frame::*;
+use rtag::frame::types::*;
 use rtag::metadata::*;
-use rtag::readable::{Readable, ReadableFactory};
+use rtag::rw::*;
 
 #[test]
 fn metadata_regex() {
@@ -55,13 +56,13 @@ fn metadata_v1() {
         }
     }
 
-    let id3v1_tag = concat!("TAGTITLETITLETITLETITLETITLETITLE",
+    let id3v1_tag = concat!("TITLETITLETITLETITLETITLETITLE",
                             "ARTISTARTISTARTISTARTISTARTIST",
                             "ALBUMALBUMALBUMALBUMALBUMALBUM",
                             "2017",
                             "COMMENTCOMMENTCOMMENTCOMMENTCO4");
 
-    let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes()).to_readable();
+    let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes());
     let frame = Frame1::read(&mut readable).unwrap();
     assert_eq!(frame.title, "TITLETITLETITLETITLETITLETITLE");
     assert_eq!(frame.artist, "ARTISTARTISTARTISTARTISTARTIST");
@@ -69,13 +70,13 @@ fn metadata_v1() {
     assert_eq!(frame.comment, "COMMENTCOMMENTCOMMENTCOMMENTCO");
     assert_eq!(frame.year, "2017");
 
-    let id3v1_tag = concat!("TAGTITLE                         ",
+    let id3v1_tag = concat!("TITLE                         ",
                             "ARTIST                        ",
                             "ALBUM                         ",
                             "2017",
                             "COMMENT                        ");
 
-    let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes()).to_readable();
+    let mut readable = Cursor::new(id3v1_tag.to_string().into_bytes());
     let frame = Frame1::read(&mut readable).unwrap();
     assert_eq!(frame.title, "TITLE");
     assert_eq!(frame.artist, "ARTIST");
@@ -133,8 +134,8 @@ fn metadata_header() {
             Unit::Header(header) => {
                 let writer = MetadataWriter::new("").unwrap();
                 let bytes = writer.head(header.clone()).unwrap();
-                let mut readable = Readable::new(Cursor::new(bytes));
-                assert_eq!(header, Head::read(&mut readable).unwrap());
+                let mut readable = Cursor::new(bytes);
+                assert_eq!(header, Head::read(&mut readable, 3, "").unwrap());
             }
             _ => (),
         }
@@ -145,8 +146,8 @@ fn metadata_header() {
             Unit::Header(header) => {
                 let writer = MetadataWriter::new("").unwrap();
                 let bytes = writer.head(header.clone()).unwrap();
-                let mut readable = Readable::new(Cursor::new(bytes));
-                assert_eq!(header, Head::read(&mut readable).unwrap());
+                let mut readable = Cursor::new(bytes);
+                assert_eq!(header, Head::read(&mut readable, 4, "").unwrap());
             }
             _ => (),
         }
@@ -177,19 +178,23 @@ fn metadata_frame_body() {
                 Unit::FrameV2(head, frame) => {
                     let frame_bytes = meta_writer.frame((head.clone(), frame.clone()))
                         .unwrap();
-                    let mut readable = Cursor::new(frame_bytes).to_readable();
+
+                    let mut readable = Cursor::new(frame_bytes);
+
                     match &head {
                         &FrameHeader::V22(_) => {
-                            FrameHeaderV2::read(&mut readable).unwrap();
+                            FrameHeaderV2::read(&mut readable, 2, "").unwrap();
                         }
                         &FrameHeader::V23(_) => {
-                            FrameHeaderV3::read(&mut readable).unwrap();
+                            FrameHeaderV3::read(&mut readable, 3, "").unwrap();
                         }
                         &FrameHeader::V24(_) => {
-                            FrameHeaderV4::read(&mut readable).unwrap();
+                            FrameHeaderV4::read(&mut readable, 4, "").unwrap();
                         }
                     };
-                    compare_frame_bytes(&mut readable, frame, &mut copied);
+
+                    let mut frame_readable = Cursor::new(readable.all_bytes().unwrap());
+                    compare_frame_bytes(&mut frame_readable, frame, &mut copied);
                 }
                 _ => (),
             }
@@ -231,7 +236,7 @@ fn metadata_frame_body() {
               "eng::~~"]);
 
     test("./test-resources/v2.2.mp3",
-         vec!["Test v2.2.0", "Pudge", "2", "1998", "(37)", "eng::All Rights Reserved"]);
+         vec!["Test v2.2.0", "Pudge", "2", "1998", "(37)", "eng::All Rights Reserved\u{0}"]);
 }
 
 #[test]
@@ -252,11 +257,11 @@ fn metadata_frame_etco() {
                 let frame_bytes = meta_writer.frame((head.clone(), FrameBody::ETCO(frame.clone())))
                     .unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
+                let mut readable = Cursor::new(frame_bytes);
 
                 assert_eq!(head,
-                           FrameHeader::V23(FrameHeaderV3::read(&mut readable).unwrap()));
-                assert_eq!(frame, ETCO::read(&mut readable).unwrap());
+                           FrameHeader::V23(FrameHeaderV3::read(&mut readable, 3, "").unwrap()));
+                assert_eq!(frame, ETCO::read(&mut readable, 3, "ETCO").unwrap());
             }
             _ => (),
         }
@@ -276,11 +281,11 @@ fn metadata_frame_pcnt() {
                 let frame_bytes = meta_writer.frame((head.clone(), FrameBody::PCNT(frame.clone())))
                     .unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
+                let mut readable = Cursor::new(frame_bytes);
 
                 assert_eq!(head,
-                           FrameHeader::V24(FrameHeaderV4::read(&mut readable).unwrap()));
-                assert_eq!(frame, PCNT::read(&mut readable).unwrap());
+                           FrameHeader::V24(FrameHeaderV4::read(&mut readable, 4, "").unwrap()));
+                assert_eq!(frame, PCNT::read(&mut readable, 4, "PCNT").unwrap());
             }
             _ => (),
         }
@@ -300,19 +305,19 @@ fn metadata_frame_tbpm() {
                 let frame_bytes = meta_writer.frame((head.clone(), FrameBody::TBPM(frame.clone())))
                     .unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
+                let mut readable = Cursor::new(frame_bytes);
 
                 let origin_frame_header = FrameHeader::V23(FrameHeaderV3 {
-                    id: id::TBPM_STR.to_string(),
+                    id: id::TBPM.to_string(),
                     size: 5,
                     status_flag: 0,
                     encoding_flag: 0,
                 });
-                let new_frame_header = FrameHeader::V23(FrameHeaderV3::read(&mut readable)
+                let new_frame_header = FrameHeader::V23(FrameHeaderV3::read(&mut readable, 3, "")
                     .unwrap());
 
                 assert_eq!(origin_frame_header, new_frame_header);
-                assert_eq!(frame, TEXT::read(&mut readable, id::TBPM_STR).unwrap());
+                assert_eq!(frame, TEXT::read(&mut readable, 3, id::TBPM).unwrap());
             }
             _ => (),
         }
@@ -334,7 +339,7 @@ fn metadata_encoding() {
                 let meta_writer = MetadataWriter::new("").unwrap();
                 let frame_bytes = meta_writer.frame1(frame.clone()).unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
+                let mut readable = Cursor::new(frame_bytes);
 
                 assert_eq!(frame, Frame1::read(&mut readable).unwrap());
             }
@@ -353,7 +358,7 @@ fn metadata_encoding() {
                 let meta_writer = MetadataWriter::new("").unwrap();
                 let frame_bytes = meta_writer.frame1(frame.clone()).unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
+                let mut readable = Cursor::new(frame_bytes);
 
                 assert_eq!(frame, Frame1::read(&mut readable).unwrap());
             }
@@ -370,11 +375,11 @@ fn metadata_encoding() {
                 let frame_bytes = meta_writer.frame((head, FrameBody::TPE1(frame.clone())))
                     .unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
+                let mut readable = Cursor::new(frame_bytes);
 
-                let _ = readable.skip(10);
+                let _ = readable.skip_bytes(10);
 
-                assert_eq!(frame, TEXT::read(&mut readable, id::TPE1_STR).unwrap());
+                assert_eq!(frame, TEXT::read(&mut readable, 3, id::TPE1).unwrap());
             }
             Unit::FrameV2(head, FrameBody::TALB(frame)) => {
                 assert_eq!("Ester Koèièková a Lubomír Nohavica s klavírem",
@@ -384,11 +389,11 @@ fn metadata_encoding() {
                 let frame_bytes = meta_writer.frame((head, FrameBody::TALB(frame.clone())))
                     .unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
+                let mut readable = Cursor::new(frame_bytes);
 
-                let _ = readable.skip(10);
+                let _ = readable.skip_bytes(10);
 
-                assert_eq!(frame, TEXT::read(&mut readable, id::TPE1_STR).unwrap());
+                assert_eq!(frame, TEXT::read(&mut readable, 3, id::TPE1).unwrap());
             }
             Unit::FrameV2(head, FrameBody::TIT2(frame)) => {
                 assert_eq!("Tøem sestrám", frame.text);
@@ -397,11 +402,11 @@ fn metadata_encoding() {
                 let frame_bytes = meta_writer.frame((head, FrameBody::TIT2(frame.clone())))
                     .unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
+                let mut readable = Cursor::new(frame_bytes);
 
-                let _ = readable.skip(10);
+                let _ = readable.skip_bytes(10);
 
-                assert_eq!(frame, TEXT::read(&mut readable, id::TPE1_STR).unwrap());
+                assert_eq!(frame, TEXT::read(&mut readable, 3, id::TPE1).unwrap());
             }
             _ => (),
         }
@@ -421,9 +426,7 @@ fn metadata_v220() {
                 let frame_bytes = meta_writer.frame((head.clone(), FrameBody::PIC(frame.clone())))
                     .unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
-
-                let _ = readable.skip(6);
+                let mut readable = Cursor::new(frame_bytes[6..].to_vec());
 
                 compare_frame_bytes(&mut readable,
                                     FrameBody::PIC(frame.clone()),
@@ -439,68 +442,75 @@ fn metadata_compressed() {
     let _ = env_logger::init();
 
     let path = "./test-resources/v2.3-compressed-frame.mp3";
-    let mut i = MetadataReader::new(path).unwrap().filter(|m| match m {
-        &Unit::FrameV2(FrameHeader::V23(ref header), _) => {
-            header.has_flag(FrameHeaderFlag::Compression)
-        }
-        _ => false,
-    });
 
-    if let Unit::FrameV2(origin_head, FrameBody::TIT2(origin_frame)) = i.next().unwrap() {
-        assert_eq!("Compressed TIT2 Frame", origin_frame.text);
+    let mut i = MetadataReader::new(path)
+        .unwrap()
+        .filter(|m| match m {
+            &Unit::FrameV2(ref header, _) => header.has_flag(FrameHeaderFlag::Compression),
+            _ => false,
+        });
 
-        let frame_bytes = MetadataWriter::new("")
-            .unwrap()
-            .frame((origin_head.clone(), FrameBody::TIT2(origin_frame.clone())))
-            .unwrap();
+    match i.next().unwrap() {
+        Unit::FrameV2(origin_head, FrameBody::TIT2(origin_frame)) => {
 
-        let mut readable = Cursor::new(frame_bytes).to_readable();
+            assert_eq!("Compressed TIT2 Frame", origin_frame.text);
 
-        if let Unit::FrameV2(new_frame_header, new_frame_body) =
-            MetadataReader::new(path)
+            let frame_bytes = MetadataWriter::new("")
                 .unwrap()
-                .frame3(&mut readable)
-                .unwrap() {
-            assert_eq!(origin_head, new_frame_header);
-            assert_eq!(FrameBody::TIT2(origin_frame), new_frame_body);
-        } else {
+                .frame((origin_head.clone(), FrameBody::TIT2(origin_frame.clone())))
+                .unwrap();
+
+            let mut readable = Cursor::new(frame_bytes);
+            let mut file = fs::File::open(path).unwrap();
+
+            match file.frame3(&mut readable).unwrap() {
+                Unit::FrameV2(new_frame_header, new_frame_body) => {
+                    assert_eq!(origin_head, new_frame_header);
+                    assert_eq!(FrameBody::TIT2(origin_frame), new_frame_body);
+                }
+                _ => assert!(false),
+            };
+        }
+        _ => {
             assert!(false);
         }
-    } else {
-        assert!(false);
     }
+
     assert!(i.next().is_none());
 
     let path = "./test-resources/v2.4-compressed-frame.mp3";
-    let mut i = MetadataReader::new(path).unwrap().filter(|m| match m {
-        &Unit::FrameV2(FrameHeader::V24(ref header), _) => {
-            header.has_flag(FrameHeaderFlag::Compression)
-        }
-        _ => false,
-    });
+    let mut i = MetadataReader::new(path)
+        .unwrap()
+        .filter(|m| match m {
+            &Unit::FrameV2(ref header, _) => header.has_flag(FrameHeaderFlag::Compression),
+            _ => false,
+        });
 
-    if let Unit::FrameV2(origin_frame_header, FrameBody::TIT2(origin_frame)) = i.next().unwrap() {
-        assert_eq!("Compressed TIT2 Frame", origin_frame.text);
+    match i.next().unwrap() {
+        Unit::FrameV2(origin_frame_header, FrameBody::TIT2(origin_frame)) => {
+            assert_eq!("Compressed TIT2 Frame", origin_frame.text);
 
-        let frame_bytes = MetadataWriter::new("")
-            .unwrap()
-            .frame((origin_frame_header.clone(), FrameBody::TIT2(origin_frame.clone())))
-            .unwrap();
-
-        let mut readable = Cursor::new(frame_bytes).to_readable();
-
-        if let Unit::FrameV2(new_frame_header, new_frame_body) =
-            MetadataReader::new(path)
+            let frame_bytes = MetadataWriter::new("")
                 .unwrap()
-                .frame4(&mut readable)
-                .unwrap() {
-            assert_eq!(origin_frame_header, new_frame_header);
-            assert_eq!(FrameBody::TIT2(origin_frame), new_frame_body);
-        } else {
+                .frame((origin_frame_header.clone(), FrameBody::TIT2(origin_frame.clone())))
+                .unwrap();
+
+            let mut readable = Cursor::new(frame_bytes);
+            let mut file = fs::File::open(path).unwrap();
+
+            match file.frame4(&mut readable).unwrap() {
+                Unit::FrameV2(new_frame_header, new_frame_body) => {
+                    assert_eq!(origin_frame_header, new_frame_header);
+                    assert_eq!(FrameBody::TIT2(origin_frame), new_frame_body);
+                }
+                _ => {
+                    assert!(false);
+                }
+            };
+        }
+        _ => {
             assert!(false);
         }
-    } else {
-        assert!(false);
     }
 
     assert!(i.next().is_none());
@@ -511,70 +521,85 @@ fn metadata_encrypted() {
     let _ = env_logger::init();
 
     let path = "./test-resources/v2.3-encrypted-frame.mp3";
-    let mut i = MetadataReader::new(path).unwrap().filter(|m| match m {
-        &Unit::FrameV2(FrameHeader::V23(ref head), _) => head.has_flag(FrameHeaderFlag::Encryption),
-        _ => false,
-    });
+    let mut i = MetadataReader::new(path)
+        .unwrap()
+        .filter(|m| match m {
+            &Unit::FrameV2(ref header, _) => header.has_flag(FrameHeaderFlag::Encryption),
+            _ => false,
+        });
 
-    if let Unit::FrameV2(orig_frame_header, FrameBody::SKIP(_, orig_frame)) = i.next().unwrap() {
-        assert!(true);
+    match i.next().unwrap() {
+        Unit::FrameV2(orig_frame_header, FrameBody::SKIP(_, orig_frame)) => {
+            let frame_header = match orig_frame_header.clone() {
+                FrameHeader::V23(frame_header) => Some(frame_header),
+                _ => None,
+            };
 
-        let frame_header = if let FrameHeader::V23(frame_header) = orig_frame_header.clone() {
-            Some(frame_header)
-        } else {
-            None
-        };
+            let frame_bytes = MetadataWriter::new("")
+                .unwrap()
+                .frame3(&mut frame_header.unwrap(),
+                        FrameBody::OBJECT(OBJECT { data: orig_frame.clone() }))
+                .unwrap();
 
-        let frame_bytes = MetadataWriter::new("")
-            .unwrap()
-            .frame3(&mut frame_header.unwrap(),
-                    FrameBody::OBJECT(OBJECT { data: orig_frame.clone() }))
-            .unwrap();
+            let mut readable = Cursor::new(frame_bytes);
+            let mut file = fs::File::open(path).unwrap();
 
-        let mut readable = Cursor::new(frame_bytes).to_readable();
-
-        let meta_reader = MetadataReader::new(path).unwrap().frame3(&mut readable).unwrap();
-        if let Unit::FrameV2(new_frame_header, FrameBody::SKIP(_, new_frame)) = meta_reader {
-            assert_eq!(orig_frame_header, new_frame_header);
-            assert_eq!(orig_frame, new_frame);
+            match file.frame3(&mut readable).unwrap() {
+                Unit::FrameV2(new_frame_header, FrameBody::SKIP(_, new_frame)) => {
+                    assert_eq!(orig_frame_header, new_frame_header);
+                    assert_eq!(orig_frame, new_frame);
+                }
+                _ => {
+                    assert!(false);
+                }
+            };
         }
-    } else {
-        assert!(false);
+        _ => {
+            assert!(false);
+        }
     }
 
     assert!(i.next().is_none());
 
     let path = "./test-resources/v2.4-encrypted-frame.mp3";
-    let mut i = MetadataReader::new(path).unwrap().filter(|m| match m {
-        &Unit::FrameV2(FrameHeader::V24(ref head), _) => head.has_flag(FrameHeaderFlag::Encryption),
-        _ => false,
-    });
+    let mut i = MetadataReader::new(path)
+        .unwrap()
+        .filter(|m| match m {
+            &Unit::FrameV2(ref header, _) => header.has_flag(FrameHeaderFlag::Encryption),
+            _ => false,
+        });
 
-    if let Unit::FrameV2(orig_frame_header, FrameBody::SKIP(_, orig_frame)) = i.next().unwrap() {
-        assert!(true);
+    match i.next().unwrap() {
+        Unit::FrameV2(orig_frame_header, FrameBody::SKIP(_, orig_frame)) => {
 
-        let frame_header = if let FrameHeader::V24(frame_header) = orig_frame_header.clone() {
-            Some(frame_header)
-        } else {
-            None
-        };
+            let frame_header = match orig_frame_header.clone() {
+                FrameHeader::V24(frame_header) => Some(frame_header),
+                _ => None,
+            };
 
-        let frame_bytes = MetadataWriter::new("")
-            .unwrap()
-            .frame4(&mut frame_header.unwrap(),
-                    FrameBody::OBJECT(OBJECT { data: orig_frame.clone() }))
-            .unwrap();
+            let frame_bytes = MetadataWriter::new("")
+                .unwrap()
+                .frame4(&mut frame_header.unwrap(),
+                        FrameBody::OBJECT(OBJECT { data: orig_frame.clone() }))
+                .unwrap();
 
-        let mut readable = Cursor::new(frame_bytes).to_readable();
+            let mut readable = Cursor::new(frame_bytes);
+            let mut file = fs::File::open(path).unwrap();
 
-        let meta_reader = MetadataReader::new(path).unwrap().frame4(&mut readable).unwrap();
-        if let Unit::FrameV2(new_frame_header, FrameBody::SKIP(_, new_frame)) = meta_reader {
-            assert_eq!(orig_frame_header, new_frame_header);
-            assert_eq!(orig_frame, new_frame);
+            match file.frame4(&mut readable).unwrap() {
+                Unit::FrameV2(new_frame_header, FrameBody::SKIP(_, new_frame)) => {
+                    assert_eq!(orig_frame_header, new_frame_header);
+                    assert_eq!(orig_frame, new_frame);
+                }
+                _ => {
+                    assert!(false);
+                }
+            };
         }
-    } else {
-        assert!(false);
-    }
+        _ => {
+            assert!(false);
+        }
+    };
 
     assert!(i.next().is_none());
 }
@@ -586,27 +611,33 @@ fn metadata_v230_ext_header() {
     // file with extend header bit set but no extended header
     {
         let path = "./test-resources/v2.3-ext-header-invalid.mp3";
-        let i = MetadataReader::new(path).unwrap().filter(|m| match m {
-            &Unit::Header(ref header) => header.has_flag(HeadFlag::ExtendedHeader),
-            _ => false,
-        });
+        let i = MetadataReader::new(path)
+            .unwrap()
+            .filter(|m| match m {
+                &Unit::Header(ref header) => header.has_flag(HeadFlag::ExtendedHeader),
+                _ => false,
+            });
 
         assert!(i.count() == 1);
 
-        let i = MetadataReader::new(path).unwrap().filter(|m| match m {
-            &Unit::ExtendedHeader(_) => true,
-            _ => false,
-        });
+        let i = MetadataReader::new(path)
+            .unwrap()
+            .filter(|m| match m {
+                &Unit::ExtendedHeader(_) => true,
+                _ => false,
+            });
 
         assert!(i.count() == 0);
     }
 
     {
         let path = "./test-resources/v2.3-ext-header.mp3";
-        let i = MetadataReader::new(path).unwrap().filter(|m| match m {
-            &Unit::ExtendedHeader(_) => true,
-            _ => false,
-        });
+        let i = MetadataReader::new(path)
+            .unwrap()
+            .filter(|m| match m {
+                &Unit::ExtendedHeader(_) => true,
+                _ => false,
+            });
 
         assert!(i.count() == 1);
 
@@ -644,13 +675,13 @@ fn metadata_v230_link() {
     for m in MetadataReader::new(path).unwrap() {
         match m {
             Unit::FrameV2(orig_frame_header, FrameBody::LINK(orig_frame)) => {
+
                 assert_eq!("WCO", orig_frame.frame_identifier);
                 assert!(re.is_match(orig_frame.url.as_str()));
 
-                let frame_header = if let FrameHeader::V23(fh) = orig_frame_header.clone() {
-                    Some(fh)
-                } else {
-                    None
+                let frame_header = match orig_frame_header.clone() {
+                    FrameHeader::V23(fh) => Some(fh),
+                    _ => None,
                 };
 
                 let frame_bytes = MetadataWriter::new("")
@@ -659,12 +690,17 @@ fn metadata_v230_link() {
                             FrameBody::LINK(orig_frame.clone()))
                     .unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
+                let mut readable = Cursor::new(frame_bytes);
+                let mut file = fs::File::open(path).unwrap();
 
-                let meta_reader = MetadataReader::new(path).unwrap().frame3(&mut readable).unwrap();
-                if let Unit::FrameV2(_, FrameBody::LINK(new_frame)) = meta_reader {
-                    assert_eq!(orig_frame, new_frame);
-                }
+                match file.frame3(&mut readable).unwrap() {
+                    Unit::FrameV2(_, FrameBody::LINK(new_frame)) => {
+                        assert_eq!(orig_frame, new_frame)
+                    }
+                    _ => {
+                        assert!(false);
+                    }
+                };
             }
             _ => (),
         }
@@ -681,10 +717,9 @@ fn metadata_v230_mcdi() {
             Unit::FrameV2(orig_frame_header, FrameBody::MCDI(orig_frame)) => {
                 assert_eq!(804, orig_frame.cd_toc.len());
 
-                let frame_header = if let FrameHeader::V23(fh) = orig_frame_header.clone() {
-                    Some(fh)
-                } else {
-                    None
+                let frame_header = match orig_frame_header.clone() {
+                    FrameHeader::V23(fh) => Some(fh),
+                    _ => None,
                 };
 
                 let frame_bytes = MetadataWriter::new("")
@@ -693,13 +728,18 @@ fn metadata_v230_mcdi() {
                             FrameBody::MCDI(orig_frame.clone()))
                     .unwrap();
 
-                let mut readable = Cursor::new(frame_bytes).to_readable();
+                let mut readable = Cursor::new(frame_bytes);
+                let mut file = fs::File::open(path).unwrap();
 
-                let meta_reader = MetadataReader::new(path).unwrap().frame3(&mut readable).unwrap();
-                if let Unit::FrameV2(new_frame_header, FrameBody::MCDI(new_frame)) = meta_reader {
-                    assert_eq!(orig_frame_header, new_frame_header);
-                    assert_eq!(orig_frame, new_frame);
-                }
+                match file.frame3(&mut readable).unwrap() {
+                    Unit::FrameV2(new_frame_header, FrameBody::MCDI(new_frame)) => {
+                        assert_eq!(orig_frame_header, new_frame_header);
+                        assert_eq!(orig_frame, new_frame);
+                    }
+                    _ => {
+                        assert!(false);
+                    }
+                };
             }
             _ => (),
         }
@@ -716,59 +756,80 @@ fn metadata_v240_geob() {
         _ => false,
     });
 
-    if let Unit::FrameV2(orig_frame_header, FrameBody::GEOB(orig_frame)) = i.next().unwrap() {
-        assert_eq!("text/plain", orig_frame.mime_type);
-        assert_eq!("eyeD3.txt", orig_frame.filename);
-        assert_eq!("eyeD3 --help output", orig_frame.content_description);
-        assert_eq!(6207, orig_frame.encapsulation_object.len());
+    match i.next().unwrap() {
+        Unit::FrameV2(orig_frame_header, FrameBody::GEOB(orig_frame)) => {
+            assert_eq!("text/plain", orig_frame.mime_type);
+            assert_eq!("eyeD3.txt", orig_frame.filename);
+            assert_eq!("eyeD3 --help output", orig_frame.content_description);
+            assert_eq!(6207, orig_frame.encapsulation_object.len());
 
-        let frame_header = if let FrameHeader::V24(fh) = orig_frame_header.clone() {
-            Some(fh)
-        } else {
-            None
-        };
+            let frame_header = match orig_frame_header.clone() {
+                FrameHeader::V24(fh) => Some(fh),
+                _ => None,
+            };
 
-        let frame_bytes = MetadataWriter::new("")
-            .unwrap()
-            .frame4(&mut frame_header.unwrap(),
-                    FrameBody::GEOB(orig_frame.clone()))
-            .unwrap();
+            let frame_bytes = MetadataWriter::new("")
+                .unwrap()
+                .frame4(&mut frame_header.unwrap(),
+                        FrameBody::GEOB(orig_frame.clone()))
+                .unwrap();
 
-        let mut readable = Cursor::new(frame_bytes).to_readable();
+            let mut readable = Cursor::new(frame_bytes);
+            let mut file = fs::File::open(path).unwrap();
 
-        let meta_reader = MetadataReader::new(path).unwrap().frame4(&mut readable).unwrap();
-        if let Unit::FrameV2(new_frame_header, FrameBody::GEOB(new_frame)) = meta_reader {
-            assert_eq!(orig_frame_header, new_frame_header);
-            assert_eq!(orig_frame, new_frame);
+            match file.frame4(&mut readable).unwrap() {
+                Unit::FrameV2(new_frame_header, FrameBody::GEOB(new_frame)) => {
+                    assert_eq!(orig_frame_header, new_frame_header);
+                    assert_eq!(orig_frame, new_frame);
+                } 
+                _ => {
+                    assert!(false);
+                }
+            };
+
         }
-    }
-
-    if let Unit::FrameV2(orig_frame_header, FrameBody::GEOB(orig_frame)) = i.next().unwrap() {
-        assert_eq!("text/plain", orig_frame.mime_type);
-        assert_eq!("genres.txt", orig_frame.filename);
-        assert_eq!("eyeD3 --list-genres output", orig_frame.content_description);
-        assert_eq!(4087, orig_frame.encapsulation_object.len());
-
-        let frame_header = if let FrameHeader::V24(fh) = orig_frame_header.clone() {
-            Some(fh)
-        } else {
-            None
-        };
-
-        let frame_bytes = MetadataWriter::new("")
-            .unwrap()
-            .frame4(&mut frame_header.unwrap(),
-                    FrameBody::GEOB(orig_frame.clone()))
-            .unwrap();
-
-        let mut readable = Cursor::new(frame_bytes).to_readable();
-
-        let meta_reader = MetadataReader::new(path).unwrap().frame4(&mut readable).unwrap();
-        if let Unit::FrameV2(new_frame_header, FrameBody::GEOB(new_frame)) = meta_reader {
-            assert_eq!(orig_frame_header, new_frame_header);
-            assert_eq!(orig_frame, new_frame);
+        _ => {
+            assert!(false);
         }
-    }
+    };
+
+    match i.next().unwrap() {
+        Unit::FrameV2(orig_frame_header, FrameBody::GEOB(orig_frame)) => {
+            assert_eq!("text/plain", orig_frame.mime_type);
+            assert_eq!("genres.txt", orig_frame.filename);
+            assert_eq!("eyeD3 --list-genres output", orig_frame.content_description);
+            assert_eq!(4087, orig_frame.encapsulation_object.len());
+
+            let frame_header = match orig_frame_header.clone() {
+                FrameHeader::V24(fh) => Some(fh),
+                _ => None,
+            };
+
+            let frame_bytes = MetadataWriter::new("")
+                .unwrap()
+                .frame4(&mut frame_header.unwrap(),
+                        FrameBody::GEOB(orig_frame.clone()))
+                .unwrap();
+
+            let mut readable = Cursor::new(frame_bytes);
+            let mut file = fs::File::open(path).unwrap();
+
+            match file.frame4(&mut readable).unwrap() {
+                Unit::FrameV2(new_frame_header, FrameBody::GEOB(new_frame)) => {
+                    assert_eq!(orig_frame_header, new_frame_header);
+                    assert_eq!(orig_frame, new_frame);
+                }
+                _ => {
+                    assert!(false);
+                }
+            };
+
+        }
+        _ => {
+            assert!(false);
+        }
+    };
+
 }
 
 
@@ -799,15 +860,14 @@ fn metadata_unsync() {
 
         let path = tmp_path.to_str().unwrap();
 
-        MetadataWriter::new(path)
-            .unwrap()
-            .write(meta_reader, false)
-            .unwrap();
+        MetadataWriter::new(path).unwrap().write(meta_reader, false).unwrap();
 
-        let mut i = MetadataReader::new(path).unwrap().filter(|m| match m {
-            &Unit::FrameV2(_, _) => true,
-            _ => false,
-        });
+        let mut i = MetadataReader::new(path)
+            .unwrap()
+            .filter(|m| match m {
+                &Unit::FrameV2(_, _) => true,
+                _ => false,
+            });
 
         while let Some(Unit::FrameV2(_, frame)) = i.next() {
             compare_frame(frame.clone(), &mut copied);
@@ -849,12 +909,13 @@ fn metadata_writer() {
         .unwrap()
         .fold(Vec::new(), |mut vec, unit| {
             if let Unit::FrameV2(frame_head, frame_body) = unit {
-                let new_frame_body = if let FrameBody::TALB(ref frame) = frame_body {
-                    let mut new_frame = frame.clone();
-                    new_frame.text = "Album!".to_string();
-                    FrameBody::TALB(new_frame)
-                } else {
-                    frame_body.clone()
+                let new_frame_body = match frame_body {
+                    FrameBody::TALB(ref frame) => {
+                        let mut new_frame = frame.clone();
+                        new_frame.text = "Album!".to_string();
+                        FrameBody::TALB(new_frame)
+                    }
+                    _ => frame_body.clone(),
                 };
 
                 vec.push(Unit::FrameV2(frame_head, new_frame_body));
@@ -884,6 +945,7 @@ fn metadata_writer() {
 
     let tmp_path = tmp_dir.path().join("220.mp3");
     let path = tmp_path.to_str().unwrap();
+
     fs::copy("./test-resources/v2.2.mp3", path).unwrap();
 
     let frames2_2 = MetadataReader::new(path).unwrap().collect::<Vec<Unit>>();
@@ -897,7 +959,7 @@ fn metadata_writer() {
 
     assert_eq!(i.count(), 0);
 
-    let mut data = vec!["Test v2.2.0", "Pudge", "2", "(37)", "eng::All Rights Reserved"];
+    let mut data = vec!["Test v2.2.0", "Pudge", "2", "(37)", "eng::All Rights Reserved\u{0}"];
 
     for unit in MetadataReader::new(path).unwrap() {
         match unit {
@@ -913,7 +975,7 @@ fn metadata_writer() {
 #[test]
 fn json_test() {
     extern crate serde_json;
-    
+
     let iter = MetadataReader::new("./test-resources/v2.3-unsync.mp3")
         .unwrap()
         .filter(|unit| match unit {
@@ -948,7 +1010,7 @@ fn json_test() {
                          \"text\":\"(26)\"}}]}"];
 
     data.reverse();
-                         
+
     for m in iter {
         let j = serde_json::to_string(&m).unwrap();
         assert_eq!(j, data.pop().unwrap());
@@ -956,304 +1018,95 @@ fn json_test() {
     assert_eq!(0, data.len());
 }
 
-fn compare_frame(frame_body: FrameBody, data: &mut Vec<&str>) {
-    data.reverse();
-    match frame_body {
-        FrameBody::COMM(frame) => {
-            assert_eq!(data.pop().unwrap(),
+macro_rules! define_compare_frame {
+    (
+        $( $id:ident ),*
+    ) => (
+
+        fn compare_frame(frame_body: FrameBody, data: &mut Vec<&str>) {
+            
+            data.reverse();
+
+            match frame_body {
+                FrameBody::COMM(frame) => {
+                    assert_eq!(data.pop().unwrap(),
                        format!("{}:{}:{}",
                                frame.language,
                                frame.short_description,
                                frame.actual_text))
-        }
-        FrameBody::PIC(frame) => {
-            assert_eq!(data.pop().unwrap(),
+                },
+                FrameBody::PIC(frame) => {
+                    assert_eq!(data.pop().unwrap(),
                        format!("{}:{:?}:{}:{}",
                                frame.image_format,
                                frame.picture_type,
                                frame.description,
                                frame.picture_data.len()))
+                },
+                FrameBody::APIC(frame) => {
+                    assert_eq!(data.pop().unwrap(),
+                            format!("{}{:?}{}{}",
+                                    frame.mime_type,
+                                    frame.picture_type,
+                                    frame.description,
+                                    frame.picture_data.len()))
+                },
+                FrameBody::TXXX(frame) => {
+                    assert_eq!(data.pop().unwrap(), 
+                            format!("{}:{}", 
+                                    frame.description, 
+                                    frame.value))
+                },
+
+                $(  FrameBody::$id(frame) => assert_eq!(data.pop().unwrap(), frame.text) ),*
+
+                , 
+                _ => ()
+            }
+
+            data.reverse();
+
         }
-        FrameBody::APIC(frame) => {
-            assert_eq!(data.pop().unwrap(),
-                       format!("{}:{:?}:{}:{}",
-                               frame.mime_type,
-                               frame.picture_type,
-                               frame.description,
-                               frame.picture_data.len()))
+
+        fn compare_frame_bytes(readable: &mut Cursor<Vec<u8>>, frame_body: FrameBody, data: &mut Vec<&str>) {
+
+            match frame_body {
+
+                FrameBody::COMM(_) => compare_frame(
+                                            FrameBody::COMM(COMM::read(readable, 0, "").unwrap()), 
+                                            data),
+
+                FrameBody::PIC(_) => compare_frame(
+                                            FrameBody::PIC(PIC::read(readable, 0, "").unwrap()), 
+                                            data),
+
+                FrameBody::APIC(_) => compare_frame(
+                                            FrameBody::APIC(APIC::read(readable, 0, "").unwrap()), 
+                                            data),
+
+                FrameBody::TXXX(_) => compare_frame(
+                                            FrameBody::TXXX(TXXX::read(readable, 0, "").unwrap()), 
+                                            data),
+
+                $( 
+                    FrameBody::$id(_) => compare_frame(
+                                            FrameBody::$id(TEXT::read(readable, 0, id::$id).unwrap()),
+                                            data)
+                ),*
+
+                ,
+                _ => (),
+            }
         }
-        FrameBody::TALB(frame) |
-        FrameBody::TBPM(frame) |
-        FrameBody::TCOM(frame) |
-        FrameBody::TCON(frame) |
-        FrameBody::TCOP(frame) |
-        FrameBody::TDAT(frame) |
-        FrameBody::TDEN(frame) |
-        FrameBody::TDLY(frame) |
-        FrameBody::TDOR(frame) |
-        FrameBody::TDRC(frame) |
-        FrameBody::TDRL(frame) |
-        FrameBody::TDTG(frame) |
-        FrameBody::TENC(frame) |
-        FrameBody::TEXT(frame) |
-        FrameBody::TIME(frame) |
-        FrameBody::TFLT(frame) |
-        FrameBody::TIPL(frame) |
-        FrameBody::TIT1(frame) |
-        FrameBody::TIT2(frame) |
-        FrameBody::TIT3(frame) |
-        FrameBody::TKEY(frame) |
-        FrameBody::TLAN(frame) |
-        FrameBody::TLEN(frame) |
-        FrameBody::TMCL(frame) |
-        FrameBody::TMED(frame) |
-        FrameBody::TMOO(frame) |
-        FrameBody::TOAL(frame) |
-        FrameBody::TOFN(frame) |
-        FrameBody::TOLY(frame) |
-        FrameBody::TOPE(frame) |
-        FrameBody::TORY(frame) |
-        FrameBody::TOWN(frame) |
-        FrameBody::TPE1(frame) |
-        FrameBody::TPE2(frame) |
-        FrameBody::TPE3(frame) |
-        FrameBody::TPE4(frame) |
-        FrameBody::TPOS(frame) |
-        FrameBody::TPRO(frame) |
-        FrameBody::TPUB(frame) |
-        FrameBody::TRCK(frame) |
-        FrameBody::TRDA(frame) |
-        FrameBody::TRSN(frame) |
-        FrameBody::TSIZ(frame) |
-        FrameBody::TRSO(frame) |
-        FrameBody::TSOA(frame) |
-        FrameBody::TSOP(frame) |
-        FrameBody::TSOT(frame) |
-        FrameBody::TSRC(frame) |
-        FrameBody::TSSE(frame) |
-        FrameBody::TYER(frame) |
-        FrameBody::TSST(frame) => assert_eq!(data.pop().unwrap(), frame.text),
-        FrameBody::TXXX(frame) => {
-            assert_eq!(data.pop().unwrap(),
-                       format!("{}:{}", frame.description, frame.value))
-        }
-        _ => (),
-    }
-    data.reverse();
+
+    )
 }
 
-fn compare_frame_bytes(readable: &mut Readable<Cursor<Vec<u8>>>,
-                       frame_body: FrameBody,
-                       data: &mut Vec<&str>) {
-    match frame_body {
-        FrameBody::COMM(_) => compare_frame(FrameBody::COMM(COMM::read(readable).unwrap()), data),
-        FrameBody::PIC(_) => compare_frame(FrameBody::PIC(PIC::read(readable).unwrap()), data),
-        FrameBody::APIC(_) => compare_frame(FrameBody::APIC(APIC::read(readable).unwrap()), data),
-        FrameBody::TALB(_) => {
-            compare_frame(FrameBody::TALB(TEXT::read(readable, id::TALB_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TBPM(_) => {
-            compare_frame(FrameBody::TBPM(TEXT::read(readable, id::TBPM_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TCOM(_) => {
-            compare_frame(FrameBody::TCOM(TEXT::read(readable, id::TCOM_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TCON(_) => {
-            compare_frame(FrameBody::TCON(TEXT::read(readable, id::TCON_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TCOP(_) => {
-            compare_frame(FrameBody::TCOP(TEXT::read(readable, id::TCOP_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TDAT(_) => {
-            compare_frame(FrameBody::TDAT(TEXT::read(readable, id::TDAT_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TDEN(_) => {
-            compare_frame(FrameBody::TDEN(TEXT::read(readable, id::TDEN_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TDLY(_) => {
-            compare_frame(FrameBody::TDLY(TEXT::read(readable, id::TDLY_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TDOR(_) => {
-            compare_frame(FrameBody::TDOR(TEXT::read(readable, id::TDOR_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TDRC(_) => {
-            compare_frame(FrameBody::TDRC(TEXT::read(readable, id::TDRC_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TDRL(_) => {
-            compare_frame(FrameBody::TDRL(TEXT::read(readable, id::TDRL_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TDTG(_) => {
-            compare_frame(FrameBody::TDTG(TEXT::read(readable, id::TDTG_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TENC(_) => {
-            compare_frame(FrameBody::TENC(TEXT::read(readable, id::TENC_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TEXT(_) => {
-            compare_frame(FrameBody::TEXT(TEXT::read(readable, id::TEXT_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TIME(_) => {
-            compare_frame(FrameBody::TIME(TEXT::read(readable, id::TIME_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TFLT(_) => {
-            compare_frame(FrameBody::TFLT(TEXT::read(readable, id::TFLT_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TIPL(_) => {
-            compare_frame(FrameBody::TIPL(TEXT::read(readable, id::TIPL_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TIT1(_) => {
-            compare_frame(FrameBody::TIT1(TEXT::read(readable, id::TIT1_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TIT2(_) => {
-            compare_frame(FrameBody::TIT2(TEXT::read(readable, id::TIT2_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TIT3(_) => {
-            compare_frame(FrameBody::TIT3(TEXT::read(readable, id::TIT3_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TKEY(_) => {
-            compare_frame(FrameBody::TKEY(TEXT::read(readable, id::TKEY_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TLAN(_) => {
-            compare_frame(FrameBody::TLAN(TEXT::read(readable, id::TLAN_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TLEN(_) => {
-            compare_frame(FrameBody::TLEN(TEXT::read(readable, id::TLEN_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TMCL(_) => {
-            compare_frame(FrameBody::TMCL(TEXT::read(readable, id::TMCL_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TMED(_) => {
-            compare_frame(FrameBody::TMED(TEXT::read(readable, id::TMED_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TMOO(_) => {
-            compare_frame(FrameBody::TMOO(TEXT::read(readable, id::TMOO_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TOAL(_) => {
-            compare_frame(FrameBody::TOAL(TEXT::read(readable, id::TOAL_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TOFN(_) => {
-            compare_frame(FrameBody::TOFN(TEXT::read(readable, id::TOFN_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TOLY(_) => {
-            compare_frame(FrameBody::TOLY(TEXT::read(readable, id::TOLY_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TOPE(_) => {
-            compare_frame(FrameBody::TOPE(TEXT::read(readable, id::TOPE_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TORY(_) => {
-            compare_frame(FrameBody::TORY(TEXT::read(readable, id::TORY_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TOWN(_) => {
-            compare_frame(FrameBody::TOWN(TEXT::read(readable, id::TOWN_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TPE1(_) => {
-            compare_frame(FrameBody::TPE1(TEXT::read(readable, id::TPE1_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TPE2(_) => {
-            compare_frame(FrameBody::TPE2(TEXT::read(readable, id::TPE2_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TPE3(_) => {
-            compare_frame(FrameBody::TPE3(TEXT::read(readable, id::TPE3_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TPE4(_) => {
-            compare_frame(FrameBody::TPE4(TEXT::read(readable, id::TPE4_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TPOS(_) => {
-            compare_frame(FrameBody::TPOS(TEXT::read(readable, id::TPOS_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TPRO(_) => {
-            compare_frame(FrameBody::TPRO(TEXT::read(readable, id::TPRO_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TPUB(_) => {
-            compare_frame(FrameBody::TPUB(TEXT::read(readable, id::TPUB_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TRCK(_) => {
-            compare_frame(FrameBody::TRCK(TEXT::read(readable, id::TRCK_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TRDA(_) => {
-            compare_frame(FrameBody::TRDA(TEXT::read(readable, id::TRDA_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TRSN(_) => {
-            compare_frame(FrameBody::TRSN(TEXT::read(readable, id::TRSN_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TSIZ(_) => {
-            compare_frame(FrameBody::TSIZ(TEXT::read(readable, id::TSIZ_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TRSO(_) => {
-            compare_frame(FrameBody::TRSO(TEXT::read(readable, id::TRSO_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TSOA(_) => {
-            compare_frame(FrameBody::TSOA(TEXT::read(readable, id::TSOA_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TSOP(_) => {
-            compare_frame(FrameBody::TSOP(TEXT::read(readable, id::TSOP_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TSOT(_) => {
-            compare_frame(FrameBody::TSOT(TEXT::read(readable, id::TSOT_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TSRC(_) => {
-            compare_frame(FrameBody::TSRC(TEXT::read(readable, id::TSRC_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TSSE(_) => {
-            compare_frame(FrameBody::TSSE(TEXT::read(readable, id::TSSE_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TYER(_) => {
-            compare_frame(FrameBody::TYER(TEXT::read(readable, id::TYER_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TSST(_) => {
-            compare_frame(FrameBody::TSST(TEXT::read(readable, id::TSST_STR).unwrap()),
-                          data)
-        }
-        FrameBody::TXXX(_) => compare_frame(FrameBody::TXXX(TXXX::read(readable).unwrap()), data),
-        _ => (),
-    }
-}
+define_compare_frame!(
+    TALB, TBPM, TCOM, TCON, TCOP, TDAT, TDEN, TDLY, TDOR,
+    TDRC, TDRL, TDTG, TENC, TEXT, TIME, TFLT, TIPL, TIT1,
+    TIT2, TIT3, TKEY, TLAN, TLEN, TMCL, TMED, TMOO, TOAL,
+    TOFN, TOLY, TOPE, TORY, TOWN, TPE1, TPE2, TPE3, TPE4,
+    TPOS, TPRO, TPUB, TRCK, TRDA, TRSN, TSIZ, TRSO, TSOA,
+    TSOP, TSOT, TSRC, TSSE, TYER, TSST
+);

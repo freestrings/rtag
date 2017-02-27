@@ -4,51 +4,404 @@ extern crate regex;
 use self::encoding::{Encoding, DecoderTrap, EncoderTrap};
 use self::encoding::all::{ISO_8859_1, UTF_16LE, UTF_16BE, UTF_8};
 
-use errors::*;
-use util;
-use writable::Writable;
+use rw::{Readable, Writable};
+use frame::types::*;
 
-use std::io::{Cursor, Result, Error, ErrorKind};
-use std::result;
+use std::collections::HashMap;
+use std::io::{Cursor, Error, ErrorKind, Result, Write};
 use std::vec::Vec;
 
-type Readable = ::readable::Readable<Cursor<Vec<u8>>>;
+//
+// It map between logical type and real type of rust.
+//
+macro_rules! real_type {
+    (String) => { String };
+    (VersionString) => { String };
+    (EncodedString) => { String };
+    (NonUtf16String) => { String };
+    (Utf16String) => { String };
 
-// trim bom character
-fn trim(text: String) -> String {
-    let re = regex::Regex::new(r"(^[\x{0}|\x{feff}|\x{fffe}]*|[\x{0}|\x{feff}|\x{fffe}]*$)")
-        .unwrap();
-    let text = text.trim();
-    re.replace_all(text, "").into_owned()
+    (Unsigned8) => { u8 };
+    (Unsigned16) => { u16 };
+    (Unsigned24) => { u32 };
+    (Unsigned32) => { u32 };
+    (Synchsafe) => { u32 };
+    
+    (Bytes) => { Vec<u8> };
+
+    (TextEncoding) => { TextEncoding };
+    (PictureType) => { PictureType };
+    (ReceivedAs) => { ReceivedAs };
+    (InterpolationMethod) => { InterpolationMethod };
+    (TimestampFormat) => { TimestampFormat };
+    (ContentType) => { ContentType };
 }
 
-pub trait FrameReaderDefault<T> {
-    fn read(readable: &mut Readable) -> Result<T>;
+//
+// It read a frame bytes by logical type.
+//
+macro_rules! frame_read {
+    (String, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            let s = match $value {
+                -1 => String::new(),
+                0 => $readable.all_string()?,
+                _ => $readable.read_string($value)?
+            };
+            trace!("String, value: {:?}, {}", $value, s);
+
+            s
+        }
+    };
+
+    (VersionString, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let id = match $version {
+                2 | 3 => $readable.read_string(3)?,
+                _ => $readable.read_string(4)?
+            };
+            trace!("VersionString, {}, {}", $version, id);
+
+            id
+        }
+    };
+
+    (Unsigned8, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $readable.read_u8()?
+        }
+    };
+
+    (Unsigned16, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $readable.read_u16()?
+        }
+    };
+
+    (Unsigned24, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $readable.read_u24()?
+        }
+    };
+    
+    (Unsigned32, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $readable.read_u32()?
+        }
+    };
+
+    (Synchsafe, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $readable.read_synchsafe()?
+        }
+    };
+
+    (NonUtf16String, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            let r = $readable.read_non_utf16_string()?;
+            trace!("NonUtf16String {}", r);
+
+            r
+        }
+    };
+
+    (Utf16String, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            let r = $readable.read_utf16_string()?;
+            trace!("Utf16String {}", r);
+
+            r
+        }
+    };
+
+    (Bytes, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            match $value {
+                -1 => {
+                    let v: Vec<u8> = Vec::new();
+                    v
+                },
+                0 => $readable.all_bytes()?,
+                _ => $readable.read_bytes($value)?
+            }
+        }
+    };
+
+    (TextEncoding, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            types::to_encoding($readable.read_u8()?)
+        }
+    };
+
+    (PictureType, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            types::to_picture_type($readable.read_u8()?)
+        }
+    };
+
+    (ReceivedAs, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            types::to_received_as($readable.read_u8()?)
+        }
+    };
+
+    (InterpolationMethod, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            types::to_interpolation_method($readable.read_u8()?)
+        }
+    };
+
+    (TimestampFormat, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            types::to_timestamp_format($readable.read_u8()?)
+        }
+    };
+
+    (ContentType, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            types::to_content_type($readable.read_u8()?)
+        }
+    };
+
+    (EncodedString, $value:expr, $readable:expr, $version:expr) => {
+        {
+            let _ = $version;
+
+            let curr_pos = $readable.skip_bytes(0)?;
+            //
+            // The encoding of frame always id located at most first bit.
+            //
+            let _ = $readable.position(0)?;
+
+            let encoding = $readable.read_u8()?;
+            let _ = $readable.position(curr_pos)?;
+
+            match encoding {
+                // ISO88591, UTF8
+                0 | 3 => {
+                    $readable.read_non_utf16_string()?
+                },
+                _ => $readable.read_utf16_string()?
+            }
+        }
+    };
 }
 
-pub trait FrameReaderIdAware<T> {
-    fn read(readable: &mut Readable, id: &str) -> Result<T>;
+macro_rules! frame_write {
+    (String, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            match $value {
+                -1 => {
+                    // do nothing
+                },
+                0 => {
+                    $writable.write_string(&$_self.$attr_name)?
+                },
+                _ => {
+                    $writable.write_string(&$_self.$attr_name[0..$value])?
+                }
+            }
+        }
+    };
+
+    (VersionString, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            match $version {
+                2 | 3 => $writable.write_string(&$_self.$attr_name[0..3])?,
+                _ => $writable.write_string(&$_self.$attr_name[0..4])?
+            }
+        }
+    };
+
+    (Unsigned8, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_u8($_self.$attr_name)?
+        }
+    };
+
+    (Unsigned16, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_u16($_self.$attr_name)?
+        }
+    };
+
+    (Unsigned24, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_u24($_self.$attr_name)?
+        }
+    };
+
+    (Unsigned32, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_u32($_self.$attr_name)?
+        }
+    };
+
+    (Synchsafe, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_synchsafe($_self.$attr_name)?
+        }
+    };
+
+    (NonUtf16String, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_non_utf16_string($_self.$attr_name.as_str())?
+        }
+    };
+
+    (Utf16String, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_utf16_string($_self.$attr_name.as_str())?
+        }
+    };
+
+    (Bytes, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write(&$_self.$attr_name)?
+        }
+    };
+
+    (TextEncoding, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_u8(types::from_encoding(&$_self.$attr_name))?
+        }
+    };
+
+    (PictureType, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_u8(types::from_picture_type(&$_self.$attr_name))?
+        }
+    };
+
+    (ReceivedAs, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_u8(types::from_received_as(&$_self.$attr_name))?
+        }
+    };
+
+    (InterpolationMethod, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_u8(types::from_interpolation_method(&$_self.$attr_name))?
+        }
+    };
+
+    (TimestampFormat, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_u8(types::from_timestamp_format(&$_self.$attr_name))?
+        }
+    };
+
+    (ContentType, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+            $writable.write_u8(types::from_content_type(&$_self.$attr_name))?
+        }
+    };
+
+    (EncodedString, $_self:expr, $attr_name:ident, $value:expr, $writable:expr, $version:expr) => {
+        {
+            let _ = $version;
+
+            // 
+            // The name of encoding field is fixed name with 'text_encoding'.
+            //
+            match $_self.text_encoding {
+                TextEncoding::ISO88591 | TextEncoding::UTF8 => {
+                    $writable.write_non_utf16_string($_self.$attr_name.as_str())?
+                },
+                _ => {
+                    $writable.write_utf16_string($_self.$attr_name.as_str())?
+                }
+            }
+        }
+    };
+
 }
 
-pub trait FrameReaderVersionAware<T> {
-    fn read(readable: &mut Readable, version: u8) -> Result<T>;
-}
+//
+// It declare struct and implement read/write operation.
+//
+// ex)
+// struct <frame name> {
+//
+//      <frame prpoerty> : <logical type> = <parameter of logical type>
+// }
+//
+macro_rules! id3 {
+    (
+        $name:ident {
+            $( $attr_name:ident : $attr_type:ident = $value:expr ),*
+        }
+    ) => (
+        
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+        pub struct $name {
+            $( pub $attr_name : real_type!($attr_type) ),*
+        }
 
-pub trait FrameWriterDefault {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()>;
-}
+        impl $name {
+            pub fn read(readable: &mut Readable, version: u8, id: &str) -> Result<$name> {
 
-pub trait FrameWriterVersionAware<T> {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>, version: u8) -> Result<()>;
-}
+                let _ = id;
 
-pub trait FrameWriterIdAware<T> {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>, id: &str) -> Result<()>;
-}
+                let ret = $name {
+                    $(
+                        $attr_name : frame_read!($attr_type, $value, readable, version)
+                    ),*
+                };
 
-pub trait FlagAware<T> {
-    fn has_flag(&self, flag: T) -> bool;
-    fn set_flag(&mut self, flag: T);
+                Ok(ret)
+            }
+
+            pub fn write(&self, writable: &mut Writable, version: u8) -> Result<()> {
+
+                $( 
+                    let _ = $value;
+                    frame_write!($attr_type, self, $attr_name, $value, writable, version) 
+                );*
+
+                ;
+                Ok(())
+            }
+        }
+    );
+
+    (
+        $name:ident {
+            $( $attr_name:ident : $attr_type:ident = $value:expr ),+,
+        }
+    ) => (
+        id3!( $name { $( $attr_name : $attr_type = $value ),+ } );
+    );
 }
 
 ///
@@ -57,32 +410,150 @@ pub trait FlagAware<T> {
 /// - [V2.3](http://id3.org/id3v2.3.0#ID3v2_header)
 /// - [V2.4](http://id3.org/id3v2.4.0-structure) > 3.1. ID3v2 header
 ///
+id3!(Head {
+    tag_id: String = 3,
+    version: Unsigned8 = -1,
+    minor_version: Unsigned8 = -1,
+    flag: Unsigned8 = -1,
+    size: Synchsafe = -1,
+});
+
+///
+/// # Frame Header V2.2
+///
+/// [See](http://id3.org/id3v2-00) > 3.2. ID3v2 frames overview
+///
+id3!(FrameHeaderV2 {
+    id: String = 3,
+    size: Unsigned24 = -1,
+});
+
+///
+/// # Frame Header V2.3
+///
+/// [See](http://id3.org/id3v2.3.0#ID3v2_frame_overview)
+///
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Head {
-    pub version: u8,
-    pub minor_version: u8,
-    pub flag: u8,
+pub struct FrameHeaderV3 {
+    pub id: String,
     pub size: u32,
+    pub status_flag: u8,
+    pub encoding_flag: u8,
 }
 
-impl Head {
-    pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
-        let tag_id = readable.string(3)?;
-        let version = readable.u8()?;
-        let minor_version = readable.u8()?;
-        let flag = readable.u8()?;
-        let size = readable.synchsafe()?;
+impl FrameHeaderV3 {
+    pub fn read(readable: &mut Readable, version: u8, id: &str) -> Result<Self> {
+        let _ = version;
+        let _ = id;
 
-        if tag_id != "ID3" {
-            return Err(ParsingError::BadData(ParsingErrorKind::InvalidV2FrameId));
+        let id = readable.read_string(4)?;
+        let size = readable.read_u32()?;
+        let status_flag = readable.read_u8()?;
+        let encoding_flag = readable.read_u8()?;
+
+        Ok(FrameHeaderV3 {
+            id: id,
+            size: size,
+            status_flag: status_flag,
+            encoding_flag: encoding_flag,
+        })
+    }
+
+    pub fn write(&self, writable: &mut Cursor<Vec<u8>>, version: u8) -> Result<()> {
+        let _ = version;
+
+        let mut ext_size = 0;
+        if self.has_flag(FrameHeaderFlag::GroupIdentity) {
+            ext_size = 1;
+        }
+        if self.has_flag(FrameHeaderFlag::Encryption) {
+            ext_size = ext_size + 1;
+        }
+        if self.has_flag(FrameHeaderFlag::Compression) {
+            ext_size = ext_size + 4;
+        }
+        writable.write_string(self.id.as_str())?;
+        writable.write_u32(self.size + ext_size)?;
+        writable.write_u8(self.status_flag)?;
+        writable.write_u8(self.encoding_flag)?;
+
+        if self.has_flag(FrameHeaderFlag::GroupIdentity) {
+            writable.write_u8(0)?;
+        }
+        if self.has_flag(FrameHeaderFlag::Encryption) {
+            writable.write_u8(0)?;
+        }
+        if self.has_flag(FrameHeaderFlag::Compression) {
+            writable.write_u32(0)?;
         }
 
-        Ok(Head {
-            version: version,
-            minor_version: minor_version,
-            flag: flag,
+        Ok(())
+    }
+}
+
+
+
+///
+/// # Frame Header V2.4
+///
+/// [See](http://id3.org/id3v2.4.0-structure) > 4. ID3v2 frames overview
+///
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FrameHeaderV4 {
+    pub id: String,
+    pub size: u32,
+    pub status_flag: u8,
+    pub encoding_flag: u8,
+}
+
+impl FrameHeaderV4 {
+    pub fn read(readable: &mut Readable, version: u8, id: &str) -> Result<Self> {
+        let _ = version;
+        let _ = id;
+
+        let id = readable.read_string(4)?;
+        let size = readable.read_synchsafe()?;
+        let status_flag = readable.read_u8()?;
+        let encoding_flag = readable.read_u8()?;
+
+        Ok(FrameHeaderV4 {
+            id: id,
             size: size,
+            status_flag: status_flag,
+            encoding_flag: encoding_flag,
         })
+    }
+
+    pub fn write(&self, writable: &mut Cursor<Vec<u8>>, version: u8) -> Result<()> {
+        let _ = version;
+
+        let mut ext_size = 0;
+        if self.has_flag(FrameHeaderFlag::GroupIdentity) {
+            ext_size = 1;
+        }
+        if self.has_flag(FrameHeaderFlag::Encryption) {
+            ext_size = ext_size + 1;
+        }
+        if self.has_flag(FrameHeaderFlag::DataLength) {
+            ext_size = ext_size + 4;
+        }
+
+        writable.write_string(self.id.as_str())?;
+        writable.write_synchsafe(self.size + ext_size)?;
+        writable.write_u8(self.status_flag)?;
+        writable.write_u8(self.encoding_flag)?;
+
+        if self.has_flag(FrameHeaderFlag::GroupIdentity) {
+            writable.write_u8(0)?;
+        }
+        if self.has_flag(FrameHeaderFlag::Encryption) {
+            writable.write_u8(0)?;
+        }
+        if self.has_flag(FrameHeaderFlag::DataLength) {
+            writable.write_u32(0)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -102,26 +573,26 @@ impl FlagAware<HeadFlag> for Head {
         match self.version {
             2 => {
                 match flag {
-                    HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
-                    HeadFlag::Compression => self.flag & util::BIT6 != 0,
+                    HeadFlag::Unsynchronisation => self.flag & types::BIT7 != 0,
+                    HeadFlag::Compression => self.flag & types::BIT6 != 0,
                     _ => false,
                 }
             }
             3 => {
                 match flag {
-                    HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
-                    HeadFlag::ExtendedHeader => self.flag & util::BIT6 != 0,
-                    HeadFlag::ExperimentalIndicator => self.flag & util::BIT5 != 0,
+                    HeadFlag::Unsynchronisation => self.flag & types::BIT7 != 0,
+                    HeadFlag::ExtendedHeader => self.flag & types::BIT6 != 0,
+                    HeadFlag::ExperimentalIndicator => self.flag & types::BIT5 != 0,
                     _ => false,
                 }
             }
             4 => {
                 match flag {
                     //
-                    // HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
-                    HeadFlag::ExtendedHeader => self.flag & util::BIT6 != 0,
-                    HeadFlag::ExperimentalIndicator => self.flag & util::BIT5 != 0,
-                    HeadFlag::FooterPresent => self.flag & util::BIT4 != 0,
+                    // HeadFlag::Unsynchronisation => self.flag & types::BIT7 != 0,
+                    HeadFlag::ExtendedHeader => self.flag & types::BIT6 != 0,
+                    HeadFlag::ExperimentalIndicator => self.flag & types::BIT5 != 0,
+                    HeadFlag::FooterPresent => self.flag & types::BIT4 != 0,
                     _ => false,
                 }
             }
@@ -136,16 +607,16 @@ impl FlagAware<HeadFlag> for Head {
         match self.version {
             2 => {
                 match flag {
-                    HeadFlag::Unsynchronisation => self.flag = self.flag | util::BIT7,
-                    HeadFlag::Compression => self.flag = self.flag | util::BIT6,
+                    HeadFlag::Unsynchronisation => self.flag = self.flag | types::BIT7,
+                    HeadFlag::Compression => self.flag = self.flag | types::BIT6,
                     _ => (),
                 }
             }
             3 => {
                 match flag {
-                    HeadFlag::Unsynchronisation => self.flag = self.flag | util::BIT7,
-                    HeadFlag::ExtendedHeader => self.flag = self.flag | util::BIT6,
-                    HeadFlag::ExperimentalIndicator => self.flag = self.flag | util::BIT5,
+                    HeadFlag::Unsynchronisation => self.flag = self.flag | types::BIT7,
+                    HeadFlag::ExtendedHeader => self.flag = self.flag | types::BIT6,
+                    HeadFlag::ExperimentalIndicator => self.flag = self.flag | types::BIT5,
                     _ => (),
                 }
             }
@@ -153,9 +624,9 @@ impl FlagAware<HeadFlag> for Head {
                 match flag {
                     //
                     // HeadFlag::Unsynchronisation => self.flag & util::BIT7 != 0,
-                    HeadFlag::ExtendedHeader => self.flag = self.flag | util::BIT6,
-                    HeadFlag::ExperimentalIndicator => self.flag = self.flag | util::BIT5,
-                    HeadFlag::FooterPresent => self.flag = self.flag | util::BIT4,
+                    HeadFlag::ExtendedHeader => self.flag = self.flag | types::BIT6,
+                    HeadFlag::ExperimentalIndicator => self.flag = self.flag | types::BIT5,
+                    HeadFlag::FooterPresent => self.flag = self.flag | types::BIT4,
                     _ => (),
                 }
             }
@@ -166,13 +637,84 @@ impl FlagAware<HeadFlag> for Head {
     }
 }
 
-impl FrameWriterDefault for Head {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.string("ID3")?;
-        writable.u8(self.version)?;
-        writable.u8(self.minor_version)?;
-        writable.u8(self.flag)?;
-        writable.synchsafe(self.size)
+///
+/// # No flags
+///
+/// There is no flag for 2.2 frame.
+///
+impl FlagAware<FrameHeaderFlag> for FrameHeaderV2 {
+    #[allow(unused_variables)]
+    fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
+        return false;
+    }
+    #[allow(unused_variables)]
+    fn set_flag(&mut self, flag: FrameHeaderFlag) {}
+}
+
+///
+/// # Frame header flags V2.3
+///
+/// [See](http://id3.org/id3v2.3.0#Frame_header_flags)
+///
+impl FlagAware<FrameHeaderFlag> for FrameHeaderV3 {
+    fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
+        match flag {
+            FrameHeaderFlag::TagAlter => self.status_flag & types::BIT7 != 0,
+            FrameHeaderFlag::FileAlter => self.status_flag & types::BIT6 != 0,
+            FrameHeaderFlag::ReadOnly => self.status_flag & types::BIT5 != 0,
+            FrameHeaderFlag::Compression => self.encoding_flag & types::BIT7 != 0,
+            FrameHeaderFlag::Encryption => self.encoding_flag & types::BIT6 != 0,
+            FrameHeaderFlag::GroupIdentity => self.encoding_flag & types::BIT5 != 0,
+            _ => false,
+        }
+    }
+
+    fn set_flag(&mut self, flag: FrameHeaderFlag) {
+        match flag {
+            FrameHeaderFlag::TagAlter => self.status_flag = self.status_flag | types::BIT7,
+            FrameHeaderFlag::FileAlter => self.status_flag = self.status_flag | types::BIT6,
+            FrameHeaderFlag::ReadOnly => self.status_flag = self.status_flag | types::BIT5,
+            FrameHeaderFlag::Compression => self.encoding_flag = self.encoding_flag | types::BIT7,
+            FrameHeaderFlag::Encryption => self.encoding_flag = self.encoding_flag | types::BIT6,
+            FrameHeaderFlag::GroupIdentity => self.encoding_flag = self.encoding_flag | types::BIT5,
+            _ => (),
+        }
+    }
+}
+
+///
+/// # Frame header flags V2.4
+///
+/// [See](http://id3.org/id3v2.4.0-structure) > 4.1 Frame header flags
+///
+impl FlagAware<FrameHeaderFlag> for FrameHeaderV4 {
+    // http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
+    fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
+        match flag {
+            FrameHeaderFlag::TagAlter => self.status_flag & types::BIT6 != 0,
+            FrameHeaderFlag::FileAlter => self.status_flag & types::BIT5 != 0,
+            FrameHeaderFlag::ReadOnly => self.status_flag & types::BIT4 != 0,
+            FrameHeaderFlag::GroupIdentity => self.encoding_flag & types::BIT6 != 0,
+            FrameHeaderFlag::Compression => self.encoding_flag & types::BIT3 != 0,
+            FrameHeaderFlag::Encryption => self.encoding_flag & types::BIT2 != 0,
+            FrameHeaderFlag::Unsynchronisation => self.encoding_flag & types::BIT1 != 0,
+            FrameHeaderFlag::DataLength => self.encoding_flag & types::BIT0 != 0,
+        }
+    }
+
+    fn set_flag(&mut self, flag: FrameHeaderFlag) {
+        match flag {
+            FrameHeaderFlag::TagAlter => self.status_flag = self.status_flag | types::BIT6,
+            FrameHeaderFlag::FileAlter => self.status_flag = self.status_flag | types::BIT5,
+            FrameHeaderFlag::ReadOnly => self.status_flag = self.status_flag | types::BIT4,
+            FrameHeaderFlag::GroupIdentity => self.encoding_flag = self.encoding_flag | types::BIT6,
+            FrameHeaderFlag::Compression => self.encoding_flag = self.encoding_flag | types::BIT3,
+            FrameHeaderFlag::Encryption => self.encoding_flag = self.encoding_flag | types::BIT2,
+            FrameHeaderFlag::Unsynchronisation => {
+                self.encoding_flag = self.encoding_flag | types::BIT1
+            }
+            FrameHeaderFlag::DataLength => self.encoding_flag = self.encoding_flag | types::BIT0,
+        }
     }
 }
 
@@ -193,32 +735,30 @@ pub struct Frame1 {
 }
 
 impl Frame1 {
-    pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
-        readable.skip(3)?;
-
+    pub fn read(readable: &mut Readable) -> Result<Self> {
         // offset 3
-        let title = util::to_iso8859_1(&readable.bytes(30)?).trim().to_string();
+        let title = types::to_iso8859_1(&readable.read_bytes(30)?).trim().to_string();
         // offset 33
-        let artist = util::to_iso8859_1(&readable.bytes(30)?).trim().to_string();
+        let artist = types::to_iso8859_1(&readable.read_bytes(30)?).trim().to_string();
         // offset 63
-        let album = util::to_iso8859_1(&readable.bytes(30)?).trim().to_string();
+        let album = types::to_iso8859_1(&readable.read_bytes(30)?).trim().to_string();
         // offset 93
-        let year = util::to_iso8859_1(&readable.bytes(4)?).trim().to_string();
+        let year = types::to_iso8859_1(&readable.read_bytes(4)?).trim().to_string();
         // goto track marker offset
-        readable.skip(28)?;
+        readable.skip_bytes(28)?;
         // offset 125
-        let track_marker = readable.u8()?;
+        let track_marker = readable.read_u8()?;
         // offset 126
-        let _track = readable.u8()? & 0xff;
+        let _track = readable.read_u8()? & 0xff;
         // offset 127
-        let genre = (readable.u8()? & 0xff).to_string();
+        let genre = (readable.read_u8()? & 0xff).to_string();
         // goto comment offset
-        readable.skip(-31)?;
+        readable.skip_bytes(-31)?;
 
         let (comment, track) = if track_marker != 0 {
-            (util::to_iso8859_1(&readable.bytes(30)?).trim().to_string(), String::new())
+            (types::to_iso8859_1(&readable.read_bytes(30)?).trim().to_string(), String::new())
         } else {
-            (util::to_iso8859_1(&readable.bytes(28)?).trim().to_string(),
+            (types::to_iso8859_1(&readable.read_bytes(28)?).trim().to_string(),
              if _track == 0 {
                  String::new()
              } else {
@@ -236,24 +776,22 @@ impl Frame1 {
             genre: genre,
         })
     }
-}
 
-impl FrameWriterDefault for Frame1 {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.string("TAG")?;
-        writable.write(&util::from_iso8859_1(&self.title, 30))?;
-        writable.write(&util::from_iso8859_1(&self.artist, 30))?;
-        writable.write(&util::from_iso8859_1(&self.album, 30))?;
-        writable.write(&util::from_iso8859_1(&self.year, 4))?;
-        writable.write(&util::from_iso8859_1(&self.comment, 28))?;
-        writable.u8(0)?; //track marker
+    pub fn write(&self, writable: &mut Cursor<Vec<u8>>) -> Result<()> {
+        writable.write_string("TAG")?;
+        writable.write(&types::from_iso8859_1(&self.title, 30))?;
+        writable.write(&types::from_iso8859_1(&self.artist, 30))?;
+        writable.write(&types::from_iso8859_1(&self.album, 30))?;
+        writable.write(&types::from_iso8859_1(&self.year, 4))?;
+        writable.write(&types::from_iso8859_1(&self.comment, 28))?;
+        writable.write_u8(0)?; //track marker
         match self.track.as_str().parse::<u8>() {
-            Ok(v) => writable.u8(v)?,
-            Err(_) => writable.u8(0)?,
+            Ok(v) => writable.write_u8(v)?,
+            Err(_) => writable.write_u8(0)?,
         };
         match self.genre.as_str().parse::<u8>() {
-            Ok(v) => writable.u8(v)?,
-            Err(_) => writable.u8(0)?,
+            Ok(v) => writable.write_u8(v)?,
+            Err(_) => writable.write_u8(0)?,
         };
 
         Ok(())
@@ -270,424 +808,22 @@ pub enum FrameHeader {
     V24(FrameHeaderV4),
 }
 
-///
-/// # Frame Header V2.2
-///
-/// [See](http://id3.org/id3v2-00) > 3.2. ID3v2 frames overview
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct FrameHeaderV2 {
-    pub id: String,
-    pub size: u32,
-}
-
-impl FrameHeaderV2 {
-    pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
-        let id = readable.string(3)?;
-        let size = readable.u24()?;
-
-        Ok(FrameHeaderV2 {
-            id: id,
-            size: size,
-        })
-    }
-}
-
-///
-/// # No flags
-///
-/// There is no flag for 2.2 frame.
-///
-impl FlagAware<FrameHeaderFlag> for FrameHeaderV2 {
-    #[allow(unused_variables)]
+impl FlagAware<FrameHeaderFlag> for FrameHeader {
     fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
-        return false;
-    }
-    #[allow(unused_variables)]
-    fn set_flag(&mut self, flag: FrameHeaderFlag) {}
-}
-
-impl FrameWriterDefault for FrameHeaderV2 {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.string(self.id.as_str())?;
-        writable.u24(self.size)
-    }
-}
-
-///
-/// # Frame Header V2.3
-///
-/// [See](http://id3.org/id3v2.3.0#ID3v2_frame_overview)
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct FrameHeaderV3 {
-    pub id: String,
-    pub size: u32,
-    pub status_flag: u8,
-    pub encoding_flag: u8,
-}
-
-impl FrameHeaderV3 {
-    pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
-        let id = readable.string(4)?;
-        let size = readable.u32()?;
-        let status_flag = readable.u8()?;
-        let encoding_flag = readable.u8()?;
-
-        Ok(FrameHeaderV3 {
-            id: id,
-            size: size,
-            status_flag: status_flag,
-            encoding_flag: encoding_flag,
-        })
-    }
-}
-
-///
-/// # Frame header flags V2.3
-///
-/// [See](http://id3.org/id3v2.3.0#Frame_header_flags)
-///
-impl FlagAware<FrameHeaderFlag> for FrameHeaderV3 {
-    fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
-        match flag {
-            FrameHeaderFlag::TagAlter => self.status_flag & util::BIT7 != 0,
-            FrameHeaderFlag::FileAlter => self.status_flag & util::BIT6 != 0,
-            FrameHeaderFlag::ReadOnly => self.status_flag & util::BIT5 != 0,
-            FrameHeaderFlag::Compression => self.encoding_flag & util::BIT7 != 0,
-            FrameHeaderFlag::Encryption => self.encoding_flag & util::BIT6 != 0,
-            FrameHeaderFlag::GroupIdentity => self.encoding_flag & util::BIT5 != 0,
-            _ => false,
+        match self {
+            &FrameHeader::V22(ref header) => header.has_flag(flag),
+            &FrameHeader::V23(ref header) => header.has_flag(flag),
+            &FrameHeader::V24(ref header) => header.has_flag(flag),
         }
     }
 
     fn set_flag(&mut self, flag: FrameHeaderFlag) {
-        match flag {
-            FrameHeaderFlag::TagAlter => self.status_flag = self.status_flag | util::BIT7,
-            FrameHeaderFlag::FileAlter => self.status_flag = self.status_flag | util::BIT6,
-            FrameHeaderFlag::ReadOnly => self.status_flag = self.status_flag | util::BIT5,
-            FrameHeaderFlag::Compression => self.encoding_flag = self.encoding_flag | util::BIT7,
-            FrameHeaderFlag::Encryption => self.encoding_flag = self.encoding_flag | util::BIT6,
-            FrameHeaderFlag::GroupIdentity => self.encoding_flag = self.encoding_flag | util::BIT5,
-            _ => (),
+        match self {
+            &mut FrameHeader::V22(ref mut header) => header.set_flag(flag),
+            &mut FrameHeader::V23(ref mut header) => header.set_flag(flag),
+            &mut FrameHeader::V24(ref mut header) => header.set_flag(flag),
         }
     }
-}
-
-impl FrameWriterDefault for FrameHeaderV3 {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        let mut ext_size = 0;
-        if self.has_flag(FrameHeaderFlag::GroupIdentity) {
-            ext_size = 1;
-        }
-        if self.has_flag(FrameHeaderFlag::Encryption) {
-            ext_size = ext_size + 1;
-        }
-        if self.has_flag(FrameHeaderFlag::Compression) {
-            ext_size = ext_size + 4;
-        }
-        writable.string(self.id.as_str())?;
-        writable.u32(self.size + ext_size)?;
-        writable.u8(self.status_flag)?;
-        writable.u8(self.encoding_flag)?;
-
-        if self.has_flag(FrameHeaderFlag::GroupIdentity) {
-            writable.u8(0)?;
-        }
-        if self.has_flag(FrameHeaderFlag::Encryption) {
-            writable.u8(0)?;
-        }
-        if self.has_flag(FrameHeaderFlag::Compression) {
-            writable.u32(0)?;
-        }
-
-        Ok(())
-    }
-}
-
-///
-/// # Frame Header V2.4
-///
-/// [See](http://id3.org/id3v2.4.0-structure) > 4. ID3v2 frames overview
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct FrameHeaderV4 {
-    pub id: String,
-    pub size: u32,
-    pub status_flag: u8,
-    pub encoding_flag: u8,
-}
-
-impl FrameHeaderV4 {
-    pub fn read(readable: &mut Readable) -> result::Result<Self, ParsingError> {
-        let id = readable.string(4)?;
-        let size = readable.synchsafe()?;
-        let status_flag = readable.u8()?;
-        let encoding_flag = readable.u8()?;
-
-        Ok(FrameHeaderV4 {
-            id: id,
-            size: size,
-            status_flag: status_flag,
-            encoding_flag: encoding_flag,
-        })
-    }
-}
-
-///
-/// # Frame header flags V2.4
-///
-/// [See](http://id3.org/id3v2.4.0-structure) > 4.1 Frame header flags
-///
-impl FlagAware<FrameHeaderFlag> for FrameHeaderV4 {
-    // http://id3.org/id3v2.4.0-structure > 4.1. Frame header flags
-    fn has_flag(&self, flag: FrameHeaderFlag) -> bool {
-        match flag {
-            FrameHeaderFlag::TagAlter => self.status_flag & util::BIT6 != 0,
-            FrameHeaderFlag::FileAlter => self.status_flag & util::BIT5 != 0,
-            FrameHeaderFlag::ReadOnly => self.status_flag & util::BIT4 != 0,
-            FrameHeaderFlag::GroupIdentity => self.encoding_flag & util::BIT6 != 0,
-            FrameHeaderFlag::Compression => self.encoding_flag & util::BIT3 != 0,
-            FrameHeaderFlag::Encryption => self.encoding_flag & util::BIT2 != 0,
-            FrameHeaderFlag::Unsynchronisation => self.encoding_flag & util::BIT1 != 0,
-            FrameHeaderFlag::DataLength => self.encoding_flag & util::BIT0 != 0,
-        }
-    }
-
-    fn set_flag(&mut self, flag: FrameHeaderFlag) {
-        match flag {
-            FrameHeaderFlag::TagAlter => self.status_flag = self.status_flag | util::BIT6,
-            FrameHeaderFlag::FileAlter => self.status_flag = self.status_flag | util::BIT5,
-            FrameHeaderFlag::ReadOnly => self.status_flag = self.status_flag | util::BIT4,
-            FrameHeaderFlag::GroupIdentity => self.encoding_flag = self.encoding_flag | util::BIT6,
-            FrameHeaderFlag::Compression => self.encoding_flag = self.encoding_flag | util::BIT3,
-            FrameHeaderFlag::Encryption => self.encoding_flag = self.encoding_flag | util::BIT2,
-            FrameHeaderFlag::Unsynchronisation => {
-                self.encoding_flag = self.encoding_flag | util::BIT1
-            }
-            FrameHeaderFlag::DataLength => self.encoding_flag = self.encoding_flag | util::BIT0,
-        }
-    }
-}
-
-impl FrameWriterDefault for FrameHeaderV4 {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        let mut ext_size = 0;
-        if self.has_flag(FrameHeaderFlag::GroupIdentity) {
-            ext_size = 1;
-        }
-        if self.has_flag(FrameHeaderFlag::Encryption) {
-            ext_size = ext_size + 1;
-        }
-        if self.has_flag(FrameHeaderFlag::DataLength) {
-            ext_size = ext_size + 4;
-        }
-
-        writable.string(self.id.as_str())?;
-        writable.synchsafe(self.size + ext_size)?;
-        writable.u8(self.status_flag)?;
-        writable.u8(self.encoding_flag)?;
-
-        if self.has_flag(FrameHeaderFlag::GroupIdentity) {
-            writable.u8(0)?;
-        }
-        if self.has_flag(FrameHeaderFlag::Encryption) {
-            writable.u8(0)?;
-        }
-        if self.has_flag(FrameHeaderFlag::DataLength) {
-            writable.u32(0)?;
-        }
-
-        Ok(())
-    }
-}
-
-///
-/// # Frame Encoding
-///
-/// [See](http://id3.org/id3v2.4.0-structure) > 4. ID3v2 frame overview
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum TextEncoding {
-    ISO88591,
-    UTF16LE,
-    UTF16BE,
-    UTF8,
-}
-
-///
-/// # Picture Type
-///
-/// See: PIC, APIC
-///
-/// [See](http://id3.org/id3v2.3.0#Attached_picture)
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum PictureType {
-    Other,
-    FileIcon,
-    OtherFileIcon,
-    CoverFront,
-    CoverBack,
-    LeafletPage,
-    Media,
-    LeadArtist,
-    Artist,
-    Conductor,
-    Band,
-    Composer,
-    Lyricist,
-    RecordingLocation,
-    DuringRecording,
-    DuringPerformance,
-    MovieScreenCapture,
-    BrightColouredFish,
-    Illustration,
-    BandLogotype,
-    PublisherLogoType,
-}
-
-///
-/// # Commercial frame
-///
-/// See: COMR
-///
-/// [See](http://id3.org/id3v2.3.0#Commercial_frame)
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ReceivedAs {
-    Other,
-    StandardCDAlbum,
-    CompressedAudioOnCD,
-    FileOverInternet,
-    StreamOverInternet,
-    AsNoteSheets,
-    AsNoteSheetsInBook,
-    MusicOnMedia,
-    NonMusicalMerchandise,
-}
-
-///
-/// # Interpolation method
-///
-/// See: EQU2
-///
-/// [See](http://id3.org/id3v2.4.0-frames) > 4.12. Equalisation (2)
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum InterpolationMethod {
-    Band,
-    Linear,
-}
-
-///
-/// # Content Type
-///
-/// See: SYLT
-///
-/// [See](http://id3.org/id3v2.4.0-frames) > 4.9. Synchronised lyrics/text
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum ContentType {
-    Other,
-    Lyrics,
-    TextTranscription,
-    MovementName,
-    Events,
-    Chord,
-    Trivia,
-    UrlsToWebpages,
-    UrlsToImages,
-}
-
-///
-/// # Timestamp format
-///
-/// See: ETCO, POSS, SYLT, SYTC
-///
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum TimestampFormat {
-    MpecFrames,
-    Milliseconds,
-}
-
-///
-/// # Event Timing Code
-///
-/// See: ETCO
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum EventTimingCode {
-    Padding(u32),
-    EndOfInitialSilence(u32),
-    IntroStart(u32),
-    MainPartStart(u32),
-    OutroStart(u32),
-    OutroEnd(u32),
-    VerseStart(u32),
-    RefrainStart(u32),
-    InterludeStart(u32),
-    ThemeStart(u32),
-    VariationStart(u32),
-    KeyChange(u32),
-    TimeChange(u32),
-    MomentaryUnwantedNoise(u32),
-    SustainedNoise(u32),
-    SustainedNoiseEnd(u32),
-    IntroEnd(u32),
-    MainPartEnd(u32),
-    VerseEnd(u32),
-    RefrainEnd(u32),
-    ThemeEnd(u32),
-    Profanity(u32),
-    ProfanityEnd(u32),
-    ReservedForFutureUse(u32, u8),
-    NotPredefinedSynch(u32, u8),
-    AudioEnd(u32),
-    AudioFileEnds(u32),
-    OneMoreByteOfEventsFollows(u32),
-}
-
-///
-/// # Frame header flag
-///
-/// [See](http://id3.org/id3v2.3.0#Frame_header_flags)
-///
-/// ## V2.4 only flags
-/// - Unsynchronisation
-/// - DataLength
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum FrameHeaderFlag {
-    TagAlter,
-    FileAlter,
-    ReadOnly,
-    Compression,
-    Encryption,
-    GroupIdentity,
-    //2.4 only
-    Unsynchronisation,
-    //2.4 only
-    DataLength,
-}
-
-///
-/// # Head flags
-///
-/// - [See](http://id3.org/id3v2.3.0#ID3v2_header)
-/// - [See](http://id3.org/id3v2.4.0-structure) > 3.1. ID3v2 header
-///
-/// ## V2.4 only flag
-/// - FooterPresent
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum HeadFlag {
-    Unsynchronisation,
-    Compression,
-    ExtendedHeader,
-    ExperimentalIndicator,
-    FooterPresent,
 }
 
 ///
@@ -695,359 +831,107 @@ pub enum HeadFlag {
 ///
 /// > Not yet tested!
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BUF {
-    pub buffer_size: u32,
-    pub embedded_info_flag: u8,
-    pub offset_to_next_tag: u32,
-}
-
-impl FrameReaderDefault<BUF> for BUF {
-    fn read(readable: &mut Readable) -> Result<BUF> {
-        let buffer_size = readable.u24()?;
-        let embedded_info_flag = readable.u8()?;
-        let offset_to_next_tag = readable.u32()?;
-
-        Ok(BUF {
-            buffer_size: buffer_size,
-            embedded_info_flag: embedded_info_flag,
-            offset_to_next_tag: offset_to_next_tag,
-        })
-    }
-}
-
-impl FrameWriterDefault for BUF {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u24(self.buffer_size)?;
-        writable.u8(self.embedded_info_flag)?;
-        writable.u32(self.offset_to_next_tag)
-    }
-}
+id3!(BUF {
+    buffer_size: Unsigned24 = -1,
+    embedded_info_flag: Unsigned8 = -1,
+    offset_to_next_tag: Unsigned32 = -1,
+});
 
 ///
 /// # Encrypted meta frame
 ///
 /// > Not yet tested!
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct CRM {
-    pub owner_identifier: String,
-    pub content: String,
-    pub encrypted_datablock: Vec<u8>,
-}
-
-impl FrameReaderDefault<CRM> for CRM {
-    fn read(readable: &mut Readable) -> Result<CRM> {
-        let owner_identifier = readable.non_utf16_string()?;
-        let content = readable.non_utf16_string()?;
-        let encrypted_datablock = readable.all_bytes()?;
-
-        Ok(CRM {
-            owner_identifier: owner_identifier,
-            content: content,
-            encrypted_datablock: encrypted_datablock,
-        })
-    }
-}
-
-impl FrameWriterDefault for CRM {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.non_utf16_string(self.owner_identifier.as_str())?;
-        writable.non_utf16_string(self.content.as_str())?;
-        writable.write(&self.encrypted_datablock)
-    }
-}
+id3!(CRM {
+    owner_identifier: NonUtf16String = -1,
+    content: NonUtf16String = -1,
+    encrypted_datablock: Bytes = 0,
+});
 
 ///
 /// # Attached picture
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PIC {
-    pub text_encoding: TextEncoding,
-    pub image_format: String,
-    pub picture_type: PictureType,
-    pub description: String,
-    pub picture_data: Vec<u8>,
-}
-
-impl FrameReaderDefault<PIC> for PIC {
-    fn read(readable: &mut Readable) -> Result<PIC> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let image_format = readable.string(3)?;
-        let picture_type = util::to_picture_type(readable.u8()?);
-        let description = util::read_null_terminated(&text_encoding, readable)?;
-        let picture_data = readable.all_bytes()?;
-
-        Ok(PIC {
-            text_encoding: text_encoding,
-            image_format: image_format,
-            picture_type: picture_type,
-            description: description,
-            picture_data: picture_data,
-        })
-    }
-}
-
-impl FrameWriterDefault for PIC {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.string(&self.image_format[0..3])?;
-        writable.u8(util::from_picture_type(&self.picture_type))?;
-        util::write_null_terminated(&self.text_encoding, self.description.as_str(), writable)?;
-        writable.write(&self.picture_data)
-    }
-}
+id3!(PIC {
+    text_encoding: TextEncoding = -1,
+    image_format: String = 3,
+    picture_type: PictureType = -1,
+    description: EncodedString = -1,
+    picture_data: Bytes = 0,
+});
 
 ///
 /// Audio encryption
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct AENC {
-    pub owner_identifier: String,
-    pub preview_start: u16,
-    pub preview_end: u16,
-    pub encryption_info: Vec<u8>,
-}
-
-impl FrameReaderDefault<AENC> for AENC {
-    fn read(readable: &mut Readable) -> Result<AENC> {
-        let owner_identifier = readable.non_utf16_string()?;
-        let preview_start = readable.u16()?;
-        let preview_end = readable.u16()?;
-        let encryption_info = readable.all_bytes()?;
-
-        Ok(AENC {
-            owner_identifier: owner_identifier,
-            preview_start: preview_start,
-            preview_end: preview_end,
-            encryption_info: encryption_info,
-        })
-    }
-}
-
-impl FrameWriterDefault for AENC {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.non_utf16_string(self.owner_identifier.as_str())?;
-        writable.u16(self.preview_start)?;
-        writable.u16(self.preview_end)?;
-        writable.write(&self.encryption_info)
-    }
-}
+id3!(AENC {
+    owner_identifier: NonUtf16String = -1,
+    preview_start: Unsigned16 = -1,
+    preview_end: Unsigned16 = -1,
+    encryption_info: Bytes = 0,
+});
 
 ///
 /// Attached picture
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct APIC {
-    pub text_encoding: TextEncoding,
-    pub mime_type: String,
-    pub picture_type: PictureType,
-    pub description: String,
-    pub picture_data: Vec<u8>,
-}
-
-impl FrameReaderDefault<APIC> for APIC {
-    fn read(readable: &mut Readable) -> Result<APIC> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let mine_type = readable.non_utf16_string()?;
-        let picture_type = util::to_picture_type(readable.u8()?);
-        let description = util::read_null_terminated(&text_encoding, readable)?;
-        let picture_data = readable.all_bytes()?;
-
-        Ok(APIC {
-            text_encoding: text_encoding,
-            mime_type: mine_type,
-            picture_type: picture_type,
-            description: description,
-            picture_data: picture_data,
-        })
-    }
-}
-
-impl FrameWriterDefault for APIC {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.non_utf16_string(self.mime_type.as_str())?;
-        writable.u8(util::from_picture_type(&self.picture_type))?;
-        util::write_null_terminated(&self.text_encoding, self.description.as_str(), writable)?;
-        writable.write(&self.picture_data)
-    }
-}
+id3!(APIC {
+    text_encoding: TextEncoding = -1,
+    mime_type: NonUtf16String = -1,
+    picture_type: PictureType = -1,
+    description: EncodedString = -1,
+    picture_data: Bytes = 0,
+});
 
 ///
 /// Audio seek point index
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ASPI {
-    pub indexed_data_start: u32,
-    pub indexed_data_length: u32,
-    pub number_of_index_points: u16,
-    pub bit_per_index_point: u8,
-    pub fraction_at_index: u8,
-}
-
-impl FrameReaderDefault<ASPI> for ASPI {
-    fn read(readable: &mut Readable) -> Result<ASPI> {
-        let indexed_data_start = readable.u32()?;
-        let indexed_data_length = readable.u32()?;
-        let number_of_index_points = readable.u16()?;
-        let bit_per_index_point = readable.u8()?;
-        let fraction_at_index = readable.u8()?;
-
-        Ok(ASPI {
-            indexed_data_start: indexed_data_start,
-            indexed_data_length: indexed_data_length,
-            number_of_index_points: number_of_index_points,
-            bit_per_index_point: bit_per_index_point,
-            fraction_at_index: fraction_at_index,
-        })
-    }
-}
-
-impl FrameWriterDefault for ASPI {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u32(self.indexed_data_start)?;
-        writable.u32(self.indexed_data_length)?;
-        writable.u16(self.number_of_index_points)?;
-        writable.u8(self.bit_per_index_point)?;
-        writable.u8(self.fraction_at_index)
-    }
-}
+id3!(ASPI {
+    indexed_data_start: Unsigned32 = -1,
+    indexed_data_length: Unsigned32 = -1,
+    number_of_index_points: Unsigned16 = -1,
+    bit_per_index_point: Unsigned8 = -1,
+    fraction_at_index: Unsigned8 = -1,
+});
 
 ///
 /// Comments
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct COMM {
-    pub text_encoding: TextEncoding,
-    pub language: String,
-    pub short_description: String,
-    pub actual_text: String,
-}
-
-impl FrameReaderDefault<COMM> for COMM {
-    fn read(readable: &mut Readable) -> Result<COMM> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let language = readable.string(3)?;
-        let short_description = util::read_null_terminated(&text_encoding, readable)?;
-        let actual_text = self::trim(readable.all_string()?);
-
-        Ok(COMM {
-            text_encoding: text_encoding,
-            language: language,
-            short_description: short_description,
-            actual_text: actual_text,
-        })
-    }
-}
-
-impl FrameWriterDefault for COMM {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.string(&self.language[0..3])?;
-        util::write_null_terminated(&self.text_encoding,
-                                    self.short_description.as_str(),
-                                    writable)?;
-        writable.string(self.actual_text.as_str())
-    }
-}
+id3!(COMM {
+    text_encoding: TextEncoding = -1,
+    language: String = 3,
+    short_description: EncodedString = -1,
+    actual_text: String = 0,
+});
 
 ///
 /// Commercial frame
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct COMR {
-    pub text_encoding: TextEncoding,
-    pub price_string: String,
-    // 8 bit long
-    pub valid_until: String,
-    pub contact_url: String,
-    pub received_as: ReceivedAs,
-    pub name_of_seller: String,
-    pub description: String,
-    pub picture_mime_type: String,
-    pub seller_logo: Vec<u8>,
-}
-
-impl FrameReaderDefault<COMR> for COMR {
-    fn read(readable: &mut Readable) -> Result<COMR> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let price_string = readable.non_utf16_string()?;
-        let valid_until = readable.string(8)?;
-        let contact_url = readable.non_utf16_string()?;
-        let received_as = util::to_received_as(readable.u8()?);
-        let name_of_seller = readable.utf16_string()?;
-        let description = readable.utf16_string()?;
-        let picture_mime_type = readable.non_utf16_string()?;
-        let seller_logo = readable.all_bytes()?;
-
-        Ok(COMR {
-            text_encoding: text_encoding,
-            price_string: price_string,
-            valid_until: valid_until,
-            contact_url: contact_url,
-            received_as: received_as,
-            name_of_seller: name_of_seller,
-            description: description,
-            picture_mime_type: picture_mime_type,
-            seller_logo: seller_logo,
-        })
-    }
-}
-
-impl FrameWriterDefault for COMR {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.string(self.price_string.as_str())?;
-        writable.string(&self.valid_until[0..8])?;
-        writable.non_utf16_string(self.contact_url.as_str())?;
-        writable.u8(util::from_received_as(&self.received_as))?;
-        writable.utf16_string(self.name_of_seller.as_str())?;
-        writable.string(self.description.as_str())?;
-        writable.non_utf16_string(self.picture_mime_type.as_str())?;
-        writable.write(&self.seller_logo)
-    }
-}
+id3!(COMR {
+    text_encoding: TextEncoding = -1,
+    price_string: NonUtf16String = -1,
+    valid_until: String = 8,
+    contact_url: NonUtf16String = -1,
+    received_as: ReceivedAs = -1,
+    name_of_seller: Utf16String = -1,
+    description: Utf16String = -1,
+    picture_mime_type: NonUtf16String = -1,
+    seller_logo: Bytes = 0,
+});
 
 ///
 /// Encryption method registration
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ENCR {
-    pub owner_identifier: String,
-    pub method_symbol: u8,
-    pub encryption_data: Vec<u8>,
-}
-
-impl FrameReaderDefault<ENCR> for ENCR {
-    fn read(readable: &mut Readable) -> Result<ENCR> {
-        let owner_identifier = readable.non_utf16_string()?;
-        let method_symbol = readable.u8()?;
-        let encryption_data = readable.all_bytes()?;
-
-        Ok(ENCR {
-            owner_identifier: owner_identifier,
-            method_symbol: method_symbol,
-            encryption_data: encryption_data,
-        })
-    }
-}
-
-impl FrameWriterDefault for ENCR {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.string(self.owner_identifier.as_str())?;
-        writable.u8(self.method_symbol)?;
-        writable.write(&self.encryption_data)
-    }
-}
+id3!(ENCR {
+    owner_identifier: NonUtf16String = -1,
+    method_symbol: Unsigned8 = -1,
+    encryption_data: Bytes = 0,
+});
 
 ///
 /// Equalisation
@@ -1055,53 +939,724 @@ impl FrameWriterDefault for ENCR {
 ///**Not yet tested!**
 ///**Not yet implemented!**
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct EQUA {
-    pub data: Vec<u8>,
-}
-
-impl FrameReaderDefault<EQUA> for EQUA {
-    fn read(readable: &mut Readable) -> Result<EQUA> {
-        let data = readable.all_bytes()?;
-
-        Ok(EQUA { data: data })
-    }
-}
-
-impl FrameWriterDefault for EQUA {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.write(&self.data)
-    }
-}
+id3!(EQUA { data: Bytes = 0 });
 
 ///
 /// Equalisation (2)
 ///
 ///**Not yet tested!**
 ///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct EQU2 {
-    pub interpolation_method: InterpolationMethod,
-    pub identification: String,
+id3!(EQU2 {
+    interpolation_method: InterpolationMethod = -1,
+    identification: NonUtf16String = -1,
+});
+
+///
+/// General encapsulated object
+///
+id3!(GEOB {
+    text_encoding: TextEncoding = -1,
+    mime_type: NonUtf16String = -1,
+    filename: EncodedString = -1,
+    content_description: EncodedString = -1,
+    encapsulation_object: Bytes = 0,
+});
+
+///
+/// Group identification registration
+///
+///**Not yet tested!**
+///
+id3!(GRID {
+    owner_identifier: NonUtf16String = -1,
+    group_symbol: Unsigned8 = -1,
+    group_dependent_data: Bytes = 0,
+});
+
+///
+/// Involved people list
+///
+id3!(IPLS {
+    text_encoding: TextEncoding = -1,
+    people_list_strings: EncodedString = -1,
+});
+
+///
+/// Linked information
+///
+id3!(LINK {
+    frame_identifier: VersionString = -1,
+    url: NonUtf16String = -1,
+    additional_data: String = 0,
+});
+
+///
+/// Music CD identifier
+///
+id3!(MCDI { cd_toc: Bytes = 0 });
+
+///
+/// # MPEG location lookup table
+///
+/// > Not yet tested!
+/// > Not yet implemented!
+///
+id3!(MLLT { data: Bytes = 0 });
+
+///
+/// Ownership frame
+///
+///**Not yet tested!**
+///
+id3!(OWNE {
+    text_encoding: TextEncoding = -1,
+    price_paid: NonUtf16String = -1,
+    date_of_purch: String = 4,
+    seller: EncodedString = -1,
+});
+
+///
+/// Private frame
+///
+///**Not yet tested!**
+///
+id3!(PRIV {
+    owner_identifier: NonUtf16String = -1,
+    private_data: Bytes = 0,
+});
+
+///
+/// Play counter
+///
+///**It support that only the 32-bit unsigned integer type**
+///
+id3!(PCNT { counter: Unsigned32 = -1 });
+
+///
+/// Popularimeter
+///
+///**Not yet tested!**
+///`counter`: support that only the 32-bit unsigned integer type
+///
+id3!(POPM {
+    email_to_user: NonUtf16String = -1,
+    rating: Unsigned8 = -1,
+    // NOTE it support that only the 32-bit unsigned integer type.
+    counter: Unsigned32 = -1,
+});
+
+///
+/// Position synchronisation frame
+///
+///**Not yet tested!**
+///
+id3!(POSS {
+    timestamp_format: TimestampFormat = -1,
+    // TODO not yet implemented!
+    position: Bytes = 0,
+});
+
+///
+/// Recommended buffer size
+///
+///**Not yet tested!**
+///
+id3!(RBUF {
+    buffer_size: Unsigned24 = -1,
+    embedded_info_flag: Unsigned8 = -1,
+    offset_to_next_tag: Unsigned32 = -1,
+});
+
+///
+/// Relative volume adjustment (2)
+///
+///**Not yet tested!**
+///**Not yet implemented!**
+///
+id3!(RVA2 { data: Bytes = 0 });
+
+///
+/// Reverb
+///
+///**Not yet tested!**
+///
+id3!(RVRB {
+    reverb_left: Unsigned16 = -1,
+    reverb_right: Unsigned16 = -1,
+    reverb_bounce_left: Unsigned8 = -1,
+    reverb_bounce_right: Unsigned8 = -1,
+    reverb_feedback_left_to_left: Unsigned8 = -1,
+    reverb_feedback_left_to_right: Unsigned8 = -1,
+    reverb_feedback_right_to_right: Unsigned8 = -1,
+    reverb_feedback_right_to_left: Unsigned8 = -1,
+    premix_left_to_right: Unsigned8 = -1,
+    premix_right_to_left: Unsigned8 = -1,
+});
+
+///
+/// Seek frame
+///
+///**Not yet tested!**
+///
+id3!(SEEK { next_tag: String = 0 });
+
+///
+/// Signature frame
+///
+///**Not yet tested!**
+///
+id3!(SIGN {
+    group_symbol: Unsigned8 = -1,
+    signature: Bytes = 0,
+});
+
+///
+/// Synchronised lyric/text
+///
+///**Not yet tested!**
+///
+id3!(SYLT {
+    text_encoding: TextEncoding = -1,
+    language: String = 3,
+    timestamp_format: TimestampFormat = -1,
+    content_type: ContentType = -1,
+    content_descriptor: EncodedString = -1,
+});
+
+///
+/// Synchronised tempo codes
+///
+///**Not yet tested!**
+///
+id3!(SYTC {
+    timestamp_format: TimestampFormat = -1,
+    tempo_data: Bytes = 0,
+});
+
+///
+/// Unique file identifier
+///
+///**Not yet tested!**
+///
+id3!(UFID {
+    owner_identifier: NonUtf16String = -1,
+    identifier: Bytes = 0,
+});
+
+///
+/// Terms of use
+///
+///**Not yet tested!**
+///
+id3!(USER {
+    text_encoding: TextEncoding = -1,
+    language: String = 3,
+    actual_text: EncodedString = -1,
+});
+
+///
+/// Unsynchronised lyric/text transcription
+///
+///**Not yet tested!**
+///
+id3!(USLT {
+    text_encoding: TextEncoding = -1,
+    language: String = 3,
+    content_descriptor: EncodedString = -1,
+    lyrics: EncodedString = -1,
+});
+
+///
+/// User defined text information frame
+///
+id3!(TXXX {
+    text_encoding: TextEncoding = -1,
+    description: EncodedString = -1,
+    value: String = 0,
+});
+
+///
+/// User defined URL link frame
+///
+///**Not yet tested!**
+///
+id3!(WXXX {
+    text_encoding: TextEncoding = -1,
+    description: EncodedString = -1,
+    url: String = 0,
+});
+
+///
+/// Write anonymous bytes
+///
+id3!(OBJECT { data: Bytes = 0 });
+
+pub mod types {
+    pub const BIT7: u8 = 0x80;
+    pub const BIT6: u8 = 0x40;
+    pub const BIT5: u8 = 0x20;
+    pub const BIT4: u8 = 0x10;
+    pub const BIT3: u8 = 0x08;
+    pub const BIT2: u8 = 0x04;
+    pub const BIT1: u8 = 0x02;
+    pub const BIT0: u8 = 0x01;
+
+    pub fn to_picture_type(t: u8) -> PictureType {
+        match t {
+            0x00 => PictureType::Other,
+            0x01 => PictureType::FileIcon,
+            0x02 => PictureType::OtherFileIcon,
+            0x03 => PictureType::CoverFront,
+            0x04 => PictureType::CoverBack,
+            0x05 => PictureType::LeafletPage,
+            0x06 => PictureType::Media,
+            0x07 => PictureType::LeadArtist,
+            0x08 => PictureType::Artist,
+            0x09 => PictureType::Conductor,
+            0x0a => PictureType::Band,
+            0x0b => PictureType::Composer,
+            0x0c => PictureType::Lyricist,
+            0x0d => PictureType::RecordingLocation,
+            0x0e => PictureType::DuringRecording,
+            0x0f => PictureType::DuringPerformance,
+            0x10 => PictureType::MovieScreenCapture,
+            0x11 => PictureType::BrightColouredFish,
+            0x12 => PictureType::Illustration,
+            0x13 => PictureType::BandLogotype,
+            0x14 => PictureType::PublisherLogoType,
+            _ => PictureType::Other,
+        }
+    }
+
+    pub fn from_picture_type(t: &PictureType) -> u8 {
+        match t {
+            &PictureType::Other => 0x00,
+            &PictureType::FileIcon => 0x01,
+            &PictureType::OtherFileIcon => 0x02,
+            &PictureType::CoverFront => 0x03,
+            &PictureType::CoverBack => 0x04,
+            &PictureType::LeafletPage => 0x05,
+            &PictureType::Media => 0x06,
+            &PictureType::LeadArtist => 0x07,
+            &PictureType::Artist => 0x08,
+            &PictureType::Conductor => 0x09,
+            &PictureType::Band => 0x0a,
+            &PictureType::Composer => 0x0b,
+            &PictureType::Lyricist => 0x0c,
+            &PictureType::RecordingLocation => 0x0d,
+            &PictureType::DuringRecording => 0x0e,
+            &PictureType::DuringPerformance => 0x0f,
+            &PictureType::MovieScreenCapture => 0x10,
+            &PictureType::BrightColouredFish => 0x11,
+            &PictureType::Illustration => 0x12,
+            &PictureType::BandLogotype => 0x13,
+            &PictureType::PublisherLogoType => 0x14,
+        }
+    }
+
+    pub fn to_received_as(t: u8) -> ReceivedAs {
+        match t {
+            0x00 => ReceivedAs::Other,
+            0x01 => ReceivedAs::StandardCDAlbum,
+            0x02 => ReceivedAs::CompressedAudioOnCD,
+            0x03 => ReceivedAs::FileOverInternet,
+            0x04 => ReceivedAs::StreamOverInternet,
+            0x05 => ReceivedAs::AsNoteSheets,
+            0x06 => ReceivedAs::AsNoteSheetsInBook,
+            0x07 => ReceivedAs::MusicOnMedia,
+            0x08 => ReceivedAs::NonMusicalMerchandise,
+            _ => ReceivedAs::Other,
+        }
+    }
+
+    pub fn from_received_as(t: &ReceivedAs) -> u8 {
+        match t {
+            &ReceivedAs::Other => 0x00,
+            &ReceivedAs::StandardCDAlbum => 0x01,
+            &ReceivedAs::CompressedAudioOnCD => 0x02,
+            &ReceivedAs::FileOverInternet => 0x03,
+            &ReceivedAs::StreamOverInternet => 0x04,
+            &ReceivedAs::AsNoteSheets => 0x05,
+            &ReceivedAs::AsNoteSheetsInBook => 0x06,
+            &ReceivedAs::MusicOnMedia => 0x07,
+            &ReceivedAs::NonMusicalMerchandise => 0x08,
+        }
+    }
+
+    pub fn to_interpolation_method(t: u8) -> InterpolationMethod {
+        match t {
+            0x00 => InterpolationMethod::Band,
+            0x01 => InterpolationMethod::Linear,
+            _ => InterpolationMethod::Band,
+        }
+    }
+
+    pub fn from_interpolation_method(t: &InterpolationMethod) -> u8 {
+        match t {
+            &InterpolationMethod::Band => 0x00,
+            &InterpolationMethod::Linear => 0x01,
+        }
+    }
+
+    pub fn to_timestamp_format(t: u8) -> TimestampFormat {
+        match t {
+            0x01 => TimestampFormat::MpecFrames,
+            0x02 => TimestampFormat::Milliseconds,
+            _ => TimestampFormat::MpecFrames,
+        }
+    }
+
+    pub fn from_timestamp_format(t: &TimestampFormat) -> u8 {
+        match t {
+            &TimestampFormat::MpecFrames => 0x01,
+            &TimestampFormat::Milliseconds => 0x02,
+        }
+    }
+
+    pub fn to_event_timing_code(t: u8, timestamp: u32) -> EventTimingCode {
+        match t {
+            0x00 => EventTimingCode::Padding(timestamp),
+            0x01 => EventTimingCode::EndOfInitialSilence(timestamp),
+            0x02 => EventTimingCode::IntroStart(timestamp),
+            0x03 => EventTimingCode::MainPartStart(timestamp),
+            0x04 => EventTimingCode::OutroStart(timestamp),
+            0x05 => EventTimingCode::OutroEnd(timestamp),
+            0x06 => EventTimingCode::VerseStart(timestamp),
+            0x07 => EventTimingCode::RefrainStart(timestamp),
+            0x08 => EventTimingCode::InterludeStart(timestamp),
+            0x09 => EventTimingCode::ThemeStart(timestamp),
+            0x0a => EventTimingCode::VariationStart(timestamp),
+            0x0b => EventTimingCode::KeyChange(timestamp),
+            0x0c => EventTimingCode::TimeChange(timestamp),
+            0x0d => EventTimingCode::MomentaryUnwantedNoise(timestamp),
+            0x0e => EventTimingCode::SustainedNoise(timestamp),
+            0x0f => EventTimingCode::SustainedNoiseEnd(timestamp),
+            0x10 => EventTimingCode::IntroEnd(timestamp),
+            0x11 => EventTimingCode::MainPartEnd(timestamp),
+            0x12 => EventTimingCode::VerseEnd(timestamp),
+            0x13 => EventTimingCode::RefrainEnd(timestamp),
+            0x14 => EventTimingCode::ThemeEnd(timestamp),
+            0x15 => EventTimingCode::Profanity(timestamp),
+            0x16 => EventTimingCode::ProfanityEnd(timestamp),
+            0x17...0xdf => EventTimingCode::ReservedForFutureUse(timestamp, t),
+            0xe0...0xef => EventTimingCode::NotPredefinedSynch(timestamp, t),
+            0xf0...0xfc => EventTimingCode::ReservedForFutureUse(timestamp, t),
+            0xfd => EventTimingCode::AudioEnd(timestamp),
+            0xfe => EventTimingCode::AudioFileEnds(timestamp),
+            0xff => EventTimingCode::OneMoreByteOfEventsFollows(timestamp),
+            _ => EventTimingCode::Padding(timestamp),
+        }
+    }
+
+    pub fn from_event_timing_code(e: &EventTimingCode) -> (u8, u32) {
+        match e {
+            &EventTimingCode::Padding(timestamp) => (0x00, timestamp),
+            &EventTimingCode::EndOfInitialSilence(timestamp) => (0x01, timestamp),
+            &EventTimingCode::IntroStart(timestamp) => (0x02, timestamp),
+            &EventTimingCode::MainPartStart(timestamp) => (0x03, timestamp),
+            &EventTimingCode::OutroStart(timestamp) => (0x04, timestamp),
+            &EventTimingCode::OutroEnd(timestamp) => (0x05, timestamp),
+            &EventTimingCode::VerseStart(timestamp) => (0x06, timestamp),
+            &EventTimingCode::RefrainStart(timestamp) => (0x07, timestamp),
+            &EventTimingCode::InterludeStart(timestamp) => (0x08, timestamp),
+            &EventTimingCode::ThemeStart(timestamp) => (0x09, timestamp),
+            &EventTimingCode::VariationStart(timestamp) => (0x0a, timestamp),
+            &EventTimingCode::KeyChange(timestamp) => (0x0b, timestamp),
+            &EventTimingCode::TimeChange(timestamp) => (0x0c, timestamp),
+            &EventTimingCode::MomentaryUnwantedNoise(timestamp) => (0x0d, timestamp),
+            &EventTimingCode::SustainedNoise(timestamp) => (0x0e, timestamp),
+            &EventTimingCode::SustainedNoiseEnd(timestamp) => (0x0f, timestamp),
+            &EventTimingCode::IntroEnd(timestamp) => (0x10, timestamp),
+            &EventTimingCode::MainPartEnd(timestamp) => (0x11, timestamp),
+            &EventTimingCode::VerseEnd(timestamp) => (0x12, timestamp),
+            &EventTimingCode::RefrainEnd(timestamp) => (0x13, timestamp),
+            &EventTimingCode::ThemeEnd(timestamp) => (0x14, timestamp),
+            &EventTimingCode::Profanity(timestamp) => (0x15, timestamp),
+            &EventTimingCode::ProfanityEnd(timestamp) => (0x16, timestamp),
+            &EventTimingCode::ReservedForFutureUse(timestamp, t) => {
+                if (0x17 <= t && t < 0xdf) || (0xf0 <= t && t < 0xfc) {
+                    (t, timestamp)
+                } else {
+                    (0x17, timestamp)
+                }
+            }
+            &EventTimingCode::NotPredefinedSynch(timestamp, t) => {
+                if 0xe0 <= t && t < 0xef {
+                    (t, timestamp)
+                } else {
+                    (0xe0, timestamp)
+                }
+            }
+            &EventTimingCode::AudioEnd(timestamp) => (0xfd, timestamp),
+            &EventTimingCode::AudioFileEnds(timestamp) => (0xfe, timestamp),
+            &EventTimingCode::OneMoreByteOfEventsFollows(timestamp) => (0xff, timestamp),
+        }
+    }
+
+    pub fn to_content_type(t: u8) -> ContentType {
+        match t {
+            0x00 => ContentType::Other,
+            0x01 => ContentType::Lyrics,
+            0x02 => ContentType::TextTranscription,
+            0x03 => ContentType::MovementName,
+            0x04 => ContentType::Events,
+            0x05 => ContentType::Chord,
+            0x06 => ContentType::Trivia,
+            0x07 => ContentType::UrlsToWebpages,
+            0x08 => ContentType::UrlsToImages,
+            _ => ContentType::Other,
+        }
+    }
+
+    pub fn from_content_type(t: &ContentType) -> u8 {
+        match t {
+            &ContentType::Other => 0x00,
+            &ContentType::Lyrics => 0x01,
+            &ContentType::TextTranscription => 0x02,
+            &ContentType::MovementName => 0x03,
+            &ContentType::Events => 0x04,
+            &ContentType::Chord => 0x05,
+            &ContentType::Trivia => 0x06,
+            &ContentType::UrlsToWebpages => 0x07,
+            &ContentType::UrlsToImages => 0x08,
+        }
+    }
+
+    pub fn to_encoding(encoding: u8) -> TextEncoding {
+        match encoding {
+            0 => TextEncoding::ISO88591,
+            1 => TextEncoding::UTF16LE,
+            2 => TextEncoding::UTF16BE,
+            3 => TextEncoding::UTF8,
+            _ => TextEncoding::ISO88591,
+        }
+    }
+
+    pub fn from_encoding(encoding: &TextEncoding) -> u8 {
+        match encoding {
+            &TextEncoding::ISO88591 => 0,
+            &TextEncoding::UTF16LE => 1,
+            &TextEncoding::UTF16BE => 2,
+            &TextEncoding::UTF8 => 3,
+        }
+    }
+
+    pub fn to_iso8859_1(bytes: &Vec<u8>) -> String {
+        use super::encoding::all::ISO_8859_1;
+        use super::encoding::{Encoding, DecoderTrap};
+        match ISO_8859_1.decode(&bytes, DecoderTrap::Strict) {
+            Ok(value) => value.to_string(),
+            _ => "".to_string(),
+        }
+    }
+
+    pub fn from_iso8859_1(v: &String, len: usize) -> Vec<u8> {
+        use super::encoding::all::ISO_8859_1;
+        use super::encoding::{Encoding, EncoderTrap};
+        let mut v = match ISO_8859_1.encode(&v, EncoderTrap::Strict) {
+            Ok(value) => value,
+            _ => vec![0u8; len],
+        };
+
+        for i in v.len()..len {
+            v[i] = 0;
+        }
+        v.to_vec()
+    }
+
+    ///
+    /// # Frame Encoding
+    ///
+    /// [See](http://id3.org/id3v2.4.0-structure) > 4. ID3v2 frame overview
+    ///
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub enum TextEncoding {
+        ISO88591,
+        UTF16LE,
+        UTF16BE,
+        UTF8,
+    }
+
+    ///
+    /// # Picture Type
+    ///
+    /// See: PIC, APIC
+    ///
+    /// [See](http://id3.org/id3v2.3.0#Attached_picture)
+    ///
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub enum PictureType {
+        Other,
+        FileIcon,
+        OtherFileIcon,
+        CoverFront,
+        CoverBack,
+        LeafletPage,
+        Media,
+        LeadArtist,
+        Artist,
+        Conductor,
+        Band,
+        Composer,
+        Lyricist,
+        RecordingLocation,
+        DuringRecording,
+        DuringPerformance,
+        MovieScreenCapture,
+        BrightColouredFish,
+        Illustration,
+        BandLogotype,
+        PublisherLogoType,
+    }
+
+    ///
+    /// # Commercial frame
+    ///
+    /// See: COMR
+    ///
+    /// [See](http://id3.org/id3v2.3.0#Commercial_frame)
+    ///
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub enum ReceivedAs {
+        Other,
+        StandardCDAlbum,
+        CompressedAudioOnCD,
+        FileOverInternet,
+        StreamOverInternet,
+        AsNoteSheets,
+        AsNoteSheetsInBook,
+        MusicOnMedia,
+        NonMusicalMerchandise,
+    }
+
+    ///
+    /// # Interpolation method
+    ///
+    /// See: EQU2
+    ///
+    /// [See](http://id3.org/id3v2.4.0-frames) > 4.12. Equalisation (2)
+    ///
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub enum InterpolationMethod {
+        Band,
+        Linear,
+    }
+
+    ///
+    /// # Content Type
+    ///
+    /// See: SYLT
+    ///
+    /// [See](http://id3.org/id3v2.4.0-frames) > 4.9. Synchronised lyrics/text
+    ///
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub enum ContentType {
+        Other,
+        Lyrics,
+        TextTranscription,
+        MovementName,
+        Events,
+        Chord,
+        Trivia,
+        UrlsToWebpages,
+        UrlsToImages,
+    }
+
+    ///
+    /// # Timestamp format
+    ///
+    /// See: ETCO, POSS, SYLT, SYTC
+    ///
+    ///
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub enum TimestampFormat {
+        MpecFrames,
+        Milliseconds,
+    }
+
+    ///
+    /// # Event Timing Code
+    ///
+    /// See: ETCO
+    ///
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub enum EventTimingCode {
+        Padding(u32),
+        EndOfInitialSilence(u32),
+        IntroStart(u32),
+        MainPartStart(u32),
+        OutroStart(u32),
+        OutroEnd(u32),
+        VerseStart(u32),
+        RefrainStart(u32),
+        InterludeStart(u32),
+        ThemeStart(u32),
+        VariationStart(u32),
+        KeyChange(u32),
+        TimeChange(u32),
+        MomentaryUnwantedNoise(u32),
+        SustainedNoise(u32),
+        SustainedNoiseEnd(u32),
+        IntroEnd(u32),
+        MainPartEnd(u32),
+        VerseEnd(u32),
+        RefrainEnd(u32),
+        ThemeEnd(u32),
+        Profanity(u32),
+        ProfanityEnd(u32),
+        ReservedForFutureUse(u32, u8),
+        NotPredefinedSynch(u32, u8),
+        AudioEnd(u32),
+        AudioFileEnds(u32),
+        OneMoreByteOfEventsFollows(u32),
+    }
+
+    ///
+    /// # Frame header flag
+    ///
+    /// [See](http://id3.org/id3v2.3.0#Frame_header_flags)
+    ///
+    /// ## V2.4 only flags
+    /// - Unsynchronisation
+    /// - DataLength
+    ///
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub enum FrameHeaderFlag {
+        TagAlter,
+        FileAlter,
+        ReadOnly,
+        Compression,
+        Encryption,
+        GroupIdentity,
+        //2.4 only
+        Unsynchronisation,
+        //2.4 only
+        DataLength,
+    }
+
+    ///
+    /// # Head flags
+    ///
+    /// - [See](http://id3.org/id3v2.3.0#ID3v2_header)
+    /// - [See](http://id3.org/id3v2.4.0-structure) > 3.1. ID3v2 header
+    ///
+    /// ## V2.4 only flag
+    /// - FooterPresent
+    ///
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub enum HeadFlag {
+        Unsynchronisation,
+        Compression,
+        ExtendedHeader,
+        ExperimentalIndicator,
+        FooterPresent,
+    }
+
 }
 
-impl FrameReaderDefault<EQU2> for EQU2 {
-    fn read(readable: &mut Readable) -> Result<EQU2> {
-        let interpolation_method = util::to_interpolation_method(readable.u8()?);
-        let identification = readable.non_utf16_string()?;
-
-        Ok(EQU2 {
-            interpolation_method: interpolation_method,
-            identification: identification,
-        })
-    }
-}
-
-impl FrameWriterDefault for EQU2 {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_interpolation_method(&self.interpolation_method))?;
-        writable.string(self.identification.as_str())
-    }
+pub trait FlagAware<T> {
+    fn has_flag(&self, flag: T) -> bool;
+    fn set_flag(&mut self, flag: T);
 }
 
 ///
@@ -1113,15 +1668,19 @@ pub struct ETCO {
     pub event_timing_codes: Vec<EventTimingCode>,
 }
 
-impl FrameReaderDefault<ETCO> for ETCO {
-    fn read(readable: &mut Readable) -> Result<ETCO> {
-        let timestamp_format = util::to_timestamp_format(readable.u8()?);
+impl ETCO {
+    pub fn read(readable: &mut Readable, version: u8, id: &str) -> Result<ETCO> {
+        let _ = version;
+        let _ = id;
+        let timestamp_format = types::to_timestamp_format(readable.read_u8()?);
         let mut event_timing_codes: Vec<EventTimingCode> = Vec::new();
+
         loop {
             let mut is_break = true;
-            if let Ok(code_type) = readable.u8() {
-                if let Ok(timestamp) = readable.u32() {
-                    let event_timing_code = util::to_event_timing_code(code_type, timestamp);
+
+            if let Ok(code_type) = readable.read_u8() {
+                if let Ok(timestamp) = readable.read_u32() {
+                    let event_timing_code = types::to_event_timing_code(code_type, timestamp);
                     event_timing_codes.push(event_timing_code);
                     is_break = false;
                 }
@@ -1137,723 +1696,18 @@ impl FrameReaderDefault<ETCO> for ETCO {
             event_timing_codes: event_timing_codes,
         })
     }
-}
 
-impl FrameWriterDefault for ETCO {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_timestamp_format(&self.timestamp_format))?;
+    pub fn write(&self, writable: &mut Writable, version: u8) -> Result<()> {
+        let _ = version;
+
+        writable.write_u8(types::from_timestamp_format(&self.timestamp_format))?;
         for e in &self.event_timing_codes {
-            let (code, timestamp) = util::from_event_timing_code(&e);
-            writable.u8(code)?;
-            writable.u32(timestamp)?;
+            let (code, timestamp) = types::from_event_timing_code(&e);
+            writable.write_u8(code)?;
+            writable.write_u32(timestamp)?;
         }
 
         Ok((()))
-    }
-}
-
-///
-/// General encapsulated object
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct GEOB {
-    pub text_encoding: TextEncoding,
-    pub mime_type: String,
-    pub filename: String,
-    pub content_description: String,
-    pub encapsulation_object: Vec<u8>,
-}
-
-impl FrameReaderDefault<GEOB> for GEOB {
-    fn read(readable: &mut Readable) -> Result<GEOB> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let mime_type = readable.non_utf16_string()?;
-        let filename = util::read_null_terminated(&text_encoding, readable)?;
-        let content_description = util::read_null_terminated(&text_encoding, readable)?;
-        let encapsulation_object = readable.all_bytes()?;
-
-        Ok(GEOB {
-            text_encoding: text_encoding,
-            mime_type: mime_type,
-            filename: filename,
-            content_description: content_description,
-            encapsulation_object: encapsulation_object,
-        })
-    }
-}
-
-impl FrameWriterDefault for GEOB {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.non_utf16_string(self.mime_type.as_str())?;
-        util::write_null_terminated(&self.text_encoding, self.filename.as_str(), writable)?;
-        util::write_null_terminated(&self.text_encoding,
-                                    self.content_description.as_str(),
-                                    writable)?;
-        writable.write(&self.encapsulation_object)
-    }
-}
-
-///
-/// Group identification registration
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct GRID {
-    pub owner_identifier: String,
-    pub group_symbol: u8,
-    pub group_dependent_data: Vec<u8>,
-}
-
-impl FrameReaderDefault<GRID> for GRID {
-    fn read(readable: &mut Readable) -> Result<GRID> {
-        let owner_identifier = readable.non_utf16_string()?;
-        let group_symbol = readable.u8()?;
-        let group_dependent_data = readable.all_bytes()?;
-
-        Ok(GRID {
-            owner_identifier: owner_identifier,
-            group_symbol: group_symbol,
-            group_dependent_data: group_dependent_data,
-        })
-    }
-}
-
-impl FrameWriterDefault for GRID {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.non_utf16_string(self.owner_identifier.as_str())?;
-        writable.u8(self.group_symbol)?;
-        writable.write(&self.group_dependent_data)
-    }
-}
-
-///
-/// Involved people list
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IPLS {
-    pub text_encoding: TextEncoding,
-    pub people_list_strings: String,
-}
-
-impl FrameReaderDefault<IPLS> for IPLS {
-    fn read(readable: &mut Readable) -> Result<IPLS> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let people_list_strings = util::read_null_terminated(&text_encoding, readable)?;
-
-        Ok(IPLS {
-            text_encoding: text_encoding,
-            people_list_strings: people_list_strings,
-        })
-    }
-}
-
-impl FrameWriterDefault for IPLS {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.string(self.people_list_strings.as_str())
-    }
-}
-
-///
-/// Linked information
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LINK {
-    pub frame_identifier: String,
-    pub url: String,
-    pub additional_data: String,
-}
-
-impl FrameReaderVersionAware<LINK> for LINK {
-    fn read(readable: &mut Readable, version: u8) -> Result<LINK> {
-        let frame_id = match version {
-            2 | 3 => readable.string(3)?,
-            _ => readable.string(4)?,
-        };
-        let url = readable.non_utf16_string()?;
-        let additional_data = readable.all_string()?;
-
-        Ok(LINK {
-            frame_identifier: frame_id,
-            url: url,
-            additional_data: additional_data,
-        })
-    }
-}
-
-impl FrameWriterVersionAware<LINK> for LINK {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>, version: u8) -> Result<()> {
-        match version {
-            2 | 3 => writable.string(&self.frame_identifier[0..3])?,
-            _ => writable.string(&self.frame_identifier[0..4])?,
-        }
-        writable.string(self.url.as_str())?;
-        writable.string(self.additional_data.as_str())?;
-
-        Ok(())
-    }
-}
-
-///
-/// Music CD identifier
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct MCDI {
-    pub cd_toc: Vec<u8>,
-}
-
-impl FrameReaderDefault<MCDI> for MCDI {
-    fn read(readable: &mut Readable) -> Result<MCDI> {
-        let cd_toc = readable.all_bytes()?;
-
-        Ok(MCDI { cd_toc: cd_toc })
-    }
-}
-
-impl FrameWriterDefault for MCDI {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.write(&self.cd_toc)
-    }
-}
-
-///
-/// # MPEG location lookup table
-///
-/// > Not yet tested!
-/// > Not yet implemented!
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct MLLT {
-    pub data: Vec<u8>,
-}
-
-impl FrameReaderDefault<MLLT> for MLLT {
-    fn read(readable: &mut Readable) -> Result<MLLT> {
-        let data = readable.all_bytes()?;
-
-        Ok(MLLT { data: data })
-    }
-}
-
-impl FrameWriterDefault for MLLT {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.write(&self.data)
-    }
-}
-
-///
-/// Ownership frame
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct OWNE {
-    pub text_encoding: TextEncoding,
-    pub price_paid: String,
-    // 8 bit long
-    pub date_of_purch: String,
-    pub seller: String,
-}
-
-impl FrameReaderDefault<OWNE> for OWNE {
-    fn read(readable: &mut Readable) -> Result<OWNE> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let price_paid = readable.non_utf16_string()?;
-        let date_of_purch = readable.string(4)?;
-        let seller = util::read_null_terminated(&text_encoding, readable)?;
-
-        Ok(OWNE {
-            text_encoding: text_encoding,
-            price_paid: price_paid,
-            date_of_purch: date_of_purch,
-            seller: seller,
-        })
-    }
-}
-
-impl FrameWriterDefault for OWNE {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.non_utf16_string(self.price_paid.as_str())?;
-        writable.string(&self.date_of_purch[0..4])?;
-        util::write_null_terminated(&self.text_encoding, self.seller.as_str(), writable)
-    }
-}
-
-///
-/// Private frame
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PRIV {
-    pub owner_identifier: String,
-    pub private_data: Vec<u8>,
-}
-
-impl FrameReaderDefault<PRIV> for PRIV {
-    fn read(readable: &mut Readable) -> Result<PRIV> {
-        let owner_identifier = readable.non_utf16_string()?;
-        let private_data = readable.all_bytes()?;
-
-        Ok(PRIV {
-            owner_identifier: owner_identifier,
-            private_data: private_data,
-        })
-    }
-}
-
-impl FrameWriterDefault for PRIV {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.non_utf16_string(self.owner_identifier.as_str())?;
-        writable.write(&self.private_data)
-    }
-}
-
-///
-/// Play counter
-///
-///**It support that only the 32-bit unsigned integer type**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PCNT {
-    pub counter: u32,
-}
-
-impl FrameReaderDefault<PCNT> for PCNT {
-    fn read(readable: &mut Readable) -> Result<PCNT> {
-        let counter = readable.u32()?;
-
-        Ok(PCNT { counter: counter })
-    }
-}
-
-impl FrameWriterDefault for PCNT {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u32(self.counter)
-    }
-}
-
-///
-/// Popularimeter
-///
-///**Not yet tested!**
-///`counter`: support that only the 32-bit unsigned integer type
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct POPM {
-    pub email_to_user: String,
-    pub rating: u8,
-    // NOTE it support that only the 32-bit unsigned integer type.
-    pub counter: u32,
-}
-
-impl FrameReaderDefault<POPM> for POPM {
-    fn read(readable: &mut Readable) -> Result<POPM> {
-        let email_to_user = readable.non_utf16_string()?;
-        let rating = readable.u8()?;
-        let counter = readable.u32()?;
-
-        Ok(POPM {
-            email_to_user: email_to_user,
-            rating: rating,
-            counter: counter,
-        })
-    }
-}
-
-impl FrameWriterDefault for POPM {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.non_utf16_string(self.email_to_user.as_str())?;
-        writable.u8(self.rating)?;
-        writable.u32(self.counter)
-    }
-}
-
-///
-/// Position synchronisation frame
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct POSS {
-    pub timestamp_format: TimestampFormat,
-    // TODO not yet implemented!
-    pub position: Vec<u8>,
-}
-
-impl FrameReaderDefault<POSS> for POSS {
-    fn read(readable: &mut Readable) -> Result<POSS> {
-        let timestamp_format = util::to_timestamp_format(readable.u8()?);
-        let position = readable.all_bytes()?;
-
-        Ok(POSS {
-            timestamp_format: timestamp_format,
-            position: position,
-        })
-    }
-}
-
-impl FrameWriterDefault for POSS {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_timestamp_format(&self.timestamp_format))?;
-        writable.write(&self.position)
-    }
-}
-
-///
-/// Recommended buffer size
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RBUF {
-    pub buffer_size: u32,
-    pub embedded_info_flag: u8,
-    pub offset_to_next_tag: u32,
-}
-
-impl FrameReaderDefault<RBUF> for RBUF {
-    fn read(readable: &mut Readable) -> Result<RBUF> {
-        let buffer_size = readable.u24()?;
-        let embedded_info_flag = readable.u8()?;
-        let offset_to_next_tag = readable.u32()?;
-
-        Ok(RBUF {
-            buffer_size: buffer_size,
-            embedded_info_flag: embedded_info_flag,
-            offset_to_next_tag: offset_to_next_tag,
-        })
-    }
-}
-
-impl FrameWriterDefault for RBUF {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u24(self.buffer_size)?;
-        writable.u8(self.embedded_info_flag)?;
-        writable.u32(self.offset_to_next_tag)
-    }
-}
-
-///
-/// Relative volume adjustment (2)
-///
-///**Not yet tested!**
-///**Not yet implemented!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RVA2 {
-    pub data: Vec<u8>,
-}
-
-impl FrameReaderDefault<RVA2> for RVA2 {
-    fn read(readable: &mut Readable) -> Result<RVA2> {
-        let data = readable.all_bytes()?;
-
-        Ok(RVA2 { data: data })
-    }
-}
-
-impl FrameWriterDefault for RVA2 {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.write(&self.data)
-    }
-}
-
-///
-/// Reverb
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RVRB {
-    pub reverb_left: u16,
-    pub reverb_right: u16,
-    pub reverb_bounce_left: u8,
-    pub reverb_bounce_right: u8,
-    pub reverb_feedback_left_to_left: u8,
-    pub reverb_feedback_left_to_right: u8,
-    pub reverb_feedback_right_to_right: u8,
-    pub reverb_feedback_right_to_left: u8,
-    pub premix_left_to_right: u8,
-    pub premix_right_to_left: u8,
-}
-
-impl FrameReaderDefault<RVRB> for RVRB {
-    fn read(readable: &mut Readable) -> Result<RVRB> {
-        let reverb_left = readable.u16()?;
-        let reverb_right = readable.u16()?;
-        let reverb_bounce_left = readable.u8()?;
-        let reverb_bounce_right = readable.u8()?;
-        let reverb_feedback_left_to_left = readable.u8()?;
-        let reverb_feedback_left_to_right = readable.u8()?;
-        let reverb_feedback_right_to_right = readable.u8()?;
-        let reverb_feedback_right_to_left = readable.u8()?;
-        let premix_left_to_right = readable.u8()?;
-        let premix_right_to_left = readable.u8()?;
-
-        Ok(RVRB {
-            reverb_left: reverb_left,
-            reverb_right: reverb_right,
-            reverb_bounce_left: reverb_bounce_left,
-            reverb_bounce_right: reverb_bounce_right,
-            reverb_feedback_left_to_left: reverb_feedback_left_to_left,
-            reverb_feedback_left_to_right: reverb_feedback_left_to_right,
-            reverb_feedback_right_to_right: reverb_feedback_right_to_right,
-            reverb_feedback_right_to_left: reverb_feedback_right_to_left,
-            premix_left_to_right: premix_left_to_right,
-            premix_right_to_left: premix_right_to_left,
-        })
-    }
-}
-
-impl FrameWriterDefault for RVRB {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u16(self.reverb_left)?;
-        writable.u16(self.reverb_right)?;
-        writable.u8(self.reverb_bounce_left)?;
-        writable.u8(self.reverb_bounce_right)?;
-        writable.u8(self.reverb_feedback_left_to_left)?;
-        writable.u8(self.reverb_feedback_left_to_right)?;
-        writable.u8(self.reverb_feedback_right_to_right)?;
-        writable.u8(self.reverb_feedback_right_to_left)?;
-        writable.u8(self.premix_left_to_right)?;
-        writable.u8(self.premix_right_to_left)
-    }
-}
-
-
-///
-/// Seek frame
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SEEK {
-    pub next_tag: String,
-}
-
-impl FrameReaderDefault<SEEK> for SEEK {
-    fn read(readable: &mut Readable) -> Result<SEEK> {
-        let next_tag = readable.all_string()?;
-
-        Ok(SEEK { next_tag: next_tag })
-    }
-}
-
-impl FrameWriterDefault for SEEK {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.string(self.next_tag.as_str())
-    }
-}
-
-///
-/// Signature frame
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SIGN {
-    pub group_symbol: u8,
-    pub signature: Vec<u8>,
-}
-
-impl FrameReaderDefault<SIGN> for SIGN {
-    fn read(readable: &mut Readable) -> Result<SIGN> {
-        let group_symbol = readable.u8()?;
-        let signature = readable.all_bytes()?;
-
-        Ok(SIGN {
-            group_symbol: group_symbol,
-            signature: signature,
-        })
-    }
-}
-
-impl FrameWriterDefault for SIGN {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(self.group_symbol)?;
-        writable.write(&self.signature)
-    }
-}
-
-///
-/// Synchronised lyric/text
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SYLT {
-    pub text_encoding: TextEncoding,
-    pub language: String,
-    pub timestamp_format: TimestampFormat,
-    pub content_type: ContentType,
-    pub content_descriptor: String,
-}
-
-impl FrameReaderDefault<SYLT> for SYLT {
-    fn read(readable: &mut Readable) -> Result<SYLT> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let language = readable.string(3)?;
-        let timestamp_format = util::to_timestamp_format(readable.u8()?);
-        let content_type = util::to_content_type(readable.u8()?);
-        let content_descriptor = util::read_null_terminated(&text_encoding, readable)?;
-
-        Ok(SYLT {
-            text_encoding: text_encoding,
-            language: language,
-            timestamp_format: timestamp_format,
-            content_type: content_type,
-            content_descriptor: content_descriptor,
-        })
-    }
-}
-
-impl FrameWriterDefault for SYLT {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.string(&self.language[0..3])?;
-        writable.u8(util::from_timestamp_format(&self.timestamp_format))?;
-        writable.u8(util::from_content_type(&self.content_type))?;
-        util::write_null_terminated(&self.text_encoding,
-                                    self.content_descriptor.as_str(),
-                                    writable)
-    }
-}
-
-///
-/// Synchronised tempo codes
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SYTC {
-    pub timestamp_format: TimestampFormat,
-    pub tempo_data: Vec<u8>,
-}
-
-impl FrameReaderDefault<SYTC> for SYTC {
-    fn read(readable: &mut Readable) -> Result<SYTC> {
-        let timestamp_format = util::to_timestamp_format(readable.u8()?);
-        let tempo_data = readable.all_bytes()?;
-
-        Ok(SYTC {
-            timestamp_format: timestamp_format,
-            tempo_data: tempo_data,
-        })
-    }
-}
-
-impl FrameWriterDefault for SYTC {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_timestamp_format(&self.timestamp_format))?;
-        writable.write(&self.tempo_data)
-    }
-}
-
-///
-/// Unique file identifier
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct UFID {
-    pub owner_identifier: String,
-    pub identifier: Vec<u8>,
-}
-
-impl FrameReaderDefault<UFID> for UFID {
-    fn read(readable: &mut Readable) -> Result<UFID> {
-        let owner_identifier = readable.non_utf16_string()?;
-        let identifier = readable.all_bytes()?;
-
-        Ok(UFID {
-            owner_identifier: owner_identifier,
-            identifier: identifier,
-        })
-    }
-}
-
-impl FrameWriterDefault for UFID {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.non_utf16_string(self.owner_identifier.as_str())?;
-        writable.write(&self.identifier)
-    }
-}
-
-///
-/// Terms of use
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct USER {
-    pub text_encoding: TextEncoding,
-    pub language: String,
-    pub actual_text: String,
-}
-
-impl FrameReaderDefault<USER> for USER {
-    fn read(readable: &mut Readable) -> Result<USER> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let language = readable.string(3)?;
-        let actual_text = util::read_null_terminated(&text_encoding, readable)?;
-
-        Ok(USER {
-            text_encoding: text_encoding,
-            language: language,
-            actual_text: actual_text,
-        })
-    }
-}
-
-impl FrameWriterDefault for USER {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.string(&self.language[0..3])?;
-        util::write_null_terminated(&self.text_encoding, self.actual_text.as_str(), writable)
-    }
-}
-
-///
-/// Unsynchronised lyric/text transcription
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct USLT {
-    pub text_encoding: TextEncoding,
-    pub language: String,
-    pub content_descriptor: String,
-    pub lyrics: String,
-}
-
-impl FrameReaderDefault<USLT> for USLT {
-    fn read(readable: &mut Readable) -> Result<USLT> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let language = readable.string(3)?;
-        let content_descriptor = util::read_null_terminated(&text_encoding, readable)?;
-        let lyrics = util::read_null_terminated(&text_encoding, readable)?;
-
-        Ok(USLT {
-            text_encoding: text_encoding,
-            language: language,
-            content_descriptor: content_descriptor,
-            lyrics: lyrics,
-        })
-    }
-}
-
-impl FrameWriterDefault for USLT {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        writable.string(&self.language[0..3])?;
-        util::write_null_terminated(&self.text_encoding,
-                                    self.content_descriptor.as_str(),
-                                    writable)?;
-        util::write_null_terminated(&self.text_encoding, self.lyrics.as_str(), writable)
     }
 }
 
@@ -1866,8 +1720,8 @@ pub struct TEXT {
     pub text: String,
 }
 
-impl FrameReaderIdAware<TEXT> for TEXT {
-    fn read(readable: &mut Readable, id: &str) -> Result<TEXT> {
+impl TEXT {
+    pub fn read(readable: &mut Readable, version: u8, id: &str) -> Result<TEXT> {
         fn _default(id: &str,
                     decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>)
                     -> String {
@@ -1875,7 +1729,7 @@ impl FrameReaderIdAware<TEXT> for TEXT {
                 Ok(text) => text,
                 Err(e) => {
                     debug!("TEXT Error {}, {:?}", id, e);
-                    if id == id::TBPM_STR || id == id::TBP_STR {
+                    if id == id::TBPM || id == id::TBP {
                         "0".to_string()
                     } else {
                         "".to_string()
@@ -1884,7 +1738,17 @@ impl FrameReaderIdAware<TEXT> for TEXT {
             }
         }
 
-        let text_encoding = util::to_encoding(readable.u8()?);
+        // trim bom character
+        fn trim(text: String) -> String {
+            let re =
+                regex::Regex::new(r"(^[\x{0}|\x{feff}|\x{fffe}]*|[\x{0}|\x{feff}|\x{fffe}]*$)")
+                    .unwrap();
+            let text = text.trim();
+            re.replace_all(text, "").into_owned()
+        }
+
+        let _ = version;
+        let text_encoding = types::to_encoding(readable.read_u8()?);
         let data = readable.all_bytes()?;
         let text = match text_encoding {
             TextEncoding::ISO88591 => _default(id, ISO_8859_1.decode(&data, DecoderTrap::Strict)),
@@ -1895,14 +1759,14 @@ impl FrameReaderIdAware<TEXT> for TEXT {
 
         Ok(TEXT {
             text_encoding: text_encoding,
-            text: self::trim(text),
+            text: trim(text),
         })
     }
-}
 
-impl FrameWriterDefault for TEXT {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
+    pub fn write(&self, writable: &mut Writable, version: u8) -> Result<()> {
+        let _ = version;
+
+        writable.write_u8(types::from_encoding(&self.text_encoding))?;
         let text = match match self.text_encoding {
             TextEncoding::ISO88591 => ISO_8859_1.encode(self.text.as_str(), EncoderTrap::Strict),
             TextEncoding::UTF16LE => UTF_16LE.encode(self.text.as_str(), EncoderTrap::Strict),
@@ -1915,8 +1779,8 @@ impl FrameWriterDefault for TEXT {
 
         match self.text_encoding {
             TextEncoding::UTF16LE => {
-                writable.u8(0xff)?;
-                writable.u8(0xfe)?;
+                writable.write_u8(0xff)?;
+                writable.write_u8(0xfe)?;
             }
             _ => (),
         }
@@ -1925,8 +1789,8 @@ impl FrameWriterDefault for TEXT {
 
         match self.text_encoding {
             TextEncoding::UTF16BE => {
-                writable.u8(0xfe)?;
-                writable.u8(0xff)?;
+                writable.write_u8(0xfe)?;
+                writable.write_u8(0xff)?;
             }
             _ => (),
         }
@@ -1935,646 +1799,337 @@ impl FrameWriterDefault for TEXT {
     }
 }
 
-///
-/// User defined text information frame
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct TXXX {
-    pub text_encoding: TextEncoding,
-    pub description: String,
-    pub value: String,
+macro_rules! define_id_str {
+    (
+        $( $id:ident ),*
+    ) => (
+
+        pub mod id {
+            $( pub const $id: &'static str = stringify!($id); )*
+        }
+
+    );
+
+    (
+        $( $id:ident ),+,
+    ) => (
+        define_id_str!( $($id),+ );
+    )
 }
 
-impl FrameReaderDefault<TXXX> for TXXX {
-    fn read(readable: &mut Readable) -> Result<TXXX> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let description = util::read_null_terminated(&text_encoding, readable)?;
-        let value = readable.all_string()?;
+macro_rules! define_id_to_framebody {
+    (
+        $( $id:ident = $body:ident : $frame:ident ),*
+    ) => (
 
-        Ok(TXXX {
-            text_encoding: text_encoding,
-            description: description,
-            value: value,
-        })
-    }
+        pub fn read_framebody_with_id(id: &str, version: u8, mut readable: Cursor<Vec<u8>>) 
+            -> Result<FrameBody> {
+
+                trace!("id:{}, version:{}", id, version);
+
+                let frame_body = match id.as_ref() {
+
+                    $( stringify!($id) => FrameBody::$body($frame::read(&mut readable, version, id)?) ),*
+                    
+                    , 
+                    _ => {
+                        warn!("No frame id found!! '{}'", id);
+                        FrameBody::TEXT(TEXT::read(&mut readable, version, id)?)
+                    }
+                };
+
+                trace!("{:?}", frame_body);
+                
+                Ok(frame_body)
+        }
+
+        pub fn framebody_to_id(frame_body: &FrameBody, version: u8) -> &'static str {
+
+            $(
+                if let &FrameBody::$body(_) = frame_body {
+                    let id_len = stringify!($id).len();
+                    let body_len = stringify!($body).len();
+                    let frame_len = stringify!($frame).len();
+
+                    if id_len != body_len || body_len != frame_len {
+
+                        if version == 2 {
+                            return id::$id;
+                        } else {
+                            return id::$body
+                        }
+                    } else {
+                        return id::$id;
+                    }
+                }
+            );*
+
+            "UNKNOWN"
+        }
+
+        pub fn frame2_to_frame4(id: &str) -> String  {
+
+            let mut m = HashMap::new();
+
+            $(
+                let meta_id = stringify!($id);
+
+                if meta_id.len() == 3 {
+                    m.insert(id, stringify!($frame));
+                }
+
+            );*
+
+            match m.get(id) {
+                Some(v4) => v4.to_string(),
+                _ => "UNKNOWN".to_string()
+            }
+        }
+    );
+
+    (
+        $( $id:ident = $body:ident : $frame:ident ),+,
+    ) => (
+        define_id_to_framebody!( $($id = $body : $frame),+ );
+    )
 }
 
-impl FrameWriterDefault for TXXX {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        util::write_null_terminated(&self.text_encoding, self.description.as_str(), writable)?;
-        writable.string(self.value.as_str())
-    }
+macro_rules! define_framebody {
+    (
+        $( $id:ident = $frame:ident ),*
+    ) => (
+
+        ///
+        /// Frame types
+        ///
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+        pub enum FrameBody {
+
+            $( $id($frame) ),*
+            ,
+            /// It is used for unknown frame when to parse
+            SKIP(String, Vec<u8>),
+
+            /// Invalid frame
+            INVALID(String)
+        }
+
+        pub fn framebody_as_bytes(frame_body: &FrameBody, version: u8) -> Result<(&str, Vec<u8>)> {
+
+            let mut writable = Cursor::new(vec![0u8; 0]);
+
+            match frame_body {
+
+                $( &FrameBody::$id(ref frame) => { frame.write(&mut writable, version)?; } ),*
+                ,
+                _ => ()
+            };
+
+            let id = framebody_to_id(frame_body, version);
+
+            let mut buf = Vec::new();
+            writable.copy(&mut buf)?;
+
+            Ok((id, buf))
+        }
+    );
+
+    (
+        $( $id:ident = $frame:ident ),+,
+    ) => (
+        define_framebody!( $($id = $frame),+ );
+    )
 }
 
-///
-/// User defined URL link frame
-///
-///**Not yet tested!**
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct WXXX {
-    pub text_encoding: TextEncoding,
-    pub description: String,
-    pub url: String,
-}
-
-impl FrameReaderDefault<WXXX> for WXXX {
-    fn read(readable: &mut Readable) -> Result<WXXX> {
-        let text_encoding = util::to_encoding(readable.u8()?);
-        let description = util::read_null_terminated(&text_encoding, readable)?;
-        let url = readable.all_string()?;
-
-        Ok(WXXX {
-            text_encoding: text_encoding,
-            description: description,
-            url: url,
-        })
-    }
-}
-
-impl FrameWriterDefault for WXXX {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.u8(util::from_encoding(&self.text_encoding))?;
-        util::write_null_terminated(&self.text_encoding, self.description.as_str(), writable)?;
-        writable.string(self.url.as_str())
-    }
-}
-
-///
-/// Write anonymous bytes
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct OBJECT {
-    pub data: Vec<u8>,
-}
-
-impl FrameWriterDefault for OBJECT {
-    fn write(&self, writable: &mut Writable<Cursor<Vec<u8>>>) -> Result<()> {
-        writable.write(&self.data)
-    }
-}
-
-///
-/// Frame types
-///
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum FrameBody {
-    /// Recommended buffer size
-    BUF(RBUF),
-
-    /// 2.2 only
-    /// Encrypted meta frame
-    CRM(CRM),
-
-    /// 2.2 only
-    ///Attached picture
-    PIC(PIC),
-
-    /// Audio encryption
-    AENC(AENC),
-
-    /// Attached picture
-    APIC(APIC),
-
-    /// Audio seek point index
-    ASPI(ASPI),
-
-    /// Comments
-    COMM(COMM),
-
-    /// Commercial frame
-    COMR(COMR),
-
-    /// Encryption method registration
-    ENCR(ENCR),
-
-    /// 2.3 only
-    /// Equalisation
-    EQUA(EQUA),
-
-    /// Equalisation (2)
-    EQU2(EQU2),
-
-    /// Event timing codes
-    ETCO(ETCO),
-
-    /// General encapsulated object
-    GEOB(GEOB),
-
-    /// Group identification registration
-    GRID(GRID),
-
-    /// 2.3 only
-    /// Involved people list
-    IPLS(IPLS),
-
-    /// Linked information
-    LINK(LINK),
-
-    /// Music CD identifier
-    MCDI(MCDI),
-
-    /// MPEG location lookup table
-    MLLT(MLLT),
-
-    /// Ownership frame
-    OWNE(OWNE),
-
-    /// Private frame
-    PRIV(PRIV),
-
-    /// Play counter
-    PCNT(PCNT),
-
-    /// Popularimeter
-    POPM(POPM),
-
-    /// Position synchronisation frame
-    POSS(POSS),
-
-    /// Recommended buffer size
-    RBUF(RBUF),
-
-    /// 2.3 only
-    /// Relative volume adjustment
-    RVAD(RVA2),
-
-    /// Relative volume adjustment (2)
-    RVA2(RVA2),
-
-    /// Reverb
-    RVRB(RVRB),
-
-    /// Seek frame
-    SEEK(SEEK),
-
-    /// Signature frame
-    SIGN(SIGN),
-
-    /// Synchronised lyric/text
-    SYLT(SYLT),
-
-    /// Synchronised tempo codes
-    SYTC(SYTC),
-
-    /// Album/Movie/Show title
-    TALB(TEXT),
-
-    /// BPM (beats per minute)
-    TBPM(TEXT),
-
-    /// Composer
-    TCOM(TEXT),
-
-    /// Content type
-    TCON(TEXT),
-
-    /// Copyright message
-    TCOP(TEXT),
-
-    /// 2.3 only
-    /// Date
-    TDAT(TEXT),
-
-    /// Encoding time
-    TDEN(TEXT),
-
-    /// Playlist delay
-    TDLY(TEXT),
-
-    /// Original release time
-    TDOR(TEXT),
-
-    /// Recording time
-    TDRC(TEXT),
-
-    /// Release time
-    TDRL(TEXT),
-
-    /// Tagging time
-    TDTG(TEXT),
-
-    /// Encoded by
-    TENC(TEXT),
-
-    /// Lyricist/Text writer
-    TEXT(TEXT),
-
-    /// File type
-    TFLT(TEXT),
-
-    /// 2.3 only
-    /// Time
-    TIME(TEXT),
-
-    /// Involved people list
-    TIPL(TEXT),
-
-    /// Content group description
-    TIT1(TEXT),
-
-    /// Title/songname/content description
-    TIT2(TEXT),
-
-    /// Subtitle/Description refinement
-    TIT3(TEXT),
-
-    /// Initial key
-    TKEY(TEXT),
-
-    /// Language(s)
-    TLAN(TEXT),
-
-    /// Length
-    TLEN(TEXT),
-
-    /// Musician credits list
-    TMCL(TEXT),
-
-    /// Media type
-    TMED(TEXT),
-
-    /// Mood
-    TMOO(TEXT),
-
-    /// Original album/movie/show title
-    TOAL(TEXT),
-
-    /// Original filename
-    TOFN(TEXT),
-
-    /// Original lyricist(s)/text writer(s)
-    TOLY(TEXT),
-
-    /// Original artist(s)/performer(s)
-    TOPE(TEXT),
-
-    /// 2.3 only
-    /// Original release year
-    TORY(TEXT),
-
-    /// File owner/licensee
-    TOWN(TEXT),
-
-    /// Lead performer(s)/Soloist(s)
-    TPE1(TEXT),
-
-    /// Band/orchestra/accompaniment
-    TPE2(TEXT),
-
-    /// Conductor/performer refinement
-    TPE3(TEXT),
-
-    /// Interpreted, remixed, or otherwise modified by
-    TPE4(TEXT),
-
-    /// Part of a set
-    TPOS(TEXT),
-
-    /// Produced notice
-    TPRO(TEXT),
-
-    /// Publisher
-    TPUB(TEXT),
-
-    /// Track number/Position in set
-    TRCK(TEXT),
-
-    /// 2.3 only
-    /// Recording dates
-    TRDA(TEXT),
-
-    /// Internet radio station name
-    TRSN(TEXT),
-
-    /// Internet radio station owner
-    TRSO(TEXT),
-
-    /// 2.3 only
-    /// Size
-    TSIZ(TEXT),
-
-    /// Album sort order
-    TSOA(TEXT),
-
-    /// Performer sort order
-    TSOP(TEXT),
-
-    /// Title sort order
-    TSOT(TEXT),
-
-    /// ISRC (international standard recording code)
-    TSRC(TEXT),
-
-    /// Software/Hardware and settings used for encoding
-    TSSE(TEXT),
-
-    /// 2.3 only
-    /// Year
-    TYER(TEXT),
-
-    /// Software/Hardware and settings used for encoding
-    TSST(TEXT),
-
-    /// User defined text information frame
-    TXXX(TXXX),
-
-    /// Unique file identifier
-    UFID(UFID),
-
-    /// Terms of use
-    USER(USER),
-
-    /// Unsychronized lyric/text transcription
-    USLT(USLT),
-
-    /// Commercial information
-    WCOM(LINK),
-
-    /// Copyright/Legal information
-    WCOP(LINK),
-
-    /// Official audio file webpage
-    WOAF(LINK),
-
-    /// Official artist/performer webpage
-    WOAR(LINK),
-
-    /// Official audio source webpage
-    WOAS(LINK),
-
-    /// Official internet radio station homepage
-    WORS(LINK),
-
-    /// Payment
-    WPAY(LINK),
-
-    /// Publishers official webpage
-    WPUB(LINK),
-
-    /// User defined URL link frame
-    WXXX(WXXX),
-
-    /// It only use to write a encrypted bytes directly
-    OBJECT(OBJECT),
-
-    /// It is used for unknown frame when to parse
-    SKIP(String, Vec<u8>),
-
-    /// Invalid frame
-    INVALID(String),
-}
-
-///
-/// # Frame id
-///
-/// ## V2.2
-/// - All of 3 characters
-///
-/// ## V2.3 only
-///
-/// - EQUA
-/// - IPLS
-/// - RVAD
-/// - TDAT
-/// - TIME
-/// - TSIZ
-/// - TYER
-///
-/// ## V2.2 vs 2.3|2.4 mapping
-///
-/// - BUF - RBUF
-/// - CNT - PCNT
-/// - COM - COMM
-/// - CRA - AENC
-/// - CRM - ?
-/// - ETC - ETCO
-/// - EQU - EQUA
-/// - GEO - GEOB
-/// - IPL - IPLS
-/// - LNK - LINK
-/// - MCI - MCDI
-/// - MLL - MLLT
-/// - PIC - ?
-/// - POP - POPM
-/// - REV - RVRB
-/// - RVA - RVAD
-/// - SLT - SYLT
-/// - STC - SYTC
-/// - TAL - TALB
-/// - TBP - TBPM
-/// - TCM - TCOM
-/// - TCO - TCON
-/// - TCR - TCOP
-/// - TDA - TDAT
-/// - TDY - TDLY
-/// - TEN - TENC
-/// - TFT - TFLT
-/// - TIM - TIME
-/// - TKE - TKEY
-/// - TLA - TLAN
-/// - TLE - TLEN
-/// - TMT - TMED
-/// - TOA - TOPE
-/// - TOF - TOFN
-/// - TOL - TOLY
-/// - TOR - TORY
-/// - TOT - TOAL
-/// - TP1 - TPE1
-/// - TP2 - TPE2
-/// - TP3 - TPE3
-/// - TP4 - TPE4
-/// - TPA - TPOS
-/// - TPB - TPUB
-/// - TRC - TSRC
-/// - TRD - TRDA
-/// - TRK - TRCK
-/// - TSI - TSIZ
-/// - TSS - TSSE
-/// - TT1 - TIT1
-/// - TT2 - TIT2
-/// - TT3 - TIT1
-/// - TXT - TEXT
-/// - TXX - TXXX
-/// - TYE - TYER
-/// - UFI - UFID
-/// - ULT - USLT
-/// - WAF - WOAF
-/// - WAR - WOAR
-/// - WAS - WOAS
-/// - WCM - WCOM
-/// - WCP - WCOP
-/// - WPB - WPUB
-/// - WXX - WXXX
-pub mod id {
+define_id_str!(
     //
     // 2.2
     //
-    pub const BUF_STR: &'static str = "BUF";
-    pub const CNT_STR: &'static str = "CNT";
-    pub const COM_STR: &'static str = "COM";
-    pub const CRA_STR: &'static str = "CRA";
-    pub const CRM_STR: &'static str = "CRM";
-    pub const ETC_STR: &'static str = "ETC";
-    pub const EQU_STR: &'static str = "EQU";
-    pub const GEO_STR: &'static str = "GEO";
-    pub const IPL_STR: &'static str = "IPL";
-    pub const LNK_STR: &'static str = "LNK";
-    pub const MCI_STR: &'static str = "MCI";
-    pub const MLL_STR: &'static str = "MLL";
-    pub const PIC_STR: &'static str = "PIC";
-    pub const POP_STR: &'static str = "POP";
-    pub const REV_STR: &'static str = "REV";
-    pub const RVA_STR: &'static str = "RVA";
-    pub const SLT_STR: &'static str = "SLT";
-    pub const STC_STR: &'static str = "STC";
-    pub const TAL_STR: &'static str = "TAL";
-    pub const TBP_STR: &'static str = "TBP";
-    pub const TCM_STR: &'static str = "TCM";
-    pub const TCO_STR: &'static str = "TCO";
-    pub const TCR_STR: &'static str = "TCR";
-    pub const TDA_STR: &'static str = "TDA";
-    pub const TDY_STR: &'static str = "TDY";
-    pub const TEN_STR: &'static str = "TEN";
-    pub const TFT_STR: &'static str = "TFT";
-    pub const TIM_STR: &'static str = "TIM";
-    pub const TKE_STR: &'static str = "TKE";
-    pub const TLA_STR: &'static str = "TLA";
-    pub const TLE_STR: &'static str = "TLE";
-    pub const TMT_STR: &'static str = "TMT";
-    pub const TOA_STR: &'static str = "TOA";
-    pub const TOF_STR: &'static str = "TOF";
-    pub const TOL_STR: &'static str = "TOL";
-    pub const TOR_STR: &'static str = "TOR";
-    pub const TOT_STR: &'static str = "TOT";
-    pub const TP1_STR: &'static str = "TP1";
-    pub const TP2_STR: &'static str = "TP2";
-    pub const TP3_STR: &'static str = "TP3";
-    pub const TP4_STR: &'static str = "TP4";
-    pub const TPA_STR: &'static str = "TPA";
-    pub const TPB_STR: &'static str = "TPB";
-    pub const TRC_STR: &'static str = "TRC";
-    pub const TRD_STR: &'static str = "TRD";
-    pub const TRK_STR: &'static str = "TRK";
-    pub const TSI_STR: &'static str = "TSI";
-    pub const TSS_STR: &'static str = "TSS";
-    pub const TT1_STR: &'static str = "TT1";
-    pub const TT2_STR: &'static str = "TT2";
-    pub const TT3_STR: &'static str = "TT3";
-    pub const TXT_STR: &'static str = "TXT";
-    pub const TXX_STR: &'static str = "TXX";
-    pub const TYE_STR: &'static str = "TYE";
-    pub const UFI_STR: &'static str = "UFI";
-    pub const ULT_STR: &'static str = "ULT";
-    pub const WAF_STR: &'static str = "WAF";
-    pub const WAR_STR: &'static str = "WAR";
-    pub const WAS_STR: &'static str = "WAS";
-    pub const WCM_STR: &'static str = "WCM";
-    pub const WCP_STR: &'static str = "WCP";
-    pub const WPB_STR: &'static str = "WPB";
-    pub const WXX_STR: &'static str = "WXX";
-
+    BUF, CNT, COM, CRA, CRM, ETC, EQU, GEO, IPL, LNK, MCI, MLL, PIC, POP, REV,//
+    RVA, SLT, STC, TAL, TBP, TCM, TCO, TCR, TDA, TDY, TEN, TFT, TIM, TKE, TLA,//
+    TLE, TMT, TOA, TOF, TOL, TOR, TOT, TP1, TP2, TP3, TP4, TPA, TPB, TRC, TRD,//
+    TRK, TSI, TSS, TT1, TT2, TT3, TXT, TXX, TYE, UFI, ULT, WAF, WAR, WAS,//
+    WCM, WCP, WPB, WXX,
     //
     // 2.3 & 2.4
     //
-    pub const AENC_STR: &'static str = "AENC";
-    pub const APIC_STR: &'static str = "APIC";
-    pub const ASPI_STR: &'static str = "ASPI";
-    pub const COMM_STR: &'static str = "COMM";
-    pub const COMR_STR: &'static str = "COMR";
-    pub const ENCR_STR: &'static str = "ENCR";
-    pub const EQU2_STR: &'static str = "EQU2";
+    AENC, APIC, ASPI, COMM, COMR, ENCR, EQU2,//
+    //
     // 2.3 only
-    pub const EQUA_STR: &'static str = "EQUA";
-    pub const ETCO_STR: &'static str = "ETCO";
-    pub const GEOB_STR: &'static str = "GEOB";
-    pub const GRID_STR: &'static str = "GRID";
-    // 2.3 only
-    pub const IPLS_STR: &'static str = "IPLS";
-    pub const LINK_STR: &'static str = "LINK";
-    pub const MCDI_STR: &'static str = "MCDI";
-    pub const MLLT_STR: &'static str = "MLLT";
-    pub const OWNE_STR: &'static str = "OWNE";
-    pub const PRIV_STR: &'static str = "PRIV";
-    pub const PCNT_STR: &'static str = "PCNT";
-    pub const POPM_STR: &'static str = "POPM";
-    pub const POSS_STR: &'static str = "POSS";
-    pub const RBUF_STR: &'static str = "RBUF";
-    // 2.3 only
-    pub const RVAD_STR: &'static str = "RVAD";
-    pub const RVA2_STR: &'static str = "RVA2";
-    pub const RVRB_STR: &'static str = "RVRB";
-    pub const SEEK_STR: &'static str = "SEEK";
-    pub const SIGN_STR: &'static str = "SIGN";
-    pub const SYLT_STR: &'static str = "SYLT";
-    pub const SYTC_STR: &'static str = "SYTC";
-    pub const TALB_STR: &'static str = "TALB";
-    pub const TBPM_STR: &'static str = "TBPM";
-    pub const TCOM_STR: &'static str = "TCOM";
-    pub const TCON_STR: &'static str = "TCON";
-    pub const TCOP_STR: &'static str = "TCOP";
-    // 2.3 only
-    pub const TDAT_STR: &'static str = "TDAT";
-    pub const TDEN_STR: &'static str = "TDEN";
-    pub const TDLY_STR: &'static str = "TDLY";
-    pub const TDOR_STR: &'static str = "TDOR";
-    pub const TDRC_STR: &'static str = "TDRC";
-    pub const TDTG_STR: &'static str = "TDTG";
-    pub const TDRL_STR: &'static str = "TDRL";
-    pub const TENC_STR: &'static str = "TENC";
-    pub const TEXT_STR: &'static str = "TEXT";
-    pub const TFLT_STR: &'static str = "TFLT";
-    // 2.3 only
-    pub const TIME_STR: &'static str = "TIME";
-    pub const TIPL_STR: &'static str = "TIPL";
-    pub const TIT1_STR: &'static str = "TIT1";
-    pub const TIT2_STR: &'static str = "TIT2";
-    pub const TIT3_STR: &'static str = "TIT3";
-    pub const TKEY_STR: &'static str = "TKEY";
-    pub const TLAN_STR: &'static str = "TLAN";
-    pub const TLEN_STR: &'static str = "TLEN";
-    pub const TMCL_STR: &'static str = "TMCL";
-    pub const TMED_STR: &'static str = "TMED";
-    pub const TMOO_STR: &'static str = "TMOO";
-    pub const TOAL_STR: &'static str = "TOAL";
-    pub const TOFN_STR: &'static str = "TOFN";
-    pub const TOLY_STR: &'static str = "TOLY";
-    pub const TOPE_STR: &'static str = "TOPE";
-    pub const TORY_STR: &'static str = "TORY";
-    pub const TOWN_STR: &'static str = "TOWN";
-    pub const TPE1_STR: &'static str = "TPE1";
-    pub const TPE2_STR: &'static str = "TPE2";
-    pub const TPE3_STR: &'static str = "TPE3";
-    pub const TPE4_STR: &'static str = "TPE4";
-    pub const TPOS_STR: &'static str = "TPOS";
-    pub const TPRO_STR: &'static str = "TPRO";
-    pub const TPUB_STR: &'static str = "TPUB";
-    pub const TRCK_STR: &'static str = "TRCK";
-    pub const TRDA_STR: &'static str = "TRDA";
-    pub const TRSN_STR: &'static str = "TRSN";
-    pub const TRSO_STR: &'static str = "TRSO";
-    // 2.3 only
-    pub const TSIZ_STR: &'static str = "TSIZ";
-    pub const TSOA_STR: &'static str = "TSOA";
-    pub const TSOP_STR: &'static str = "TSOP";
-    pub const TSOT_STR: &'static str = "TSOT";
-    pub const TSRC_STR: &'static str = "TSRC";
-    pub const TSSE_STR: &'static str = "TSSE";
-    // 2.3 only
-    pub const TYER_STR: &'static str = "TYER";
-    pub const TSST_STR: &'static str = "TSST";
-    pub const TXXX_STR: &'static str = "TXXX";
-    pub const UFID_STR: &'static str = "UFID";
-    pub const USER_STR: &'static str = "USER";
-    pub const USLT_STR: &'static str = "USLT";
-    pub const WCOM_STR: &'static str = "WCOM";
-    pub const WCOP_STR: &'static str = "WCOP";
-    pub const WOAF_STR: &'static str = "WOAF";
-    pub const WOAR_STR: &'static str = "WOAR";
-    pub const WOAS_STR: &'static str = "WOAS";
-    pub const WORS_STR: &'static str = "WORS";
-    pub const WPAY_STR: &'static str = "WPAY";
-    pub const WPUB_STR: &'static str = "WPUB";
-    pub const WXXX_STR: &'static str = "WXXX";
-}
+    //
+    EQUA, IPLS, RVAD, TDAT, TIME, TSIZ, TYER,//
+    //
+    ETCO, GEOB, GRID, LINK, MCDI, MLLT, OWNE, PRIV, PCNT, POPM, POSS, RBUF, RVA2,//
+    RVRB, SEEK, SIGN, SYLT, SYTC, TALB, TBPM, TCOM, TCON, TCOP, TDEN, TDLY, TDOR,//
+    TDRC, TDTG, TDRL, TENC, TEXT, TFLT, TIPL, TIT1, TIT2, TIT3, TKEY, TLAN, TLEN,//
+    TMCL, TMED, TMOO, TOAL, TOFN, TOLY, TOPE, TORY, TOWN, TPE1, TPE2, TPE3, TPE4,//
+    TPOS, TPRO, TPUB, TRCK, TRDA, TRSN, TRSO, TSOA, TSOP, TSOT, TSRC, TSSE, TSST,//
+    TXXX, UFID, USER, USLT, WCOM, WCOP, WOAF, WOAR, WOAS, WORS, WPAY, WPUB, WXXX,//
+);
+
+define_id_to_framebody!(
+     BUF = BUF : RBUF, CRM = CRM : CRM, PIC = PIC : PIC, //
+     //
+     CNT = PCNT : PCNT, COM = COMM : COMM, CRA = AENC : AENC,//
+     ETC = ETCO : ETCO, EQU = EQUA : EQUA, GEO = GEOB : GEOB,//
+     IPL = IPLS : IPLS, LNK = LINK : LINK, MCI = MCDI : MCDI,//
+     MLL = MLLT : MLLT, POP = POPM : POPM, REV = RVRB : RVRB,//
+     RVA = RVAD : RVA2, SLT = SYLT : SYLT, STC = SYTC : SYTC,//
+     //
+     TAL = TALB : TEXT, TBP = TBPM : TEXT, TCM = TCOM : TEXT,//
+     TCO = TCON : TEXT, TCR = TCOP : TEXT, TDA = TDAT : TEXT,//
+     TDY = TDLY : TEXT, TEN = TENC : TEXT, TFT = TFLT : TEXT,//
+     TIM = TIME : TEXT, TKE = TKEY : TEXT, TLA = TLAN : TEXT,//
+     TLE = TLEN : TEXT, TMT = TMED : TEXT, TOA = TMED : TEXT,//
+     TOF = TOFN : TEXT, TOL = TOLY : TEXT, TOR = TORY : TEXT,//
+     TOT = TOAL : TEXT, TP1 = TPE1 : TEXT, TP2 = TPE2 : TEXT,//
+     TP3 = TPE3 : TEXT, TP4 = TPE4 : TEXT, TPA = TPOS : TEXT,//
+     TPB = TPUB : TEXT, TRC = TSRC : TEXT, TRD = TRDA : TEXT,//
+     TRK = TRCK : TEXT, TSI = TSIZ : TEXT, TSS = TSSE : TEXT,//
+     TT1 = TIT1 : TEXT, TT2 = TIT2 : TEXT, TT3 = TIT3 : TEXT,//
+     TXT = TEXT : TEXT, TYE = TYER : TEXT, //
+     //
+     TXX = TXXX : TXXX, UFI = UFID : UFID, ULT = USLT : USLT,//
+     //
+     WAF = WOAF : LINK, WAR = WOAR : LINK, WAS = WOAS : LINK,//
+     WCM = WCOM : LINK, WCP = WCOP : LINK, WPB = WPUB : LINK,//
+     //
+     WXX = WXXX : WXXX,//
+     //
+     AENC = AENC : AENC, APIC = APIC : APIC, ASPI = ASPI : ASPI,//
+     COMM = COMM : COMM, COMR = COMR : COMR, ENCR = ENCR : ENCR,//
+     EQUA = EQUA : EQUA, EQU2 = EQU2 : EQU2, ETCO = ETCO : ETCO,//
+     GEOB = GEOB : GEOB, GRID = GRID : GRID, IPLS = IPLS : IPLS,//
+     LINK = LINK : LINK, MCDI = MCDI : MCDI, MLLT = MLLT : MLLT,//
+     OWNE = OWNE : OWNE, PRIV = PRIV : PRIV, PCNT = PCNT : PCNT,//
+     POPM = POPM : POPM, POSS = POSS : POSS, RBUF = RBUF : RBUF,//
+     RVAD = RVAD : RVA2, RVA2 = RVA2 : RVA2, RVRB = RVRB : RVRB,//
+     SEEK = SEEK : SEEK, SIGN = SIGN : SIGN, SYLT = SYLT : SYLT,//
+     SYTC = SYTC : SYTC, UFID = UFID : UFID, USER = USER : USER,//
+     USLT = USLT : USLT,//
+     //
+     TALB = TALB : TEXT, TBPM = TBPM : TEXT, TCOM = TCOM : TEXT,//
+     TCON = TCON : TEXT, TCOP = TCOP : TEXT, TDAT = TDAT : TEXT,//
+     TDEN = TDEN : TEXT, TDLY = TDLY : TEXT, TDOR = TDOR : TEXT,//
+     TDRC = TDRC : TEXT, TDRL = TDRL : TEXT, TDTG = TDTG : TEXT,//
+     TENC = TENC : TEXT, TEXT = TEXT : TEXT, TIME = TIME : TEXT,//
+     TFLT = TFLT : TEXT, TIPL = TIPL : TEXT, TIT1 = TIT1 : TEXT,//
+     TIT2 = TIT2 : TEXT, TIT3 = TIT3 : TEXT, TKEY = TKEY : TEXT,//
+     TLAN = TLAN : TEXT, TLEN = TLEN : TEXT, TMCL = TMCL : TEXT,//
+     TMED = TMED : TEXT, TMOO = TMOO : TEXT, TOAL = TOAL : TEXT,//
+     TOFN = TOFN : TEXT, TOLY = TOLY : TEXT, TOPE = TOPE : TEXT,//
+     TORY = TORY : TEXT, TOWN = TOWN : TEXT, TPE1 = TPE1 : TEXT,//
+     TPE2 = TPE2 : TEXT, TPE3 = TPE3 : TEXT, TPE4 = TPE4 : TEXT,//
+     TPOS = TPOS : TEXT, TPRO = TPRO : TEXT, TPUB = TPUB : TEXT,//
+     TRCK = TRCK : TEXT, TRDA = TRDA : TEXT, TRSN = TRSN : TEXT,//
+     TSIZ = TSIZ : TEXT, TRSO = TRSO : TEXT, TSOA = TSOA : TEXT,//
+     TSOP = TSOP : TEXT, TSOT = TSOT : TEXT, TSRC = TSRC : TEXT,//
+     TSSE = TSSE : TEXT, TYER = TYER : TEXT, TSST = TSST : TEXT,//
+     //
+     TXXX = TXXX : TXXX,//
+     //
+     WCOM = WCOM : LINK, WCOP = WCOP : LINK, WOAF = WOAF : LINK,//
+     WOAR = WOAR : LINK, WOAS = WOAS : LINK, WORS = WORS : LINK,//
+     WPAY = WPAY : LINK, WPUB = WPUB : LINK,//
+     //
+     WXXX = WXXX : WXXX,//
+);
+
+define_framebody!(
+    BUF  = RBUF, // Recommended buffer size
+    CRM  = CRM, // 2.2 only. Encrypted meta frame
+    PIC  = PIC, // 2.2 only. Attached picture
+    AENC = AENC, // Audio encryption
+    APIC = APIC, // Attached picture
+    ASPI = ASPI, // Audio seek point index
+    COMM = COMM, // Comments
+    COMR = COMR, // Commercial frame
+    ENCR = ENCR, // Encryption method registration
+    EQUA = EQUA, // 2.3 only // Equalisation
+    EQU2 = EQU2, // Equalisation (2)
+    ETCO = ETCO, // Event timing codes
+    GEOB = GEOB, // General encapsulated object
+    GRID = GRID, // Group identification registration
+    IPLS = IPLS, // 2.3 only. Involved people list
+    LINK = LINK, // Linked information
+    MCDI = MCDI, // Music CD identifier
+    MLLT = MLLT, // MPEG location lookup table
+    OWNE = OWNE, // Ownership frame
+    PRIV = PRIV, // Private frame
+    PCNT = PCNT, // Play counter
+    POPM = POPM, // Popularimeter
+    POSS = POSS, // Position synchronisation frame
+    RBUF = RBUF, // Recommended buffer size
+    RVAD = RVA2, // 2.3 only. Relative volume adjustment
+    RVA2 = RVA2, // Relative volume adjustment (2)
+    RVRB = RVRB, // Reverb
+    SEEK = SEEK, // Seek frame
+    SIGN = SIGN, // Signature frame
+    SYLT = SYLT, // Synchronised lyric/text
+    SYTC = SYTC, // Synchronised tempo codes
+    TALB = TEXT, // Album/Movie/Show title
+    TBPM = TEXT, // BPM (beats per minute)
+    TCOM = TEXT, // Composer
+    TCON = TEXT, // Content type
+    TCOP = TEXT, // Copyright message
+    TDAT = TEXT, // 2.3 only. Date
+    TDEN = TEXT, // Encoding time
+    TDLY = TEXT, // Playlist delay
+    TDOR = TEXT, // Original release time
+    TDRC = TEXT, // Recording time
+    TDRL = TEXT, // Release time
+    TDTG = TEXT, // Tagging time
+    TENC = TEXT, // Encoded by
+    TEXT = TEXT, // Lyricist/Text writer
+    TFLT = TEXT, // File type
+    TIME = TEXT, // 2.3 only. Time
+    TIPL = TEXT, // Involved people list
+    TIT1 = TEXT, // Content group description
+    TIT2 = TEXT, // Title/songname/content description
+    TIT3 = TEXT, // Subtitle/Description refinement
+    TKEY = TEXT, // Initial key
+    TLAN = TEXT, // Language(s)
+    TLEN = TEXT, // Length
+    TMCL = TEXT, // Musician credits list
+    TMED = TEXT, // Media type
+    TMOO = TEXT, // Mood
+    TOAL = TEXT, // Original album/movie/show title
+    TOFN = TEXT, // Original filename
+    TOLY = TEXT, // Original lyricist(s)/text writer(s)
+    TOPE = TEXT, // Original artist(s)/performer(s)
+    TORY = TEXT, // 2.3 only. Original release year
+    TOWN = TEXT, // File owner/licensee
+    TPE1 = TEXT, // Lead performer(s)/Soloist(s)
+    TPE2 = TEXT, // Band/orchestra/accompaniment
+    TPE3 = TEXT, // Conductor/performer refinement
+    TPE4 = TEXT, // Interpreted, remixed, or otherwise modified by
+    TPOS = TEXT, // Part of a set
+    TPRO = TEXT, // Produced notice
+    TPUB = TEXT, // Publisher
+    TRCK = TEXT, // Track number/Position in set
+    TRDA = TEXT, // 2.3 only. Recording dates
+    TRSN = TEXT, // Internet radio station name
+    TRSO = TEXT, // Internet radio station owner
+    TSIZ = TEXT, // 2.3 only. Size
+    TSOA = TEXT, // Album sort order
+    TSOP = TEXT, // Performer sort order
+    TSOT = TEXT, // Title sort order
+    TSRC = TEXT, // ISRC (international standard recording code)
+    TSSE = TEXT, // Software/Hardware and settings used for encoding
+    TYER = TEXT, // 2.3 only. Year
+    TSST = TEXT, // Software/Hardware and settings used for encoding
+    TXXX = TXXX, // User defined text information frame
+    UFID = UFID, // Unique file identifier
+    USER = USER, // Terms of use
+    USLT = USLT, // Unsychronized lyric/text transcription
+    WCOM = LINK, // Commercial information
+    WCOP = LINK, // Copyright/Legal information
+    WOAF = LINK, // Official audio file webpage
+    WOAR = LINK, // Official artist/performer webpage
+    WOAS = LINK, // Official audio source webpage
+    WORS = LINK, // Official internet radio station homepage
+    WPAY = LINK, // Payment
+    WPUB = LINK, // Publishers official webpage
+    WXXX = WXXX, // User defined URL link frame
+    OBJECT = OBJECT, // It only use to write a encrypted bytes directly
+);

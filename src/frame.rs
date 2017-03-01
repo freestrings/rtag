@@ -1448,7 +1448,7 @@ impl Look for TEXT {
             return;
         }
 
-        callback("text", String::new());
+        callback("text", self.text.clone());
     }
 }
 

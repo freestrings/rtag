@@ -5,7 +5,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rtag = "0.3.2"
+//! rtag = "0.3.3"
 //! ```
 //!
 //! and this to your crate root:

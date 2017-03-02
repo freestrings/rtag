@@ -214,12 +214,38 @@ macro_rules! frame_read {
             let encoding = $readable.read_u8()?;
             let _ = $readable.position(curr_pos)?;
 
+            fn decode(decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>) -> String {
+                match decode {
+                    Ok(text) => text,
+                    Err(e) => {
+                        debug!("Encoding error {:?}", e);
+                        "".to_string()
+                    }
+                }
+            }
+            
             match encoding {
-                // ISO88591, UTF8
-                0 | 3 => {
-                    $readable.read_non_utf16_string()?
-                },
-                _ => $readable.read_utf16_string()?
+                0 => {
+                    let data = $readable.read_non_utf16_bytes()?;
+                    decode(ISO_8859_1.decode(&data, DecoderTrap::Strict))
+                }
+                1 => {
+                    let mut data = $readable.read_utf16_bytes()?;
+                    data.push(0);
+                    decode(UTF_16LE.decode(&data[2..], DecoderTrap::Strict))
+                }
+                2 => {
+                    let data = $readable.read_utf16_bytes()?;
+                    decode(UTF_16BE.decode(&data, DecoderTrap::Strict))
+                }
+                3 => {
+                    let data = $readable.read_non_utf16_bytes()?;
+                    decode(UTF_8.decode(&data, DecoderTrap::Strict))
+                }
+                _ => {
+                    let data = $readable.read_non_utf16_bytes()?;
+                    decode(ISO_8859_1.decode(&data, DecoderTrap::Strict))
+                }
             }
         }
     };
@@ -985,7 +1011,7 @@ id3!(COMM {
     text_encoding: TextEncoding = -1,
     language: String = 3,
     short_description: EncodedString = -1,
-    actual_text: String = 0,
+    actual_text: EncodedString = -1,
 });
 
 ///
@@ -1255,7 +1281,7 @@ id3!(USLT {
 id3!(TXXX {
     text_encoding: TextEncoding = -1,
     description: EncodedString = -1,
-    value: String = 0,
+    value: EncodedString = -1,
 });
 
 ///

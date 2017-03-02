@@ -237,7 +237,7 @@ fn metadata_frame_body() {
               "eng::~~"]);
 
     test("./test-resources/v2.2.mp3",
-         vec!["Test v2.2.0", "Pudge", "2", "1998", "(37)", "eng::All Rights Reserved\u{0}"]);
+         vec!["Test v2.2.0", "Pudge", "2", "1998", "(37)", "eng::All Rights Reserved"]);
 }
 
 #[test]
@@ -892,8 +892,8 @@ fn metadata_unsync() {
               "Album",
               "Artist",
               "Title",
-              "replaygain_track_gain:+0.00 dB\u{0}",
-              "replaygain_track_peak:0.000715\u{0}"]);
+              "replaygain_track_gain:+0.00 dB",
+              "replaygain_track_peak:0.000715"]);
 }
 
 #[test]
@@ -960,7 +960,7 @@ fn metadata_writer() {
 
     assert_eq!(i.count(), 0);
 
-    let mut data = vec!["Test v2.2.0", "Pudge", "2", "(37)", "eng::All Rights Reserved\u{0}"];
+    let mut data = vec!["Test v2.2.0", "Pudge", "2", "(37)", "eng::All Rights Reserved"];
 
     for unit in MetadataReader::new(path).unwrap() {
         match unit {
@@ -1084,6 +1084,24 @@ fn frame_header_default() {
 
     assert_eq!("ABC".to_string(), header.id());
     assert_eq!(1, header.size());
+}
+
+#[test]
+fn frame_encoding() {
+    let mut iter = MetadataReader::new("./test-resources/230-comm.mp3")
+        .unwrap()
+        .filter(|unit| match unit {
+            &Unit::FrameV2(_, FrameBody::COMM(_)) => true,
+            _ => false,
+        });
+
+    let mut data = vec!["eng::IMA-Sound"];
+    match iter.next() {
+        Some(Unit::FrameV2(FrameHeader::V23(_), frame_body)) => compare_frame(frame_body, &mut data),
+        _ => assert!(false)
+    };
+
+    assert_eq!(0, data.len());
 }
 
 macro_rules! define_compare_frame {

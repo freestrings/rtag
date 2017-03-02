@@ -214,38 +214,33 @@ macro_rules! frame_read {
             let encoding = $readable.read_u8()?;
             let _ = $readable.position(curr_pos)?;
 
-            fn decode(decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>) -> String {
+            fn decode(data: &Vec<u8>, decode: ::std::result::Result<String, ::std::borrow::Cow<'static, str>>) -> String {
                 match decode {
                     Ok(text) => text,
                     Err(e) => {
-                        debug!("Encoding error {:?}", e);
+                        warn!("Encoding error {:?}, {:?}", e, data);
                         "".to_string()
                     }
                 }
             }
             
             match encoding {
-                0 => {
-                    let data = $readable.read_non_utf16_bytes()?;
-                    decode(ISO_8859_1.decode(&data, DecoderTrap::Strict))
-                }
                 1 => {
                     let mut data = $readable.read_utf16_bytes()?;
-                    data.push(0);
-                    decode(UTF_16LE.decode(&data[2..], DecoderTrap::Strict))
+
+                    if data.len() <=2 {
+                        "".to_string()
+                    } else {
+                        data.push(0);
+                        decode(&data, UTF_16LE.decode(&data[2..], DecoderTrap::Strict))
+                    }
+
                 }
                 2 => {
                     let data = $readable.read_utf16_bytes()?;
-                    decode(UTF_16BE.decode(&data, DecoderTrap::Strict))
+                    decode(&data, UTF_16BE.decode(&data, DecoderTrap::Strict))
                 }
-                3 => {
-                    let data = $readable.read_non_utf16_bytes()?;
-                    decode(UTF_8.decode(&data, DecoderTrap::Strict))
-                }
-                _ => {
-                    let data = $readable.read_non_utf16_bytes()?;
-                    decode(ISO_8859_1.decode(&data, DecoderTrap::Strict))
-                }
+                _ => $readable.read_non_utf16_string()?
             }
         }
     };

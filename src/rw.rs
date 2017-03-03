@@ -200,6 +200,13 @@ pub trait Readable: Read + Seek {
         Ok(ret as usize)
     }
 
+    fn position_end(&mut self, offset: isize) -> UnsignedIntResult {
+        let offset = offset as i64;
+        let ret = self.seek(SeekFrom::End(offset))?;
+
+        Ok(ret as usize)
+    }
+
     fn look_bytes(&mut self, amount: usize) -> BytesResult {
         let v = self.read_bytes(amount)?;
         let _ = self.skip_bytes((amount as isize) * -1)?;

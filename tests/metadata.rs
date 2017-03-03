@@ -971,6 +971,43 @@ fn metadata_writer() {
 
     assert_eq!(data.len(), 0);
 
+    let tmp_path = tmp_dir.path().join("240-w1.mp3");
+    let path = tmp_path.to_str().unwrap();
+
+    fs::copy("./test-resources/v1-v2.mp3", path).unwrap();
+
+    let _ = MetadataWriter::new(path)
+        .unwrap()
+        .write(vec![Unit::FrameV2(FrameHeader::V24(FrameHeaderV4 {
+                                      id: "TALB".to_string(),
+                                      size: 0,
+                                      status_flag: 0,
+                                      encoding_flag: 0,
+                                  }),
+                                  FrameBody::TALB(TEXT {
+                                      text_encoding: TextEncoding::UTF8,
+                                      text: "woo~".to_string(),
+                                  }))],
+               true);
+
+    let i = MetadataReader::new(path)
+        .unwrap()
+        .filter(|unit| match unit {
+            &Unit::FrameV1(_) => true,
+            _ => false,
+        });
+
+    assert_eq!(i.count(), 0);
+
+    let i = MetadataReader::new(path)
+        .unwrap()
+        .filter(|unit| match unit {
+            &Unit::FrameV2(_, _) => true,
+            _ => false,
+        });
+
+    assert_eq!(i.count(), 1);
+
 }
 
 #[test]
@@ -1037,7 +1074,7 @@ fn frame_to_map_test() {
 
     let frame_body = FrameBody::TIT2(TEXT {
         text_encoding: TextEncoding::ISO88591,
-        text: "text".to_string()
+        text: "text".to_string(),
     });
 
     let mut map = HashMap::new();
@@ -1064,7 +1101,7 @@ fn frame_scan_test() {
 
     let frame_body = FrameBody::TIT2(TEXT {
         text_encoding: TextEncoding::ISO88591,
-        text: "text".to_string()
+        text: "text".to_string(),
     });
 
     frame_body.inside(|key, value| {
@@ -1079,7 +1116,7 @@ fn frame_scan_test() {
 fn frame_header_default() {
     let header = FrameHeader::V22(FrameHeaderV2 {
         id: "ABC".to_string(),
-        size: 1
+        size: 1,
     });
 
     assert_eq!("ABC".to_string(), header.id());
@@ -1097,8 +1134,10 @@ fn frame_encoding() {
 
     let mut data = vec!["eng::IMA-Sound"];
     match iter.next() {
-        Some(Unit::FrameV2(FrameHeader::V23(_), frame_body)) => compare_frame(frame_body, &mut data),
-        _ => assert!(false)
+        Some(Unit::FrameV2(FrameHeader::V23(_), frame_body)) => {
+            compare_frame(frame_body, &mut data)
+        }
+        _ => assert!(false),
     };
 
     assert_eq!(0, data.len());
@@ -1159,19 +1198,19 @@ macro_rules! define_compare_frame {
             match frame_body {
 
                 FrameBody::COMM(_) => compare_frame(
-                                            FrameBody::COMM(COMM::read(readable, 0, "").unwrap()), 
+                                            FrameBody::COMM(COMM::read(readable, 0, "").unwrap()),
                                             data),
 
                 FrameBody::PIC(_) => compare_frame(
-                                            FrameBody::PIC(PIC::read(readable, 0, "").unwrap()), 
+                                            FrameBody::PIC(PIC::read(readable, 0, "").unwrap()),
                                             data),
 
                 FrameBody::APIC(_) => compare_frame(
-                                            FrameBody::APIC(APIC::read(readable, 0, "").unwrap()), 
+                                            FrameBody::APIC(APIC::read(readable, 0, "").unwrap()),
                                             data),
 
                 FrameBody::TXXX(_) => compare_frame(
-                                            FrameBody::TXXX(TXXX::read(readable, 0, "").unwrap()), 
+                                            FrameBody::TXXX(TXXX::read(readable, 0, "").unwrap()),
                                             data),
 
                 $( 

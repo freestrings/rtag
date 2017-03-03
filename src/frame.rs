@@ -821,15 +821,23 @@ pub struct Frame1 {
 }
 
 impl Frame1 {
+
+    fn trim_zero(bytes: &Vec<u8>) -> Vec<u8> {
+        let iter = bytes.iter().rev();
+        let mut r: Vec<u8> = iter.skip_while(|b| **b == 0 as u8).map(|b| *b).collect();
+        r.reverse();
+        r
+    }
+
     pub fn read(readable: &mut Readable) -> Result<Self> {
         // offset 3
-        let title = types::to_iso8859_1(&readable.read_bytes(30)?).trim().to_string();
+        let title = types::to_iso8859_1(&Self::trim_zero(&readable.read_bytes(30)?)).trim().to_string();
         // offset 33
-        let artist = types::to_iso8859_1(&readable.read_bytes(30)?).trim().to_string();
+        let artist = types::to_iso8859_1(&Self::trim_zero(&readable.read_bytes(30)?)).trim().to_string();
         // offset 63
-        let album = types::to_iso8859_1(&readable.read_bytes(30)?).trim().to_string();
+        let album = types::to_iso8859_1(&Self::trim_zero(&readable.read_bytes(30)?)).trim().to_string();
         // offset 93
-        let year = types::to_iso8859_1(&readable.read_bytes(4)?).trim().to_string();
+        let year = types::to_iso8859_1(&Self::trim_zero(&readable.read_bytes(4)?)).trim().to_string();
         // goto track marker offset
         readable.skip_bytes(28)?;
         // offset 125
@@ -842,9 +850,9 @@ impl Frame1 {
         readable.skip_bytes(-31)?;
 
         let (comment, track) = if track_marker != 0 {
-            (types::to_iso8859_1(&readable.read_bytes(30)?).trim().to_string(), String::new())
+            (types::to_iso8859_1(&Self::trim_zero(&readable.read_bytes(30)?)).trim().to_string(), String::new())
         } else {
-            (types::to_iso8859_1(&readable.read_bytes(28)?).trim().to_string(),
+            (types::to_iso8859_1(&Self::trim_zero(&readable.read_bytes(28)?)).trim().to_string(),
              if _track == 0 {
                  String::new()
              } else {
@@ -1735,15 +1743,17 @@ pub mod types {
     pub fn from_iso8859_1(v: &String, len: usize) -> Vec<u8> {
         use super::encoding::all::ISO_8859_1;
         use super::encoding::{Encoding, EncoderTrap};
-        let mut v = match ISO_8859_1.encode(&v, EncoderTrap::Strict) {
+        let v = match ISO_8859_1.encode(&v, EncoderTrap::Strict) {
             Ok(value) => value,
             _ => vec![0u8; len],
         };
 
-        for i in v.len()..len {
-            v[i] = 0;
-        }
-        v.to_vec()
+        let mut result = v.to_vec();
+        //
+        // fill remain with zero
+        //
+        result.resize(len, 0);
+        result
     }
 
     ///

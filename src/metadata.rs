@@ -92,6 +92,7 @@ pub trait ReadOp: Readable {
     /// read a version 1
     ///
     fn frame1(&mut self, file_len: usize) -> Result<Unit> {
+        debug!("read frame1");
 
         //
         // Version 1 is 128 byte length totally.
@@ -103,9 +104,9 @@ pub trait ReadOp: Readable {
         }
 
         //
-        // It is located in last of a file.
+        // Frame1 locate at last of a file.
         //
-        self.skip_bytes((file_len - 128) as isize)?;
+        self.position_end(- 128)?;
 
         //
         // The name of tag id is "TAG".
@@ -114,7 +115,7 @@ pub trait ReadOp: Readable {
             let _ = self.skip_bytes(-3);
 
             let err_msg = "Invalid frame1 id";
-            warn!("{}", err_msg);
+            warn!("{}: {:?}", err_msg, self.all_bytes());
             return Err(Error::new(ErrorKind::Other, err_msg));
         }
 
@@ -398,7 +399,7 @@ impl<'a> MetadataWriter<'a> {
         }
 
         let (has_frame1, head_len, all_bytes) = self.to_bytes(units)?;
-        let (orig_head_len, file_len) = self.metadata_length()?;
+        let (orig_head_len, file_len, orig_frame1_exist) = self.metadata_length()?;
 
         let mut writable = OpenOptions::new().read(true)
             .write(true)
@@ -406,20 +407,50 @@ impl<'a> MetadataWriter<'a> {
 
         let head_diff_len = orig_head_len as i32 - head_len as i32;
 
+        debug!("frame1: {}, head: {}, original head length: {}, original file len: {}, head \
+                diff: {}, frame1 exist: {}, clean write: {}",
+               has_frame1,
+               head_len,
+               orig_head_len,
+               file_len,
+               head_diff_len,
+               orig_frame1_exist,
+               clean_write);
+
         //
         // when new metadata size is shorter than original size.
         //
         if head_diff_len > 0 && file_len > head_diff_len as u64 {
+            debug!("Head unshift");
+
             writable.unshift(head_diff_len as usize)?;
 
-            let len = file_len - head_diff_len as u64;
+            let mut len = file_len - head_diff_len as u64;
+            if clean_write && orig_frame1_exist {
+                len = len - 128;
+            }
             OpenOptions::new().write(true).open(self.path)?.set_len(len)?;
         }
         //
         // when new metadata size is larger than original size.
         //
         else if head_diff_len < 0 && file_len > head_diff_len.abs() as u64 {
-            writable.shift(head_diff_len.abs() as usize)?;
+            debug!("Head shift");
+
+            let diff = head_diff_len.abs() as usize;
+            writable.shift(diff)?;
+
+            if clean_write && orig_frame1_exist {
+                let len = file_len + diff as u64 - 128 as u64;
+                OpenOptions::new().write(true).open(self.path)?.set_len(len)?;
+            }
+        }
+        //
+        // header size is same but clean option is true.
+        //
+        else if clean_write && orig_frame1_exist {
+            let len = file_len - 128 as u64;
+            OpenOptions::new().write(true).open(self.path)?.set_len(len)?;
         }
 
         let (head_bytes, frames) = all_bytes.split_at(head_len as usize);
@@ -432,32 +463,39 @@ impl<'a> MetadataWriter<'a> {
 
         writable.write(&head_bytes)?;
         writable.write(&frame_bytes)?;
-        writable.write(&frame1_bytes)?;
+
+        if !clean_write && has_frame1 {
+            writable.position_end(-128)?;
+            writable.write(&frame1_bytes)?;
+        }
 
         Ok(())
     }
 
     ///
-    /// @return tuple. (origin header size, origin file size)
+    /// @return tuple. (origin header size, origin file size, frame1 exist)
     ///
-    fn metadata_length(&self) -> Result<(u32, u64)> {
+    fn metadata_length(&self) -> Result<(u32, u64, bool)> {
 
         let i = MetadataReader::new(self.path)
             ?
             .filter(|m| match m {
                 &Unit::Header(_) => true,
+                &Unit::FrameV1(_) => true,
                 _ => false,
             })
             .map(|unit| match unit {
                 Unit::Header(head) => head.size,
+                Unit::FrameV1(_) => 128,
                 _ => 0,
             })
             .collect::<Vec<_>>();
 
         let header_length = if i.len() > 0 { i[0] } else { 0 };
+        let frame1_exist = if i.len() > 1 && i[1] == 128 { true } else { false };
         let file_len = File::open(self.path)?.metadata()?.len();
 
-        Ok((header_length, file_len))
+        Ok((header_length, file_len, frame1_exist))
     }
 
     ///

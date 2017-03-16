@@ -6,6 +6,8 @@ description = "Library for reading and writing a id3 metadata"
 repository = "https://github.com/freestrings/rtag"
 license = "MIT"
 keywords = ["library", "id3", "music", "mp3"]
+include = ["src/*.rs", "tests/*.rs", "Cargo.toml"]
+
 
 [dependencies]
 encoding = "0.2"

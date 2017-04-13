@@ -20,7 +20,7 @@ This can be used by adding `rtag` to your dependencies in your project's `Cargo.
 
 ```toml
 [dependencies]
-rtag = "0.3.4"
+rtag = "0.3.5"
 ```
 and this to your crate root:
 

@@ -830,6 +830,9 @@ impl Frame1 {
     }
 
     pub fn read(readable: &mut Readable) -> Result<Self> {
+
+        let _ = readable.read_bytes(3);
+
         // offset 3
         let title = types::to_iso8859_1(&Self::trim_zero(&readable.read_bytes(30)?)).trim().to_string();
         // offset 33

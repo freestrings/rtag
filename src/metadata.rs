@@ -33,11 +33,13 @@ pub enum Unit {
 //
 // Internal parsing state.
 //
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Status {
+    None,
     ExtendedHeader(Head),
     Frame(Head, FrameReadable),
     Frame1,
+    Error,
 }
 
 ///
@@ -106,20 +108,18 @@ pub trait ReadOp: Readable {
         //
         // Frame1 locate at last of a file.
         //
-        self.position_end(- 128)?;
-
+        self.position_end(-128)?;
+        
         //
         // The name of tag id is "TAG".
         //
-        if self.read_string(3)? != "TAG" {
-            let _ = self.skip_bytes(-3);
-
+        if self.look_string(3)? != "TAG" {
             let err_msg = "Invalid frame1 id";
             warn!("{}: {:?}", err_msg, self.all_bytes());
             return Err(Error::new(ErrorKind::Other, err_msg));
         }
 
-        Ok(Unit::FrameV1(Frame1::read(&mut self.to_readable(125)?)?))
+        Ok(Unit::FrameV1(Frame1::read(&mut self.to_readable(128)?)?))
     }
 
     ///
@@ -286,7 +286,7 @@ impl ReadOp for File {}
 /// Mp3 metadata reader.
 ///
 pub struct MetadataReader {
-    next: Option<Status>,
+    next: Status,
     file: File,
 }
 
@@ -297,7 +297,7 @@ impl MetadataReader {
     ///
     pub fn new(path: &str) -> Result<Self> {
         Ok(MetadataReader {
-            next: None,
+            next: Status::None,
             file: File::open(path)?,
         })
     }
@@ -311,19 +311,19 @@ impl MetadataReader {
             let head = head.clone();
 
             if head.has_flag(HeadFlag::ExtendedHeader) {
-                self.next = Some(Status::ExtendedHeader(head));
+                self.next = Status::ExtendedHeader(head);
                 return;
             }
 
             self.next = match self.file.frame_bytes(&head) {
-                Err(_) => None,
+                Err(_) => Status::Error,
                 Ok(readable) => {
                     let r = Rc::new(RefCell::new(Box::new(readable)));
-                    Some(Status::Frame(head, r))
+                    Status::Frame(head, r)
                 }
             };
         } else {
-            self.next = None;
+            self.next = Status::Error;
         }
     }
 
@@ -332,10 +332,10 @@ impl MetadataReader {
     //
     fn set_ext_head_next(&mut self, head: &Head) {
         self.next = match self.file.frame_bytes(&head) {
-            Err(_) => None,
+            Err(_) => Status::Error,
             Ok(readable) => {
                 let r = Rc::new(RefCell::new(Box::new(readable)));
-                Some(Status::Frame(head.clone(), r))
+                Status::Frame(head.clone(), r)
             }
         };
     }
@@ -364,9 +364,9 @@ impl MetadataReader {
         };
 
         if frame_exist {
-            self.next = Some(Status::Frame(head.clone(), ref_readable));
+            self.next = Status::Frame(head.clone(), ref_readable);
         } else {
-            self.next = Some(Status::Frame1);
+            self.next = Status::Frame1;
         }
     }
 }
@@ -492,7 +492,11 @@ impl<'a> MetadataWriter<'a> {
             .collect::<Vec<_>>();
 
         let header_length = if i.len() > 0 { i[0] } else { 0 };
-        let frame1_exist = if i.len() > 1 && i[1] == 128 { true } else { false };
+        let frame1_exist = if i.len() > 1 && i[1] == 128 {
+            true
+        } else {
+            false
+        };
         let file_len = File::open(self.path)?.metadata()?.len();
 
         Ok((header_length, file_len, frame1_exist))
@@ -908,19 +912,34 @@ impl Iterator for MetadataReader {
 
     fn next(&mut self) -> Option<Self::Item> {
 
-        let next = self.next.take();
-
-        if next.is_none() {
-            return match self.file.head() {
+        fn do_next_frame1(reader: &mut MetadataReader) -> Option<Unit> {
+            match reader.file.metadata() {
                 Err(_) => None,
-                Ok(header) => {
-                    self.set_head_next(&header);
-                    Some(header)
+                Ok(metadata) => {
+                    match reader.file.frame1(metadata.len() as usize) {
+                        Err(_) => None,
+                        Ok(frame1) => {
+                            reader.next = Status::Error;
+                            Some(frame1)
+                        }
+                    }
                 }
-            };
+            }
         }
 
-        match next.unwrap() {
+        let next = self.next.clone();
+
+        match next {
+            Status::None => {
+                match self.file.head() {
+                    Err(_) => do_next_frame1(self),
+                    Ok(header) => {
+                        self.set_head_next(&header);
+                        Some(header)
+                    }
+                }
+            }
+
             Status::ExtendedHeader(ref head) => {
                 match self.file.ext_head(head) {
                     Err(_) => None,
@@ -933,7 +952,7 @@ impl Iterator for MetadataReader {
 
             Status::Frame(ref head, ref readable) => {
                 match self.file.frame(head, readable.clone()) {
-                    Err(_) => None,
+                    Err(_) => do_next_frame1(self),
                     Ok(frame) => {
                         self.set_frame_next(head, readable.clone());
                         Some(frame)
@@ -941,20 +960,9 @@ impl Iterator for MetadataReader {
                 }
             }
 
-            Status::Frame1 => {
-                match self.file.metadata() {
-                    Err(_) => None,
-                    Ok(metadata) => {
-                        match self.file.frame1(metadata.len() as usize) {
-                            Err(_) => None,
-                            Ok(frame1) => {
-                                self.next = None;
-                                Some(frame1)
-                            }
-                        }
-                    }
-                }
-            }
+            Status::Frame1 => do_next_frame1(self),
+
+            Status::Error => None,
         }
 
     }

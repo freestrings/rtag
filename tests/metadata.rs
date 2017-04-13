@@ -57,7 +57,8 @@ fn metadata_v1() {
         }
     }
 
-    let id3v1_tag = concat!("TITLETITLETITLETITLETITLETITLE",
+    let id3v1_tag = concat!("TAG",
+                            "TITLETITLETITLETITLETITLETITLE",
                             "ARTISTARTISTARTISTARTISTARTIST",
                             "ALBUMALBUMALBUMALBUMALBUMALBUM",
                             "2017",
@@ -71,7 +72,8 @@ fn metadata_v1() {
     assert_eq!(frame.comment, "COMMENTCOMMENTCOMMENTCOMMENTCO");
     assert_eq!(frame.year, "2017");
 
-    let id3v1_tag = concat!("TITLE                         ",
+    let id3v1_tag = concat!("TAG",
+                            "TITLE                         ",
                             "ARTIST                        ",
                             "ALBUM                         ",
                             "2017",
@@ -1227,11 +1229,54 @@ macro_rules! define_compare_frame {
     )
 }
 
-define_compare_frame!(
-    TALB, TBPM, TCOM, TCON, TCOP, TDAT, TDEN, TDLY, TDOR, TDRC,
-    TDRL, TDTG, TENC, TEXT, TIME, TFLT, TIPL, TIT1, TIT2, TIT3,
-    TKEY, TLAN, TLEN, TMCL, TMED, TMOO, TOAL, TOFN, TOLY, TOPE,
-    TORY, TOWN, TPE1, TPE2, TPE3, TPE4, TPOS, TPRO, TPUB, TRCK,
-    TRDA, TRSN, TSIZ, TRSO, TSOA, TSOP, TSOT, TSRC, TSSE, TYER,
-    TSST
-);
+define_compare_frame!(TALB,
+                      TBPM,
+                      TCOM,
+                      TCON,
+                      TCOP,
+                      TDAT,
+                      TDEN,
+                      TDLY,
+                      TDOR,
+                      TDRC,
+                      TDRL,
+                      TDTG,
+                      TENC,
+                      TEXT,
+                      TIME,
+                      TFLT,
+                      TIPL,
+                      TIT1,
+                      TIT2,
+                      TIT3,
+                      TKEY,
+                      TLAN,
+                      TLEN,
+                      TMCL,
+                      TMED,
+                      TMOO,
+                      TOAL,
+                      TOFN,
+                      TOLY,
+                      TOPE,
+                      TORY,
+                      TOWN,
+                      TPE1,
+                      TPE2,
+                      TPE3,
+                      TPE4,
+                      TPOS,
+                      TPRO,
+                      TPUB,
+                      TRCK,
+                      TRDA,
+                      TRSN,
+                      TSIZ,
+                      TRSO,
+                      TSOA,
+                      TSOP,
+                      TSOT,
+                      TSRC,
+                      TSSE,
+                      TYER,
+                      TSST);

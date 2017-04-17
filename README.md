@@ -2,6 +2,8 @@
 
 To learn rust!
 
+- This library is used for console based `ID3 tagging` tool [Markdang](https://github.com/freestrings/markdang).
+
 # Usage
 
 This is `ID3` read and write library.
